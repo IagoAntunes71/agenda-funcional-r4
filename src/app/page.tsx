@@ -1,7 +1,5 @@
 import FluxoAgendamento from '@/components/agendamento/FluxoAgendamento';
 
-export const dynamic = 'force-dynamic';
-
 export default function HomePage() {
   return (
       <main className="min-h-dvh bg-slate-950 text-slate-100 py-6 sm:py-10 px-4">

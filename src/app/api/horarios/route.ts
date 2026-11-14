@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { SlotHorario } from '@/types/agenda';
 
-export const dynamic = 'force-dynamic';
 
 function horaParaMinutos(hora: string): number {
     const [h, m] = hora.split(':').map(Number);
