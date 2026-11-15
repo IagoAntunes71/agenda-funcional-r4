@@ -143,20 +143,29 @@ async function realizarLogin(
     console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
 }
 
-function extrairUuidsDePayloadTexto(
-    texto: string,
-    idsUnidadesIgnorar: Set<string>,
-    destino: Set<string>
-) {
-    const regexContextual =
-        /(?:\\?"(?:id|professionalId|profissionalId|userId)\\?"\s*:\s*\\?"|\/profissionais\/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
-    let match: RegExpExecArray | null;
-    while ((match = regexContextual.exec(texto)) !== null) {
-        const uuid = match[1].toLowerCase();
-        if (!idsUnidadesIgnorar.has(uuid)) {
-            destino.add(uuid);
+function extrairParesIdNomeDeTexto(texto: string): Map<string, string> {
+    const pares = new Map<string, string>();
+    const textoDesescapado = texto.replace(/\\"/g, '"');
+
+    // Padrão 1: "id":"uuid" seguido de "nome":"..." ou "name":"..."
+    const regexIdAntes =
+        /"id"\s*:\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"[^{}]{0,250}?"(?:nome|name|fullName|full_name)"\s*:\s*"([^"]{2,80})"/gi;
+    let m: RegExpExecArray | null;
+    while ((m = regexIdAntes.exec(textoDesescapado)) !== null) {
+        pares.set(m[1].toLowerCase(), m[2].trim());
+    }
+
+    // Padrão 2: "nome":"..." seguido de "id":"uuid"
+    const regexNomeAntes =
+        /"(?:nome|name|fullName|full_name)"\s*:\s*"([^"]{2,80})"[^{}]{0,250}?"id"\s*:\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/gi;
+    while ((m = regexNomeAntes.exec(textoDesescapado)) !== null) {
+        const uuid = m[2].toLowerCase();
+        if (!pares.has(uuid)) {
+            pares.set(uuid, m[1].trim());
         }
     }
+
+    return pares;
 }
 
 async function descobrirTodosProfissionais(
@@ -172,12 +181,11 @@ async function descobrirTodosProfissionais(
     const idsUnidadesIgnorar = new Set(
         unidades.map((u) => u.clin_care_id.toLowerCase())
     );
-    const idsEncontrados = new Set<string>();
-    const endpointsVistos: string[] = [];
+    const profissionaisEncontrados = new Map<string, string>();
+    const paresPayloadGlobal = new Map<string, string>();
 
     const listener = async (res: import('playwright').Response) => {
         try {
-            const url = res.url();
             const ct = res.headers()['content-type'] || '';
             if (
                 res.status() === 200 &&
@@ -186,23 +194,21 @@ async function descobrirTodosProfissionais(
                     ct.includes('text/plain') ||
                     ct.includes('text/html'))
             ) {
-                if (!url.includes('/api/auth/session') && !url.includes('/_next/static/')) {
-                    endpointsVistos.push(`${res.request().method()} ${url} (${ct.split(';')[0]})`);
-                }
                 const corpo = await res.text();
-                extrairUuidsDePayloadTexto(corpo, idsUnidadesIgnorar, idsEncontrados);
+                for (const [uuid, nome] of extrairParesIdNomeDeTexto(corpo)) {
+                    paresPayloadGlobal.set(uuid, nome);
+                }
             }
         } catch {
-            // Ignora respostas binárias ou fechadas
+            // Ignora respostas fechadas
         }
     };
 
     page.on('response', listener);
-
     await page.goto(urlLista, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => null);
     await page.waitForTimeout(3000);
 
-    // Tenta aumentar o número de itens por página se houver seletor (ex: 50 ou 100)
+    // Tenta selecionar 100 ou 50 itens por página, se disponível
     const selectPagina = page
         .locator('select:has(option[value="50"]), select:has(option[value="100"])')
         .first();
@@ -212,37 +218,77 @@ async function descobrirTodosProfissionais(
         await page.waitForTimeout(2500);
     }
 
-    for (let pagina = 1; pagina <= 30; pagina++) {
+    for (let pagina = 1; pagina <= 20; pagina++) {
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.waitForTimeout(1000);
 
         const htmlAtual = await page.content();
-        extrairUuidsDePayloadTexto(htmlAtual, idsUnidadesIgnorar, idsEncontrados);
+        for (const [uuid, nome] of extrairParesIdNomeDeTexto(htmlAtual)) {
+            paresPayloadGlobal.set(uuid, nome);
+        }
 
-        const linksDom = await page.evaluate(() => {
-            const encontrados: string[] = [];
-            document.querySelectorAll('[href], [data-id], [id]').forEach((el) => {
-                const href = el.getAttribute('href') || '';
-                const dataId = el.getAttribute('data-id') || '';
-                const idAttr = el.getAttribute('id') || '';
-                encontrados.push(href, dataId, idAttr);
-            });
-            return encontrados.join(' ');
+        // Coleta apenas os textos e links visíveis dentro da área principal (<main>) de /painel/profissionais
+        const dadosVisiveisMain = await page.evaluate(() => {
+            const main = document.querySelector('main') || document.body;
+            const linksProf = Array.from(main.querySelectorAll('a[href*="/profissionais/"]'))
+                .map((a) => a.getAttribute('href') || '')
+                .filter(Boolean);
+
+            const textosLinhas = Array.from(
+                main.querySelectorAll('tr, [role="row"], tbody td, li, h2, h3, span, p')
+            )
+                .map((el) => (el as HTMLElement).innerText?.trim() || '')
+                .filter((t) => t.length >= 3 && t.length <= 90);
+
+            return {
+                linksProf,
+                textosLinhas: Array.from(new Set(textosLinhas)),
+            };
         });
-        extrairUuidsDePayloadTexto(linksDom, idsUnidadesIgnorar, idsEncontrados);
 
-        const tamanhoAntes = idsEncontrados.size;
+        // 1. Links diretos /profissionais/{uuid} dentro de <main>
+        for (const href of dadosVisiveisMain.linksProf) {
+            const m = href.match(
+                /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+            );
+            if (m) {
+                const uuid = m[0].toLowerCase();
+                if (!idsUnidadesIgnorar.has(uuid)) {
+                    profissionaisEncontrados.set(
+                        uuid,
+                        paresPayloadGlobal.get(uuid) || 'Profissional'
+                    );
+                }
+            }
+        }
+
+        // 2. Cruza (uuid, nome) do payload APENAS com os nomes realmente visíveis dentro de <main>
+        const textosVisiveisSet = new Set(
+            dadosVisiveisMain.textosLinhas.map((t) => t.toLowerCase())
+        );
+
+        for (const [uuid, nome] of paresPayloadGlobal.entries()) {
+            if (idsUnidadesIgnorar.has(uuid)) continue;
+            // Ignora registros com padrão de aluno (ex: "Fulano - 8 ano - Escola")
+            if (/\s-\s*\d+[º°]?\s*(ano|semestre|s[eé]rie)/i.test(nome)) continue;
+
+            if (textosVisiveisSet.has(nome.toLowerCase())) {
+                profissionaisEncontrados.set(uuid, nome);
+            }
+        }
+
+        const tamanhoAntes = profissionaisEncontrados.size;
 
         const botaoProxima = page
             .locator(
-                'button:has-text("Próxima"):not([disabled]), button:has-text("Próximo"):not([disabled]), button[aria-label*="next" i]:not([disabled]), button[aria-label*="próxim" i]:not([disabled]), a:has-text("Próxima"), a:has-text("›"), button:has-text("›"):not([disabled])'
+                'main button:has-text("Próxima"):not([disabled]), main button:has-text("Próximo"):not([disabled]), main button[aria-label*="next" i]:not([disabled]), main button[aria-label*="próxim" i]:not([disabled]), main a:has-text("Próxima"), main button:has-text("›"):not([disabled])'
             )
             .first();
 
         if (await botaoProxima.isVisible({ timeout: 1500 }).catch(() => false)) {
             await botaoProxima.click();
             await page.waitForTimeout(2500);
-            if (idsEncontrados.size === tamanhoAntes && pagina > 2) break;
+            if (profissionaisEncontrados.size === tamanhoAntes && pagina > 2) break;
         } else {
             break;
         }
@@ -250,25 +296,37 @@ async function descobrirTodosProfissionais(
 
     page.off('response', listener);
 
-    console.log(`[DISCOVERY] Total de IDs encontrados: ${idsEncontrados.size}`);
-    if (idsEncontrados.size === 0) {
-        const amostra = await page.evaluate(() =>
-            (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 300)
-        );
+    console.log(
+        `[DISCOVERY] Total de profissionais encontrados: ${profissionaisEncontrados.size}`
+    );
+    if (profissionaisEncontrados.size > 0) {
         console.log(
-            `[DISCOVERY][DEBUG] Endpoints vistos: ${endpointsVistos.slice(0, 8).join(' | ') || 'nenhum'}`
+            `[DISCOVERY] Amostra: ${Array.from(profissionaisEncontrados.values())
+                .slice(0, 10)
+                .join(', ')}`
         );
-        console.log(`[DISCOVERY][DEBUG] Texto da tela: ${amostra}`);
     }
 
-    for (const uuid of idsEncontrados) {
+    for (const [uuid, nomePrevio] of profissionaisEncontrados.entries()) {
         await sql`
-      INSERT INTO importacao_profissionais_clincare (clin_care_id, status, mensagem, atualizado_em)
-      VALUES (${uuid}, 'pendente', 'Descoberto via /painel/profissionais', now())
+      INSERT INTO importacao_profissionais_clincare (
+        clin_care_id,
+        nome_detectado,
+        status,
+        mensagem,
+        atualizado_em
+      )
+      VALUES (
+        ${uuid},
+        ${limparNomeExibicao(nomePrevio)},
+        'pendente',
+        'Descoberto via /painel/profissionais',
+        now()
+      )
       ON CONFLICT (clin_care_id)
       DO UPDATE SET
         status = 'pendente',
-        mensagem = 'Atualizado via varredura completa',
+        mensagem = 'Atualizado via varredura de profissionais',
         atualizado_em = now()
     `;
     }
@@ -276,7 +334,7 @@ async function descobrirTodosProfissionais(
     await sql`
     UPDATE importacao_profissionais_clincare
     SET status = 'importado',
-        mensagem = ${`${idsEncontrados.size} profissional(is) enfileirado(s)`},
+        mensagem = ${`${profissionaisEncontrados.size} profissional(is) enfileirado(s)`},
         atualizado_em = now()
     WHERE id = ${itemControleId}
   `;
@@ -372,15 +430,11 @@ async function extrairUnidadesEMateriasDaTela(
             }
         }
 
-        const abasDisponiveis = Array.from(raiz.querySelectorAll('[role="tab"], button, a'))
-            .map((el) => (el.textContent || '').trim())
-            .filter((t) => t.length >= 3 && t.length <= 35);
-
         return {
             nomeBruto,
             unidades: Array.from(unidadesEncontradas),
             materias: Array.from(materiasSet),
-            abasDisponiveis: Array.from(new Set(abasDisponiveis)).slice(0, 15),
+            textoMain: (raiz as HTMLElement).innerText?.replace(/\s+/g, ' ').slice(0, 350) || '',
         };
     }, nomesUnidades);
 }
@@ -436,7 +490,7 @@ async function importarProfessoresPendentes(
         norm: normalizarTexto(u.nome),
     }));
 
-    let logouDiagnosticoPerfil = false;
+    let logouAmostraFicha = false;
 
     for (const item of pendentes) {
         const urlPerfil = `${baseUrl}/painel/profissionais/${item.clin_care_id}`;
@@ -446,37 +500,37 @@ async function importarProfessoresPendentes(
             await page
                 .goto(urlPerfil, { waitUntil: 'networkidle', timeout: 45000 })
                 .catch(() => null);
-            await page.waitForTimeout(2500);
+            await page.waitForTimeout(2000);
 
             const dadosIniciais = await extrairUnidadesEMateriasDaTela(page, nomesUnidades);
             const unidadesEncontradas = new Set<string>(dadosIniciais.unidades);
             const materiasEncontradas = new Set<string>(dadosIniciais.materias);
 
-            for (const termoAba of ['Unidades', 'Especialidades', 'Serviços', 'Matérias']) {
-                const aba = page
-                    .locator(
-                        `main [role="tab"]:has-text("${termoAba}"), main button:has-text("${termoAba}"), main a:has-text("${termoAba}")`
-                    )
-                    .first();
-
-                if (await aba.isVisible({ timeout: 800 }).catch(() => false)) {
-                    await aba.click().catch(() => null);
-                    await page.waitForTimeout(1200);
-                    const dadosAba = await extrairUnidadesEMateriasDaTela(page, nomesUnidades);
-                    for (const u of dadosAba.unidades) unidadesEncontradas.add(u);
-                    for (const m of dadosAba.materias) materiasEncontradas.add(m);
+            // Extrai também vínculos do próprio registro no HTML/RSC da ficha
+            const htmlFicha = (await page.content()).replace(/\\"/g, '"');
+            const idxId = htmlFicha.toLowerCase().indexOf(item.clin_care_id.toLowerCase());
+            if (idxId !== -1) {
+                const trechoRegistro = htmlFicha.slice(
+                    Math.max(0, idxId - 400),
+                    Math.min(htmlFicha.length, idxId + 2500)
+                );
+                for (const u of nomesUnidades) {
+                    if (
+                        trechoRegistro.toLowerCase().includes(u.clinCareId) ||
+                        trechoRegistro.toLowerCase().includes(`"${u.norm}"`)
+                    ) {
+                        unidadesEncontradas.add(u.nome);
+                    }
                 }
             }
 
             if (
-                !logouDiagnosticoPerfil &&
+                !logouAmostraFicha &&
                 unidadesEncontradas.size === 0 &&
                 materiasEncontradas.size === 0
             ) {
-                logouDiagnosticoPerfil = true;
-                console.log(
-                    `[IMPORT][DEBUG] Botões/abas na ficha de ${dadosIniciais.nomeBruto}: ${dadosIniciais.abasDisponiveis.join(' | ')}`
-                );
+                logouAmostraFicha = true;
+                console.log(`[IMPORT][DEBUG] Conteúdo da ficha: ${dadosIniciais.textoMain}`);
             }
 
             const nomeLimpo = limparNomeExibicao(dadosIniciais.nomeBruto);
