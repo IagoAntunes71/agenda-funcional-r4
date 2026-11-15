@@ -2,13 +2,13 @@ name: Sincronizar Mapa de Agenda clin.care
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
   sincronizar:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
       - name: Baixar código do repositório
@@ -18,13 +18,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Instalar dependências
         run: npm ci
 
-      - name: Instalar navegador Chromium do Playwright
-        run: npx playwright install --with-deps chromium
+      - name: Instalar navegador Chromium (Playwright)
+        run: npx playwright install chromium --with-deps
 
       - name: Executar leitura do Mapa de Agenda
         env:
