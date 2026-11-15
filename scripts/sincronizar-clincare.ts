@@ -75,7 +75,6 @@ function limparNomeExibicao(bruto: string): string {
 }
 
 async function ajustarRestricaoBanco(sql: NeonQueryFunction<false, false>) {
-    // Permite que o mesmo professor (mesmo clin_care_id) atenda em múltiplas unidades
     await sql`
     ALTER TABLE professores
     DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
@@ -144,102 +143,117 @@ async function realizarLogin(
     console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
 }
 
+function extrairUuidsDePayloadTexto(
+    texto: string,
+    idsUnidadesIgnorar: Set<string>,
+    destino: Set<string>
+) {
+    // Captura UUIDs associados a chaves de identificação ou rotas de profissionais
+    const regexContextual =
+        /(?:"(?:id|professionalId|profissionalId|userId)"\s*:\s*"|\/profissionais\/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
+    let match: RegExpExecArray | null;
+    while ((match = regexContextual.exec(texto)) !== null) {
+        const uuid = match[1].toLowerCase();
+        if (!idsUnidadesIgnorar.has(uuid)) {
+            destino.add(uuid);
+        }
+    }
+}
+
 async function descobrirTodosProfissionais(
     sql: NeonQueryFunction<false, false>,
     page: Page,
     baseUrl: string,
+    unidades: UnidadeRow[],
     itemControleId: number
 ) {
     const urlLista = `${baseUrl}/painel/profissionais`;
     console.log(`[DISCOVERY] Varrendo lista de profissionais em ${urlLista}...`);
 
+    const idsUnidadesIgnorar = new Set(
+        unidades.map((u) => u.clin_care_id.toLowerCase())
+    );
     const idsEncontrados = new Set<string>();
-    const urlsApiVistas: string[] = [];
-    const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-    const extrairDeJson = (valor: unknown, urlOrigem: string) => {
-        if (!valor) return;
-        if (Array.isArray(valor)) {
-            for (const item of valor) extrairDeJson(item, urlOrigem);
-            return;
-        }
-        if (typeof valor === 'object') {
-            const obj = valor as Record<string, unknown>;
-            const ehEndpointProf = /(profission|user|colaborador|equipe|staff|member)/i.test(
-                urlOrigem
-            );
-
-            if (ehEndpointProf && typeof obj.id === 'string' && uuidRegex.test(obj.id)) {
-                const temIdentificadorPessoa =
-                    typeof obj.nome === 'string' ||
-                    typeof obj.name === 'string' ||
-                    typeof obj.full_name === 'string' ||
-                    typeof obj.fullName === 'string' ||
-                    typeof obj.email === 'string' ||
-                    typeof obj.user === 'object';
-
-                if (temIdentificadorPessoa) {
-                    idsEncontrados.add(obj.id.toLowerCase());
-                }
-            }
-
-            for (const val of Object.values(obj)) {
-                if (typeof val === 'object' && val !== null) {
-                    extrairDeJson(val, urlOrigem);
-                }
-            }
-        }
-    };
+    const endpointsVistos: string[] = [];
 
     const listener = async (res: import('playwright').Response) => {
         try {
             const url = res.url();
             const ct = res.headers()['content-type'] || '';
-            if (res.status() === 200 && ct.includes('application/json')) {
-                urlsApiVistas.push(url);
-                const json = await res.json();
-                extrairDeJson(json, url);
+            if (
+                res.status() === 200 &&
+                (ct.includes('application/json') ||
+                    ct.includes('text/x-component') ||
+                    ct.includes('text/plain'))
+            ) {
+                if (!url.includes('/api/auth/session')) {
+                    endpointsVistos.push(`${res.request().method()} ${url} (${ct.split(';')[0]})`);
+                }
+                const corpo = await res.text();
+                extrairUuidsDePayloadTexto(corpo, idsUnidadesIgnorar, idsEncontrados);
             }
         } catch {
-            // Ignora JSON inválido
+            // Ignora respostas binárias ou fechadas
         }
     };
 
     page.on('response', listener);
-    await page.goto(urlLista, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => null);
-    await page.waitForTimeout(3000);
 
-    for (let pagina = 1; pagina <= 25; pagina++) {
-        // Rola até o final da página para carregar listas virtuais / lazy loading
+    // Abre a partir do /painel clicando no cartão "Profissionais" se visível, garantindo montagem SPA
+    await page.goto(`${baseUrl}/painel`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
+    await page.waitForTimeout(1500);
+
+    const cardProf = page
+        .locator('a[aria-label="Profissionais"], a[href="/painel/profissionais"]')
+        .first();
+
+    if (await cardProf.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await cardProf.click();
+        await page.waitForTimeout(3000);
+    } else {
+        await page.goto(urlLista, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => null);
+        await page.waitForTimeout(3000);
+    }
+
+    // Tenta aumentar o número de itens por página se houver seletor (ex: 50 ou 100)
+    const selectPagina = page.locator('select:has(option[value="50"]), select:has(option[value="100"])').first();
+    if (await selectPagina.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const tem100 = await selectPagina.locator('option[value="100"]').count();
+        await selectPagina.selectOption(tem100 > 0 ? '100' : '50').catch(() => null);
+        await page.waitForTimeout(2500);
+    }
+
+    for (let pagina = 1; pagina <= 30; pagina++) {
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.waitForTimeout(1000);
 
-        const linksPagina = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('a[href]'))
-                .map((a) => a.getAttribute('href') || '')
-                .filter((h) => h.includes('/profissionais/'));
+        // Extrai UUIDs tanto do HTML/scripts Next.js (__next_f) quanto de links/atributos no DOM
+        const htmlAtual = await page.content();
+        extrairUuidsDePayloadTexto(htmlAtual, idsUnidadesIgnorar, idsEncontrados);
+
+        const linksDom = await page.evaluate(() => {
+            const encontrados: string[] = [];
+            document.querySelectorAll('[href], [data-id], [id]').forEach((el) => {
+                const href = el.getAttribute('href') || '';
+                const dataId = el.getAttribute('data-id') || '';
+                const idAttr = el.getAttribute('id') || '';
+                encontrados.push(href, dataId, idAttr);
+            });
+            return encontrados.join(' ');
         });
+        extrairUuidsDePayloadTexto(linksDom, idsUnidadesIgnorar, idsEncontrados);
 
         const tamanhoAntes = idsEncontrados.size;
-        for (const href of linksPagina) {
-            const match = href.match(
-                /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
-            );
-            if (match) {
-                idsEncontrados.add(match[0].toLowerCase());
-            }
-        }
 
         const botaoProxima = page
             .locator(
-                'button:has-text("Próxima"):not([disabled]), button:has-text("Próximo"):not([disabled]), button[aria-label*="next" i]:not([disabled]), button[aria-label*="próxim" i]:not([disabled]), a:has-text("Próxima")'
+                'button:has-text("Próxima"):not([disabled]), button:has-text("Próximo"):not([disabled]), button[aria-label*="next" i]:not([disabled]), button[aria-label*="próxim" i]:not([disabled]), a:has-text("Próxima"), a:has-text("›"), button:has-text("›"):not([disabled])'
             )
             .first();
 
         if (await botaoProxima.isVisible({ timeout: 1500 }).catch(() => false)) {
             await botaoProxima.click();
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(2500);
             if (idsEncontrados.size === tamanhoAntes && pagina > 2) break;
         } else {
             break;
@@ -249,12 +263,12 @@ async function descobrirTodosProfissionais(
     page.off('response', listener);
 
     console.log(`[DISCOVERY] Total de IDs encontrados: ${idsEncontrados.size}`);
-    if (idsEncontrados.size <= 1) {
-        console.log(
-            `[DISCOVERY][DEBUG] Endpoints JSON vistos: ${
-                urlsApiVistas.slice(0, 8).join(' | ') || 'nenhum'
-            }`
+    if (idsEncontrados.size === 0) {
+        const amostra = await page.evaluate(() =>
+            (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 280)
         );
+        console.log(`[DISCOVERY][DEBUG] Endpoints vistos: ${endpointsVistos.slice(0, 6).join(' | ') || 'nenhum'}`);
+        console.log(`[DISCOVERY][DEBUG] Texto da tela: ${amostra}`);
     }
 
     for (const uuid of idsEncontrados) {
@@ -269,16 +283,6 @@ async function descobrirTodosProfissionais(
     `;
     }
 
-    // Reenfileira itens anteriores que haviam dado erro
-    await sql`
-    UPDATE importacao_profissionais_clincare
-    SET status = 'pendente',
-        mensagem = 'Reenfileirado após ajuste de índice multi-unidade',
-        atualizado_em = now()
-    WHERE clin_care_id <> '__TODOS__'
-      AND status = 'erro'
-  `;
-
     await sql`
     UPDATE importacao_profissionais_clincare
     SET status = 'importado',
@@ -286,6 +290,118 @@ async function descobrirTodosProfissionais(
         atualizado_em = now()
     WHERE id = ${itemControleId}
   `;
+}
+
+async function extrairUnidadesEMateriasDaTela(
+    page: Page,
+    nomesUnidades: { id: number; nome: string; clinCareId: string; norm: string }[]
+) {
+    return await page.evaluate((listaUnidades) => {
+        const raiz = document.querySelector('main') || document.body;
+
+        // 1. Nome do profissional
+        const inputNome = raiz.querySelector(
+            'input[name*="nome" i], input[name*="name" i], input[placeholder*="nome" i]'
+        ) as HTMLInputElement | null;
+
+        const heading = Array.from(raiz.querySelectorAll('h1, h2, h3'))
+            .map((el) => (el.textContent || '').trim())
+            .find(
+                (t) =>
+                    t.length >= 3 &&
+                    t.length <= 70 &&
+                    !/^(profissionais|editar|dados|unidades|especialidades|servi[cç]os|r4 ensina|agenda|hor[aá]rios)$/i.test(
+                        t
+                    )
+            );
+
+        const nomeBruto = (inputNome?.value || heading || '').trim();
+
+        // 2. Unidades vinculadas dentro de <main> (ignora navbar/header)
+        const unidadesEncontradas = new Set<string>();
+
+        // Verifica checkboxes/switches marcados ou linhas de tabela/cartões na seção de unidades
+        const checkboxesMarcados = Array.from(
+            raiz.querySelectorAll(
+                'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], [role="switch"][aria-checked="true"]'
+            )
+        );
+        for (const cb of checkboxesMarcados) {
+            const container =
+                cb.closest('label, tr, li, div') || cb.parentElement;
+            const texto = (container as HTMLElement)?.innerText || '';
+            for (const u of listaUnidades) {
+                if (texto.toLowerCase().includes(u.norm)) {
+                    unidadesEncontradas.add(u.nome);
+                }
+            }
+        }
+
+        // Caso as unidades apareçam como badges, chips, linhas de tabela ou texto em seção/aba "Unidades"
+        if (unidadesEncontradas.size === 0) {
+            const secoes = Array.from(raiz.querySelectorAll('section, div, table, ul'));
+            for (const sec of secoes) {
+                const cabecalho = sec.querySelector('h2, h3, h4, th, legend, label');
+                const tit = (cabecalho?.textContent || '').trim();
+                if (/unidade/i.test(tit)) {
+                    const textoSecao = (sec as HTMLElement).innerText || '';
+                    for (const u of listaUnidades) {
+                        if (textoSecao.toLowerCase().includes(u.norm)) {
+                            unidadesEncontradas.add(u.nome);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Matérias / Especialidades / Serviços vinculados dentro de <main>
+        const materiasSet = new Set<string>();
+        const blocos = Array.from(raiz.querySelectorAll('section, div, fieldset, table'));
+        for (const bloco of blocos) {
+            const cabecalho = bloco.querySelector('h2, h3, h4, label, legend, th');
+            const tituloTxt = (cabecalho?.textContent || '').trim();
+            if (/(especialidade|mat[eé]ria|disciplina|servi[cç]o)/i.test(tituloTxt)) {
+                const itens = Array.from(
+                    bloco.querySelectorAll(
+                        'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], option:checked, td, li, span[class*="badge" i], span[class*="tag" i], span[class*="chip" i]'
+                    )
+                );
+                for (const el of itens) {
+                    const val =
+                        el.tagName === 'INPUT'
+                            ? (
+                                el.closest('label, tr, li')?.textContent ||
+                                el.parentElement?.textContent ||
+                                ''
+                            ).trim()
+                            : (el.textContent || '').trim();
+
+                    if (
+                        val.length >= 3 &&
+                        val.length <= 45 &&
+                        !/(especialidade|mat[eé]ria|disciplina|servi[cç]o|selecione|adicionar|buscar|ativo|inativo|a[cç][oõ]es)/i.test(
+                            val
+                        )
+                    ) {
+                        materiasSet.add(val);
+                    }
+                }
+            }
+        }
+
+        const abasDisponiveis = Array.from(
+            raiz.querySelectorAll('[role="tab"], button, a')
+        )
+            .map((el) => (el.textContent || '').trim())
+            .filter((t) => t.length >= 3 && t.length <= 35);
+
+        return {
+            nomeBruto,
+            unidades: Array.from(unidadesEncontradas),
+            materias: Array.from(materiasSet),
+            abasDisponiveis: Array.from(new Set(abasDisponiveis)).slice(0, 15),
+        };
+    }, nomesUnidades);
 }
 
 async function importarProfessoresPendentes(
@@ -303,7 +419,13 @@ async function importarProfessoresPendentes(
   `) as { id: number }[];
 
     if (marcadorTodos.length > 0) {
-        await descobrirTodosProfissionais(sql, page, baseUrl, marcadorTodos[0].id);
+        await descobrirTodosProfissionais(
+            sql,
+            page,
+            baseUrl,
+            unidades,
+            marcadorTodos[0].id
+        );
     }
 
     const todosFila = (await sql`
@@ -333,175 +455,49 @@ async function importarProfessoresPendentes(
         norm: normalizarTexto(u.nome),
     }));
 
+    let logouDiagnosticoPerfil = false;
+
     for (const item of pendentes) {
         const urlPerfil = `${baseUrl}/painel/profissionais/${item.clin_care_id}`;
         console.log(`[IMPORT] Abrindo perfil ${urlPerfil}...`);
 
         try {
-            const payloadsJson: { url: string; data: unknown }[] = [];
-            const listenerJson = async (res: import('playwright').Response) => {
-                try {
-                    const ct = res.headers()['content-type'] || '';
-                    if (res.status() === 200 && ct.includes('application/json')) {
-                        const json = await res.json();
-                        payloadsJson.push({ url: res.url(), data: json });
-                    }
-                } catch {
-                    // Ignora respostas não JSON
-                }
-            };
-
-            page.on('response', listenerJson);
             await page
                 .goto(urlPerfil, { waitUntil: 'networkidle', timeout: 45000 })
                 .catch(() => null);
-            await page.waitForTimeout(3000);
-            page.off('response', listenerJson);
+            await page.waitForTimeout(2500);
 
-            const dadosPerfil = await page.evaluate((listaUnidades) => {
-                const inputNome = document.querySelector(
-                    'input[name*="nome" i], input[name*="name" i], input[placeholder*="nome" i]'
-                ) as HTMLInputElement | null;
+            const dadosIniciais = await extrairUnidadesEMateriasDaTela(page, nomesUnidades);
+            const unidadesEncontradas = new Set<string>(dadosIniciais.unidades);
+            const materiasEncontradas = new Set<string>(dadosIniciais.materias);
 
-                const heading = Array.from(document.querySelectorAll('h1, h2, h3'))
-                    .map((el) => (el.textContent || '').trim())
-                    .find(
-                        (t) =>
-                            t.length >= 3 &&
-                            t.length <= 70 &&
-                            !/^(profissionais|editar|dados|unidades|especialidades|servi[cç]os|r4 ensina)$/i.test(
-                                t
-                            )
-                    );
+            // Se existir aba "Unidades" ou "Especialidades"/"Serviços", clica para carregar
+            for (const termoAba of ['Unidades', 'Especialidades', 'Serviços', 'Matérias']) {
+                const aba = page
+                    .locator(`main [role="tab"]:has-text("${termoAba}"), main button:has-text("${termoAba}"), main a:has-text("${termoAba}")`)
+                    .first();
 
-                const nomeBruto = (inputNome?.value || heading || '').trim();
-
-                // Verifica checkboxes marcados ou switches ativos com nome da unidade
-                const unidadesEncontradas = new Set<string>();
-                const checkboxesMarcados = Array.from(
-                    document.querySelectorAll(
-                        'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], [role="switch"][aria-checked="true"]'
-                    )
-                );
-                for (const cb of checkboxesMarcados) {
-                    const container =
-                        cb.closest('label') || cb.parentElement?.parentElement || cb.parentElement;
-                    const label = (container as HTMLElement)?.innerText || '';
-                    for (const u of listaUnidades) {
-                        if (label.toLowerCase().includes(u.norm)) {
-                            unidadesEncontradas.add(u.nome);
-                        }
-                    }
-                }
-
-                // Extrai matérias/especialidades apenas de itens selecionados/marcados
-                const materiasSet = new Set<string>();
-                const secoes = Array.from(document.querySelectorAll('section, div, fieldset'));
-                for (const sec of secoes) {
-                    const titulo = sec.querySelector('h2, h3, h4, label, legend');
-                    const tituloTxt = (titulo?.textContent || '').trim();
-                    if (/(especialidade|mat[eé]ria|disciplina|servi[cç]o)/i.test(tituloTxt)) {
-                        const marcados = Array.from(
-                            sec.querySelectorAll(
-                                'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], option:checked'
-                            )
-                        );
-                        for (const tag of marcados) {
-                            const val =
-                                tag.tagName === 'OPTION'
-                                    ? (tag.textContent || '').trim()
-                                    : (
-                                        tag.closest('label')?.innerText ||
-                                        tag.parentElement?.innerText ||
-                                        ''
-                                    ).trim();
-
-                            if (
-                                val.length >= 3 &&
-                                val.length <= 45 &&
-                                !/(especialidade|mat[eé]ria|disciplina|servi[cç]o|selecione|adicionar|buscar)/i.test(
-                                    val
-                                )
-                            ) {
-                                materiasSet.add(val);
-                            }
-                        }
-                    }
-                }
-
-                return {
-                    nomeBruto,
-                    unidades: Array.from(unidadesEncontradas),
-                    materias: Array.from(materiasSet),
-                };
-            }, nomesUnidades);
-
-            // Complementa usando especificamente o payload JSON do próprio profissional
-            let nomeApi = '';
-            const unidadesApi = new Set<string>(dadosPerfil.unidades);
-            const materiasApi = new Set<string>(dadosPerfil.materias);
-
-            for (const payload of payloadsJson) {
-                if (!payload.url.includes(item.clin_care_id)) continue;
-
-                const root = payload.data as { data?: Record<string, unknown> } | Record<string, unknown>;
-                const obj =
-                    root && typeof root === 'object' && 'data' in root && root.data && typeof root.data === 'object'
-                        ? (root.data as Record<string, unknown>)
-                        : (root as Record<string, unknown>);
-
-                if (obj && typeof obj === 'object') {
-                    const candidatoNome = obj.nome || obj.name || obj.full_name || obj.fullName;
-                    if (typeof candidatoNome === 'string' && candidatoNome.trim().length >= 3) {
-                        nomeApi = candidatoNome.trim();
-                    }
-
-                    const listaUn = obj.unidades || obj.units || obj.clinicas || obj.locations;
-                    if (Array.isArray(listaUn)) {
-                        for (const unItem of listaUn) {
-                            const idUn =
-                                typeof unItem === 'string'
-                                    ? unItem.toLowerCase()
-                                    : String(
-                                        (unItem as { id?: string; unitId?: string })?.id ||
-                                        (unItem as { id?: string; unitId?: string })?.unitId ||
-                                        ''
-                                    ).toLowerCase();
-                            const nomeUn =
-                                typeof unItem === 'string'
-                                    ? unItem.toLowerCase()
-                                    : String(
-                                        (unItem as { nome?: string; name?: string })?.nome ||
-                                        (unItem as { nome?: string; name?: string })?.name ||
-                                        ''
-                                    ).toLowerCase();
-
-                            for (const u of nomesUnidades) {
-                                if (idUn === u.clinCareId || (nomeUn && nomeUn.includes(u.norm))) {
-                                    unidadesApi.add(u.nome);
-                                }
-                            }
-                        }
-                    }
-
-                    const listaEsp =
-                        obj.especialidades || obj.specialties || obj.servicos || obj.services;
-                    if (Array.isArray(listaEsp)) {
-                        for (const esp of listaEsp) {
-                            const nomeEsp =
-                                typeof esp === 'string'
-                                    ? esp
-                                    : (esp as { nome?: string; name?: string })?.nome ||
-                                    (esp as { nome?: string; name?: string })?.name;
-                            if (nomeEsp && nomeEsp.trim().length >= 2) {
-                                materiasApi.add(nomeEsp.trim());
-                            }
-                        }
-                    }
+                if (await aba.isVisible({ timeout: 800 }).catch(() => false)) {
+                    await aba.click().catch(() => null);
+                    await page.waitForTimeout(1200);
+                    const dadosAba = await extrairUnidadesEMateriasDaTela(page, nomesUnidades);
+                    for (const u of dadosAba.unidades) unidadesEncontradas.add(u);
+                    for (const m of dadosAba.materias) materiasEncontradas.add(m);
                 }
             }
 
-            const nomeLimpo = limparNomeExibicao(dadosPerfil.nomeBruto || nomeApi);
+            if (
+                !logouDiagnosticoPerfil &&
+                unidadesEncontradas.size === 0 &&
+                materiasEncontradas.size === 0
+            ) {
+                logouDiagnosticoPerfil = true;
+                console.log(
+                    `[IMPORT][DEBUG] Botões/abas na ficha de ${dadosIniciais.nomeBruto}: ${dadosIniciais.abasDisponiveis.join(' | ')}`
+                );
+            }
+
+            const nomeLimpo = limparNomeExibicao(dadosIniciais.nomeBruto);
 
             if (!nomeLimpo) {
                 await sql`
@@ -514,14 +510,16 @@ async function importarProfessoresPendentes(
                 continue;
             }
 
-            const listaUnidadesFinal = Array.from(unidadesApi);
+            const listaUnidadesFinal = Array.from(unidadesEncontradas);
             const unidadesAlvo =
                 listaUnidadesFinal.length > 0
                     ? unidades.filter((u) => listaUnidadesFinal.includes(u.nome))
                     : unidades;
 
             const materiasFinais =
-                materiasApi.size > 0 ? Array.from(materiasApi) : ['Reforço Geral'];
+                materiasEncontradas.size > 0
+                    ? Array.from(materiasEncontradas)
+                    : ['Reforço Geral'];
 
             for (const un of unidadesAlvo) {
                 const existentes = (await sql`
