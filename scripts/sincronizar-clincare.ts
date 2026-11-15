@@ -91,7 +91,6 @@ async function ajustarBancoEHorariosPadrao(sql: NeonQueryFunction<false, false>)
     DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
   `;
 
-    // Mescla professores duplicados mantendo 1 registro por clin_care_id
     await sql`
     DELETE FROM bloqueios_clincare
     WHERE professor_id IN (
@@ -124,7 +123,6 @@ async function ajustarBancoEHorariosPadrao(sql: NeonQueryFunction<false, false>)
     WHERE clin_care_id IS NOT NULL
   `;
 
-    // Garante que todos os professores sigam a grade fixa 14:10 às 20:50
     await sql`
     UPDATE professores
     SET hora_inicio = ${HORA_INICIO_PADRAO}::time,
@@ -674,6 +672,135 @@ async function abrirMapaAgenda(context: BrowserContext, page: Page): Promise<Pag
     return page;
 }
 
+async function extrairGradeVisivel(agendaPage: Page): Promise<{
+    colunasNomes: string[];
+    blocos: BloqueioGrade[];
+}> {
+    return agendaPage.evaluate(() => {
+        const colunas: { nome: string; left: number; right: number }[] = [];
+
+        const todosElementos = Array.from(document.querySelectorAll('*'));
+        for (const el of todosElementos) {
+            if (el.children.length > 0) continue;
+            const textoFolha = (el.textContent || '').trim();
+
+            if (textoFolha === 'Aulas' || /^\d+\s*\.\s*[A-Za-zÀ-ÿ]/.test(textoFolha)) {
+                let container: HTMLElement | null = el.parentElement;
+                for (let nivel = 0; nivel < 5 && container; nivel++) {
+                    const rect = container.getBoundingClientRect();
+                    const linhas = (container.innerText || '')
+                        .split('\n')
+                        .map((l) => l.trim())
+                        .filter(Boolean);
+
+                    const nomeProf =
+                        linhas.find((l) => /^\d+\s*\.\s*[A-Za-zÀ-ÿ]/.test(l)) ||
+                        (linhas.indexOf('Aulas') > 0
+                            ? linhas[linhas.indexOf('Aulas') - 1]
+                            : '');
+
+                    if (
+                        nomeProf &&
+                        nomeProf !== 'BLOQUEIO' &&
+                        nomeProf.length <= 60 &&
+                        rect.width >= 90 &&
+                        rect.width <= 500 &&
+                        rect.height >= 30 &&
+                        rect.height <= 300
+                    ) {
+                        const jaExiste = colunas.some(
+                            (c) => Math.abs(c.left - rect.left) < 25
+                        );
+                        if (!jaExiste) {
+                            colunas.push({
+                                nome: nomeProf,
+                                left: rect.left,
+                                right: rect.right,
+                            });
+                        }
+                        break;
+                    }
+                    container = container.parentElement;
+                }
+            }
+        }
+
+        colunas.sort((a, b) => a.left - b.left);
+
+        const regexIntervalo = /(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
+        const blocos: BloqueioGrade[] = [];
+        const assinaturasVistas = new Set<string>();
+
+        const candidatosBloco = Array.from(
+            document.querySelectorAll('div, article, section, button')
+        );
+
+        for (const no of candidatosBloco) {
+            const texto = (no as HTMLElement).innerText?.trim() || '';
+            if (!texto || texto.length > 400) continue;
+
+            const linhasTexto = texto
+                .split('\n')
+                .map((l) => l.trim())
+                .filter((l) => l && l !== '.');
+
+            if (linhasTexto.length === 0 || linhasTexto.length > 8) continue;
+
+            const linhaComHorario = linhasTexto
+                .slice(0, 3)
+                .find((l) => regexIntervalo.test(l));
+            if (!linhaComHorario) continue;
+
+            const match = linhaComHorario.match(regexIntervalo);
+            if (!match) continue;
+
+            const rect = no.getBoundingClientRect();
+            // Sem limite máximo de altura para permitir bloqueios de dia inteiro (ex: 08:00 - 20:00)
+            if (rect.width < 55 || rect.width > 500 || rect.height < 14) {
+                continue;
+            }
+
+            const centroX = rect.left + rect.width / 2;
+            const colunaDona = colunas.find(
+                (c) => centroX >= c.left - 15 && centroX <= c.right + 15
+            );
+            if (!colunaDona) continue;
+
+            const horaInicio = match[1];
+            let horaFim = match[2];
+            if (horaFim <= horaInicio) {
+                horaFim = '23:59';
+            }
+
+            const ehBloqueioManual = linhasTexto.some((l) => /bloqueio/i.test(l));
+            const detalhes = linhasTexto
+                .filter((l) => l !== linhaComHorario)
+                .join(' - ')
+                .slice(0, 120);
+
+            const motivo = ehBloqueioManual
+                ? `BLOQUEIO${detalhes ? ` - ${detalhes}` : ''}`
+                : detalhes || 'Ocupado no clin.care';
+
+            const assinatura = `${colunaDona.nome}|${horaInicio}|${horaFim}`;
+            if (!assinaturasVistas.has(assinatura)) {
+                assinaturasVistas.add(assinatura);
+                blocos.push({
+                    nomeProfessorBruto: colunaDona.nome,
+                    horaInicio,
+                    horaFim,
+                    motivo,
+                });
+            }
+        }
+
+        return {
+            colunasNomes: colunas.map((c) => c.nome),
+            blocos,
+        };
+    });
+}
+
 async function main() {
     const databaseUrl = (process.env.DATABASE_URL || '')
         .replace(/^DATABASE_URL=/i, '')
@@ -728,7 +855,7 @@ async function main() {
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
-        viewport: { width: 4200, height: 1800 },
+        viewport: { width: 4200, height: 2200 },
         userAgent:
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         locale: 'pt-BR',
@@ -768,134 +895,52 @@ async function main() {
                     .catch(() => null);
 
                 await agendaPage
-                    .locator('text="14:00", text="08:00"')
+                    .locator('text="08:00", text="14:00"')
                     .first()
                     .waitFor({ state: 'visible', timeout: 15000 })
                     .catch(() => null);
 
                 await agendaPage.waitForTimeout(2000);
 
-                const resultado = await agendaPage.evaluate(() => {
-                    const colunas: { nome: string; left: number; right: number }[] = [];
+                const colunasTodas = new Set<string>();
+                const blocosMapa = new Map<string, BloqueioGrade>();
 
-                    const todosElementos = Array.from(document.querySelectorAll('*'));
-                    for (const el of todosElementos) {
-                        if (el.children.length > 0) continue;
-                        const textoFolha = (el.textContent || '').trim();
-
-                        if (textoFolha === 'Aulas' || /^\d+\.[A-Za-zÀ-ÿ]/.test(textoFolha)) {
-                            let container: HTMLElement | null = el.parentElement;
-                            for (let nivel = 0; nivel < 4 && container; nivel++) {
-                                const rect = container.getBoundingClientRect();
-                                const linhas = (container.innerText || '')
-                                    .split('\n')
-                                    .map((l) => l.trim())
-                                    .filter(Boolean);
-
-                                const nomeProf =
-                                    linhas.find((l) => /^\d+\.[A-Za-zÀ-ÿ]/.test(l)) ||
-                                    (linhas.indexOf('Aulas') > 0
-                                        ? linhas[linhas.indexOf('Aulas') - 1]
-                                        : '');
-
-                                if (
-                                    nomeProf &&
-                                    nomeProf !== 'BLOQUEIO' &&
-                                    nomeProf.length <= 60 &&
-                                    rect.width >= 100 &&
-                                    rect.width <= 450 &&
-                                    rect.height >= 35 &&
-                                    rect.height <= 260
-                                ) {
-                                    const jaExiste = colunas.some(
-                                        (c) => Math.abs(c.left - rect.left) < 25
-                                    );
-                                    if (!jaExiste) {
-                                        colunas.push({
-                                            nome: nomeProf,
-                                            left: rect.left,
-                                            right: rect.right,
-                                        });
-                                    }
-                                    break;
-                                }
-                                container = container.parentElement;
-                            }
+                // Faz 4 passos de rolagem horizontal caso existam muitos professores na unidade
+                for (let passo = 0; passo < 4; passo++) {
+                    const parcial = await extrairGradeVisivel(agendaPage);
+                    for (const nomeCol of parcial.colunasNomes) {
+                        colunasTodas.add(nomeCol);
+                    }
+                    for (const bl of parcial.blocos) {
+                        const chave = `${bl.nomeProfessorBruto}|${bl.horaInicio}|${bl.horaFim}`;
+                        if (!blocosMapa.has(chave)) {
+                            blocosMapa.set(chave, bl);
                         }
                     }
 
-                    colunas.sort((a, b) => a.left - b.left);
-
-                    // Captura tanto agendamentos ("14:10 - 15:50\nAluno") quanto bloqueios ("BLOQUEIO\n14:10 - 17:30")
-                    const regexIntervalo = /(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
-                    const blocos: BloqueioGrade[] = [];
-                    const assinaturasVistas = new Set<string>();
-
-                    const candidatosBloco = Array.from(
-                        document.querySelectorAll('div, article, section, button')
-                    );
-
-                    for (const no of candidatosBloco) {
-                        const texto = (no as HTMLElement).innerText?.trim() || '';
-                        if (!texto || texto.length > 350) continue;
-
-                        const linhasTexto = texto
-                            .split('\n')
-                            .map((l) => l.trim())
-                            .filter((l) => l && l !== '.');
-
-                        // Garante que estamos no cartão específico (e não num container pai com vários cartões)
-                        if (linhasTexto.length === 0 || linhasTexto.length > 8) continue;
-
-                        const linhaComHorario = linhasTexto
-                            .slice(0, 3)
-                            .find((l) => regexIntervalo.test(l));
-                        if (!linhaComHorario) continue;
-
-                        const match = linhaComHorario.match(regexIntervalo);
-                        if (!match) continue;
-
-                        const rect = no.getBoundingClientRect();
-                        if (rect.width < 60 || rect.width > 450 || rect.height < 16 || rect.height > 1400) {
-                            continue;
-                        }
-
-                        const centroX = rect.left + rect.width / 2;
-                        const colunaDona = colunas.find(
-                            (c) => centroX >= c.left - 12 && centroX <= c.right + 12
+                    const rolou = await agendaPage.evaluate(() => {
+                        const scrollables = Array.from(document.querySelectorAll('*')).filter(
+                            (el) => el.scrollWidth > el.clientWidth + 50
                         );
-                        if (!colunaDona) continue;
-
-                        const horaInicio = match[1];
-                        let horaFim = match[2];
-                        if (horaFim <= horaInicio) {
-                            horaFim = '23:59';
+                        let moveu = false;
+                        for (const el of scrollables) {
+                            const antes = el.scrollLeft;
+                            el.scrollLeft += 1800;
+                            if (el.scrollLeft !== antes) moveu = true;
                         }
+                        return moveu;
+                    });
 
-                        const ehBloqueioManual = linhasTexto.some((l) => /bloqueio/i.test(l));
-                        const detalhes = linhasTexto
-                            .filter((l) => l !== linhaComHorario)
-                            .join(' - ')
-                            .slice(0, 120);
+                    if (!rolou) break;
+                    await agendaPage.waitForTimeout(800);
+                }
 
-                        const motivo = ehBloqueioManual
-                            ? `BLOQUEIO${detalhes ? ` - ${detalhes}` : ''}`
-                            : detalhes || 'Ocupado no clin.care';
-
-                        const assinatura = `${colunaDona.nome}|${horaInicio}|${horaFim}`;
-                        if (!assinaturasVistas.has(assinatura)) {
-                            assinaturasVistas.add(assinatura);
-                            blocos.push({
-                                nomeProfessorBruto: colunaDona.nome,
-                                horaInicio,
-                                horaFim,
-                                motivo,
-                            });
-                        }
-                    }
-
-                    return { blocos };
-                });
+                const blocosColetados = Array.from(blocosMapa.values());
+                console.log(
+                    `[SYNC] Colunas na grade (${unidade.nome} | ${itemData.data}): ${
+                        Array.from(colunasTodas).join(', ') || 'nenhuma'
+                    }`
+                );
 
                 await sql`
           DELETE FROM bloqueios_clincare
@@ -904,14 +949,24 @@ async function main() {
         `;
 
                 let gravados = 0;
-                for (const bl of resultado.blocos) {
-                    const profMatch = professoresBanco.find(
-                        (p) =>
-                            p.unidade_id === unidade.id &&
+                for (const bl of blocosColetados) {
+                    // Prioriza professor vinculado à unidade, mas faz fallback pelo nome em qualquer unidade
+                    const profMatch =
+                        professoresBanco.find(
+                            (p) =>
+                                p.unidade_id === unidade.id &&
+                                nomesCorrespondem(p.nome, bl.nomeProfessorBruto)
+                        ) ||
+                        professoresBanco.find((p) =>
                             nomesCorrespondem(p.nome, bl.nomeProfessorBruto)
-                    );
+                        );
 
-                    if (!profMatch) continue;
+                    if (!profMatch) {
+                        console.log(
+                            `[SYNC] Aviso: bloco de "${bl.nomeProfessorBruto}" (${bl.horaInicio}-${bl.horaFim}) sem professor correspondente no Neon.`
+                        );
+                        continue;
+                    }
 
                     await sql`
             INSERT INTO bloqueios_clincare (
@@ -937,7 +992,7 @@ async function main() {
                 }
 
                 console.log(
-                    `Concluído ${unidade.nome} (${itemData.data}): ${resultado.blocos.length} bloco(s)/aula(s) lido(s), ${gravados} gravado(s) no Neon.`
+                    `Concluído ${unidade.nome} (${itemData.data}): ${blocosColetados.length} bloco(s)/aula(s) lido(s), ${gravados} gravado(s) no Neon.`
                 );
             }
         }
