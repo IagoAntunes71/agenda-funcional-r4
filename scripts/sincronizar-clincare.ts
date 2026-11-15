@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
-import { chromium, Page } from 'playwright';
+import { BrowserContext, chromium, Page } from 'playwright';
 import { neon } from '@neondatabase/serverless';
 
 interface UnidadeRow {
@@ -30,8 +30,8 @@ interface BloqueioGrade {
 
 function normalizarNomeProfessor(texto: string): string {
     return texto
-        .replace(/^\d+\s*\.\s*/, '') // Remove prefixo como "1." ou "2."
-        .replace(/\./g, ' ') // Troca pontos por espaços ("Arthur.Sarquis" -> "Arthur Sarquis")
+        .replace(/^\d+\s*\.\s*/, '') // Remove prefixo numérico ("1." ou "2.")
+        .replace(/\./g, ' ') // Converte pontos em espaços ("Arthur.Sarquis" -> "Arthur Sarquis")
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/\s+/g, ' ')
@@ -39,62 +39,87 @@ function normalizarNomeProfessor(texto: string): string {
         .toLowerCase();
 }
 
-async function realizarLogin(page: Page, baseUrl: string, email: string, senha: string) {
-    const destinoInicial = `${baseUrl}/painel/mapa-agenda`;
-    console.log(`[LOGIN] Acedendo a ${destinoInicial}...`);
+async function realizarLoginEAbrirMapa(
+    context: BrowserContext,
+    page: Page,
+    baseUrl: string,
+    email: string,
+    senha: string
+): Promise<Page> {
+    const loginUrl = `${baseUrl}/login`;
+    console.log(`[LOGIN] Acedendo a ${loginUrl}...`);
 
-    await page.goto(destinoInicial, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(3000);
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2500);
 
-    if (page.url().includes('/painel/mapa-agenda')) {
-        console.log('[LOGIN] Sessão já autenticada.');
-        return;
-    }
-
-    console.log(`[LOGIN] Redirecionado para tela de acesso: ${page.url()}`);
-
-    // Procura campos visíveis na página principal ou dentro de iframes
-    let contextoLogin = page.mainFrame();
-    for (const frame of page.frames()) {
-        const temSenha = await frame
-            .locator('input[type="password"]')
-            .count()
-            .catch(() => 0);
-        if (temSenha > 0) {
-            contextoLogin = frame;
-            break;
+    if (!page.url().includes('/painel')) {
+        let contextoLogin = page.mainFrame();
+        for (const frame of page.frames()) {
+            const temSenha = await frame
+                .locator('input[type="password"]')
+                .count()
+                .catch(() => 0);
+            if (temSenha > 0) {
+                contextoLogin = frame;
+                break;
+            }
         }
+
+        const campoSenha = contextoLogin.locator('input[type="password"]').first();
+        await campoSenha.waitFor({ state: 'visible', timeout: 30000 });
+
+        const campoEmail = contextoLogin
+            .locator(
+                'input:not([type="password"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"])'
+            )
+            .first();
+
+        await campoEmail.fill(email);
+        await campoSenha.fill(senha);
+
+        const botaoEntrar = contextoLogin
+            .locator(
+                'button[type="submit"], button:has-text("Entrar"), button:has-text("Acessar"), button:has-text("Login")'
+            )
+            .first();
+
+        if (await botaoEntrar.isVisible().catch(() => false)) {
+            await botaoEntrar.click();
+        } else {
+            await campoSenha.press('Enter');
+        }
+
+        await page.waitForURL((url) => url.pathname.includes('/painel'), {
+            timeout: 30000,
+        });
     }
-
-    const campoSenha = contextoLogin.locator('input[type="password"]').first();
-    await campoSenha.waitFor({ state: 'visible', timeout: 30000 });
-
-    const campoEmail = contextoLogin
-        .locator(
-            'input:not([type="password"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"])'
-        )
-        .first();
-
-    await campoEmail.fill(email);
-    await campoSenha.fill(senha);
-
-    const botaoEntrar = contextoLogin
-        .locator(
-            'button[type="submit"], button:has-text("Entrar"), button:has-text("Acessar"), button:has-text("Login")'
-        )
-        .first();
-
-    if (await botaoEntrar.isVisible().catch(() => false)) {
-        await botaoEntrar.click();
-    } else {
-        await campoSenha.press('Enter');
-    }
-
-    await page.waitForURL((url) => url.pathname.includes('/painel'), {
-        timeout: 30000,
-    });
 
     console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
+    await page.waitForTimeout(2000);
+
+    // Localiza e clica no cartão "Mapa de agenda" dentro de /painel
+    const cardMapa = page
+        .locator('text="Visão completa da agenda profissionais."')
+        .first();
+
+    const fallbackMapa = page
+        .locator('a:has-text("Mapa de agenda"), div:has-text("Mapa de agenda")')
+        .last();
+
+    const alvoClique = (await cardMapa.isVisible({ timeout: 8000 }).catch(() => false))
+        ? cardMapa
+        : fallbackMapa;
+
+    const popupPromise = context.waitForEvent('page', { timeout: 6000 }).catch(() => null);
+    await alvoClique.click();
+    const novaAba = await popupPromise;
+
+    const agendaPage = novaAba ?? page;
+    await agendaPage.waitForLoadState('domcontentloaded', { timeout: 30000 });
+    await agendaPage.waitForTimeout(3000);
+
+    console.log(`[MAPA] Tela aberta em: ${agendaPage.url()}`);
+    return agendaPage;
 }
 
 async function main() {
@@ -159,7 +184,7 @@ async function main() {
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
-        viewport: { width: 3200, height: 1400 },
+        viewport: { width: 4000, height: 1800 },
         userAgent:
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         locale: 'pt-BR',
@@ -168,77 +193,112 @@ async function main() {
     const page = await context.newPage();
 
     try {
-        await realizarLogin(page, clinCareBaseUrl, clinCareEmail, clinCarePassword);
+        const agendaPage = await realizarLoginEAbrirMapa(
+            context,
+            page,
+            clinCareBaseUrl,
+            clinCareEmail,
+            clinCarePassword
+        );
 
         for (const unidade of unidades) {
             for (const itemData of datas) {
                 const urlMapa = `${clinCareBaseUrl}/painel/mapa-agenda?date=${itemData.data}&unitId=${unidade.clin_care_id}`;
                 console.log(`[SYNC] Abrindo ${unidade.nome} | ${itemData.data}...`);
 
-                await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                await page.waitForTimeout(4500);
+                await agendaPage.goto(urlMapa, {
+                    waitUntil: 'domcontentloaded',
+                    timeout: 60000,
+                });
 
-                // Extrai as colunas dos professores e os cartões de horário/bloqueio pela posição na grelha
-                const resultado = await page.evaluate(() => {
+                // Garante que o seletor de unidade esteja apontando para o UUID atual
+                const selectUnidade = agendaPage
+                    .locator(`select:has(option[value="${unidade.clin_care_id}"])`)
+                    .first();
+                if (await selectUnidade.isVisible({ timeout: 5000 }).catch(() => false)) {
+                    const valorAtual = await selectUnidade.inputValue().catch(() => '');
+                    if (valorAtual !== unidade.clin_care_id) {
+                        await selectUnidade.selectOption(unidade.clin_care_id);
+                    }
+                }
+
+                // Aguarda a renderização das colunas ("Aulas") na grelha
+                await agendaPage
+                    .locator('text="Aulas"')
+                    .first()
+                    .waitFor({ state: 'visible', timeout: 15000 })
+                    .catch(() => null);
+
+                await agendaPage.waitForTimeout(2500);
+
+                const resultado = await agendaPage.evaluate(() => {
                     const colunas: { nome: string; left: number; right: number }[] = [];
 
-                    // Localiza os cabeçalhos de cada coluna (ex: "1.Arthur.Sarquis\nAulas")
-                    const elementos = Array.from(document.querySelectorAll('div, header, th'));
-                    for (const el of elementos) {
-                        const texto = (el as HTMLElement).innerText?.trim() || '';
-                        const linhas = texto
-                            .split('\n')
-                            .map((l) => l.trim())
-                            .filter(Boolean);
+                    // Localiza cada rótulo "Aulas" e sobe para o cabeçalho da coluna do professor
+                    const todosElementos = Array.from(document.querySelectorAll('*'));
+                    for (const el of todosElementos) {
+                        if (el.children.length === 0 && el.textContent?.trim() === 'Aulas') {
+                            let container: HTMLElement | null = el.parentElement;
+                            for (let nivel = 0; nivel < 4 && container; nivel++) {
+                                const rect = container.getBoundingClientRect();
+                                const linhas = (container.innerText || '')
+                                    .split('\n')
+                                    .map((l) => l.trim())
+                                    .filter(Boolean);
 
-                        if (
-                            linhas.length >= 2 &&
-                            linhas.length <= 4 &&
-                            linhas[1] === 'Aulas' &&
-                            linhas[0].length >= 3 &&
-                            linhas[0].length <= 50
-                        ) {
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width >= 100 && rect.width <= 450 && rect.height >= 40) {
-                                const jaExiste = colunas.some(
-                                    (c) => Math.abs(c.left - rect.left) < 25
-                                );
-                                if (!jaExiste) {
-                                    colunas.push({
-                                        nome: linhas[0],
-                                        left: rect.left,
-                                        right: rect.right,
-                                    });
+                                const idxAulas = linhas.indexOf('Aulas');
+                                if (
+                                    idxAulas > 0 &&
+                                    rect.width >= 100 &&
+                                    rect.width <= 450 &&
+                                    rect.height >= 40 &&
+                                    rect.height <= 260
+                                ) {
+                                    const nomeProf = linhas[idxAulas - 1];
+                                    const jaExiste = colunas.some(
+                                        (c) => Math.abs(c.left - rect.left) < 25
+                                    );
+                                    if (!jaExiste && nomeProf && nomeProf.length <= 60) {
+                                        colunas.push({
+                                            nome: nomeProf,
+                                            left: rect.left,
+                                            right: rect.right,
+                                        });
+                                    }
+                                    break;
                                 }
+                                container = container.parentElement;
                             }
                         }
                     }
 
                     colunas.sort((a, b) => a.left - b.left);
 
-                    // Localiza todos os blocos horários na grelha (ex: "08:30 - 20:30\nBLOQUEIO\n...")
+                    // Captura todos os cartões com intervalo horário ("HH:MM - HH:MM") dentro de cada coluna
                     const regexHorario = /^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
                     const blocos: BloqueioGrade[] = [];
                     const assinaturasVistas = new Set<string>();
 
-                    const todosNos = Array.from(document.querySelectorAll('div, article, section'));
-                    for (const no of todosNos) {
+                    const candidatosBloco = Array.from(
+                        document.querySelectorAll('div, article, section, button')
+                    );
+
+                    for (const no of candidatosBloco) {
                         const texto = (no as HTMLElement).innerText?.trim() || '';
                         const match = texto.match(regexHorario);
                         if (!match) continue;
 
                         const rect = no.getBoundingClientRect();
-                        if (rect.width < 60 || rect.width > 450 || rect.height < 18) continue;
+                        if (rect.width < 60 || rect.width > 450 || rect.height < 16) continue;
 
                         const centroX = rect.left + rect.width / 2;
                         const colunaDona = colunas.find(
-                            (c) => centroX >= c.left - 10 && centroX <= c.right + 10
+                            (c) => centroX >= c.left - 12 && centroX <= c.right + 12
                         );
                         if (!colunaDona) continue;
 
                         const horaInicio = match[1];
                         let horaFim = match[2];
-                        // Se terminar após a meia-noite (ex: "14:00 - 02:00"), limita até 23:59 no dia
                         if (horaFim <= horaInicio) {
                             horaFim = '23:59';
                         }
@@ -263,16 +323,26 @@ async function main() {
                     }
 
                     return {
+                        urlAtual: window.location.href,
                         nomesColunas: colunas.map((c) => c.nome),
                         blocos,
+                        amostraTexto:
+                            colunas.length === 0
+                                ? (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 220)
+                                : '',
                     };
                 });
 
+                console.log(`[MAPA] URL lida: ${resultado.urlAtual}`);
                 console.log(
                     `[GRADE] Colunas detetadas em ${unidade.nome}: ${
                         resultado.nomesColunas.join(', ') || 'nenhuma'
                     }`
                 );
+
+                if (resultado.nomesColunas.length === 0 && resultado.amostraTexto) {
+                    console.log(`[DEBUG] Texto visível na tela: ${resultado.amostraTexto}`);
+                }
 
                 await sql`
           DELETE FROM bloqueios_clincare
