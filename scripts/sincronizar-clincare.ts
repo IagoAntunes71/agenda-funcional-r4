@@ -11,7 +11,7 @@ interface UnidadeRow {
 }
 
 interface DataRow {
-    data: string; // YYYY-MM-DD
+    data: string;
 }
 
 interface ProfessorRow {
@@ -24,8 +24,8 @@ interface ProfessorRow {
 interface BloqueioExtraido {
     clinCareProfId?: string;
     nomeProfessor: string;
-    horaInicio: string; // HH:MM
-    horaFim: string; // HH:MM
+    horaInicio: string;
+    horaFim: string;
     motivo: string;
 }
 
@@ -56,20 +56,14 @@ async function main() {
         .replace(/^['"]+|['"]+$/g, '');
 
     if (!databaseUrl.startsWith('postgres')) {
-        throw new Error(
-            'DATABASE_URL inválida nos Secrets do GitHub. Ela deve começar com postgresql://'
-        );
+        throw new Error('DATABASE_URL inválida. Deve começar com postgresql://');
     }
-
     if (!clinCareEmail || !clinCarePassword) {
-        throw new Error(
-            'Variáveis CLINCARE_EMAIL ou CLINCARE_PASSWORD ausentes nos Secrets do GitHub.'
-        );
+        throw new Error('CLINCARE_EMAIL ou CLINCARE_PASSWORD ausentes.');
     }
 
     const sql = neon(databaseUrl);
 
-    // 1. Busca unidades com UUID válido e datas futuras liberadas
     const unidades = (await sql`
     SELECT id, nome, clin_care_id
     FROM unidades
@@ -85,14 +79,16 @@ async function main() {
     ORDER BY data ASC
   `) as DataRow[];
 
+    console.log(
+        `[CONFIG] Unidades válidas: ${unidades.length} | Datas futuras ativas: ${datas.length}`
+    );
+
     if (unidades.length === 0 || datas.length === 0) {
-        console.log('Nenhuma unidade configurada ou data futura liberada para sincronizar.');
+        console.log(
+            'Nenhuma unidade com UUID real ou data futura liberada encontrada no banco.'
+        );
         return;
     }
-
-    console.log(
-        `Iniciando sincronização: ${unidades.length} unidade(s) e ${datas.length} data(s).`
-    );
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
@@ -103,8 +99,7 @@ async function main() {
     const page = await context.newPage();
 
     try {
-        // 2. Login no clin.care
-        console.log('Acessando tela de login do clin.care...');
+        console.log(`[LOGIN] Acessando ${clinCareUrl}...`);
         await page.goto(clinCareUrl, { waitUntil: 'networkidle', timeout: 60000 });
 
         await page
@@ -112,10 +107,7 @@ async function main() {
             .first()
             .fill(clinCareEmail);
 
-        await page
-            .locator('input[type="password"]')
-            .first()
-            .fill(clinCarePassword);
+        await page.locator('input[type="password"]').first().fill(clinCarePassword);
 
         await page
             .locator('button[type="submit"], button:has-text("Entrar")')
@@ -123,16 +115,20 @@ async function main() {
             .click();
 
         await page.waitForLoadState('networkidle', { timeout: 60000 });
-        console.log('Login realizado com sucesso.');
+        console.log(`[LOGIN] URL após entrar: ${page.url()}`);
 
-        // 3. Navega até o Mapa de Agenda
         const linkMapa = page
-            .locator('a:has-text("Mapa de Agenda"), button:has-text("Mapa de Agenda"), a[href*="mapa" i]')
+            .locator(
+                'a:has-text("Mapa de Agenda"), button:has-text("Mapa de Agenda"), a[href*="mapa" i]'
+            )
             .first();
 
         if (await linkMapa.isVisible({ timeout: 10000 }).catch(() => false)) {
             await linkMapa.click();
             await page.waitForLoadState('networkidle', { timeout: 60000 });
+            console.log(`[MAPA] Navegou para: ${page.url()}`);
+        } else {
+            console.log('[MAPA] Link "Mapa de Agenda" não encontrado diretamente no menu.');
         }
 
         const professoresBanco = (await sql`
@@ -141,26 +137,22 @@ async function main() {
       WHERE ativo = true
     `) as ProfessorRow[];
 
-        // 4. Itera por unidade e data liberada para ler horários ocupados
+        console.log(`[BANCO] Professores ativos cadastrados: ${professoresBanco.length}`);
+
         for (const unidade of unidades) {
             for (const itemData of datas) {
-                console.log(`Lendo Mapa de Agenda: ${unidade.nome} | ${itemData.data}...`);
+                console.log(`[SYNC] Lendo ${unidade.nome} (${unidade.clin_care_id}) | ${itemData.data}...`);
 
                 const bloqueiosExtraidos: BloqueioExtraido[] = [];
+                const urlsJsonDetectadas: string[] = [];
 
-                // Intercepta respostas JSON da API interna do Mapa de Agenda do clin.care
                 const listener = async (response: import('playwright').Response) => {
                     const url = response.url();
-                    if (
-                        response.status() === 200 &&
-                        (url.includes('agenda') || url.includes('mapa') || url.includes('schedule'))
-                    ) {
+                    const contentType = response.headers()['content-type'] || '';
+                    if (response.status() === 200 && contentType.includes('application/json')) {
+                        urlsJsonDetectadas.push(url);
                         try {
-                            const contentType = response.headers()['content-type'] || '';
-                            if (!contentType.includes('application/json')) return;
                             const dados = await response.json();
-
-                            // Adapta leitura caso a resposta contenha lista de agendamentos/bloqueios
                             const lista = Array.isArray(dados)
                                 ? dados
                                 : Array.isArray(dados?.data)
@@ -195,24 +187,26 @@ async function main() {
                                 }
                             }
                         } catch {
-                            // Ignora respostas JSON não relacionadas
+                            // Ignora JSON inválido
                         }
                     }
                 };
 
                 page.on('response', listener);
-
-                // Seleciona unidade e data na tela (ou recarrega rota com query params)
-                await page.waitForTimeout(2500);
+                await page.waitForTimeout(3000);
                 page.off('response', listener);
 
-                // Atualiza tabela bloqueios_clincare no Neon para esta unidade e data
+                console.log(
+                    `[DEBUG] Endpoints JSON capturados: ${urlsJsonDetectadas.slice(0, 5).join(' | ') || 'nenhum'}`
+                );
+
                 await sql`
           DELETE FROM bloqueios_clincare
           WHERE unidade_id = ${unidade.id}
             AND data = ${itemData.data}::date
         `;
 
+                let gravados = 0;
                 for (const bl of bloqueiosExtraidos) {
                     const profMatch = professoresBanco.find(
                         (p) =>
@@ -221,7 +215,12 @@ async function main() {
                                 normalizarNome(p.nome) === normalizarNome(bl.nomeProfessor))
                     );
 
-                    if (!profMatch) continue;
+                    if (!profMatch) {
+                        console.log(
+                            `[AVISO] Profissional "${bl.nomeProfessor}" não encontrado no banco para a unidade ${unidade.nome}.`
+                        );
+                        continue;
+                    }
 
                     if (bl.clinCareProfId && !profMatch.clin_care_id) {
                         await sql`
@@ -251,10 +250,11 @@ async function main() {
               now()
             )
           `;
+                    gravados++;
                 }
 
                 console.log(
-                    `Concluído ${unidade.nome} (${itemData.data}): ${bloqueiosExtraidos.length} bloqueio(s) processado(s).`
+                    `Concluído ${unidade.nome} (${itemData.data}): ${gravados} bloqueio(s) gravado(s) no Neon.`
                 );
             }
         }
