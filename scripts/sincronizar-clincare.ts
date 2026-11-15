@@ -31,7 +31,7 @@ interface BloqueioGrade {
 function normalizarNomeProfessor(texto: string): string {
     return texto
         .replace(/^\d+\s*\.\s*/, '') // Remove prefixo numérico ("1." ou "2.")
-        .replace(/\./g, ' ') // Troca pontos por espaços ("Arthur.Sarquis" -> "Arthur Sarquis")
+        .replace(/\./g, ' ') // Converte pontos em espaços ("Arthur.Sarquis" -> "Arthur Sarquis")
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/\s+/g, ' ')
@@ -96,15 +96,12 @@ async function realizarLoginEAbrirMapa(
 
     console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
 
-    // Clica diretamente no link de sobreposição do cartão "Mapa de agenda"
-    const linkMapa = page
-        .locator('a[href="/painel/mapa-agenda"], a[aria-label="Mapa de agenda"]')
-        .first();
+    // Seleciona especificamente o link do cartão "Mapa de agenda" visível no painel
+    const cardMapa = page.locator('a[aria-label="Mapa de agenda"]').first();
+    await cardMapa.waitFor({ state: 'visible', timeout: 15000 });
 
-    await linkMapa.waitFor({ state: 'visible', timeout: 15000 });
-
-    const popupPromise = context.waitForEvent('page', { timeout: 5000 }).catch(() => null);
-    await linkMapa.click();
+    const popupPromise = context.waitForEvent('page', { timeout: 6000 }).catch(() => null);
+    await cardMapa.click();
     const novaAba = await popupPromise;
 
     const agendaPage = novaAba ?? page;
@@ -114,7 +111,7 @@ async function realizarLoginEAbrirMapa(
         })
         .catch(() => null);
 
-    await agendaPage.waitForTimeout(2500);
+    await agendaPage.waitForTimeout(3000);
     console.log(`[MAPA] Tela aberta em: ${agendaPage.url()}`);
     return agendaPage;
 }
@@ -204,23 +201,22 @@ async function main() {
                 console.log(`[SYNC] Abrindo ${unidade.nome} | ${itemData.data}...`);
 
                 await agendaPage.goto(urlMapa, {
-                    waitUntil: 'domcontentloaded',
+                    waitUntil: 'networkidle',
                     timeout: 60000,
-                });
+                }).catch(() => null);
 
-                // Aguarda a grade horária ("08:00") aparecer na tela
                 await agendaPage
                     .locator('text="08:00"')
                     .first()
-                    .waitFor({ state: 'visible', timeout: 20000 })
+                    .waitFor({ state: 'visible', timeout: 15000 })
                     .catch(() => null);
 
-                await agendaPage.waitForTimeout(3000);
+                await agendaPage.waitForTimeout(2500);
 
                 const resultado = await agendaPage.evaluate(() => {
                     const colunas: { nome: string; left: number; right: number }[] = [];
 
-                    // 1. Tenta localizar pelo rótulo "Aulas" ou pelo padrão numérico "1.Nome.Sobrenome"
+                    // Localiza os cabeçalhos das colunas dos professores ("1.Nome.Sobrenome" / "Aulas")
                     const todosElementos = Array.from(document.querySelectorAll('*'));
                     for (const el of todosElementos) {
                         if (el.children.length > 0) continue;
@@ -268,7 +264,7 @@ async function main() {
 
                     colunas.sort((a, b) => a.left - b.left);
 
-                    // 2. Captura todos os blocos horários ("HH:MM - HH:MM") posicionados dentro de cada coluna
+                    // Captura os cartões de agendamento/bloqueio ("HH:MM - HH:MM") dentro de cada coluna
                     const regexHorario = /^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
                     const blocos: BloqueioGrade[] = [];
                     const assinaturasVistas = new Set<string>();
