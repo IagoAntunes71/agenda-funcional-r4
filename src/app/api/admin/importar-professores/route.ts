@@ -2,6 +2,37 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { sql } from '@/lib/db';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
 
+async function garantirTabelaImportacao() {
+    await sql`
+    CREATE TABLE IF NOT EXISTS importacao_profissionais_clincare (
+      id SERIAL PRIMARY KEY,
+      clin_care_id TEXT UNIQUE NOT NULL,
+      nome_detectado TEXT,
+      unidades_detectadas TEXT,
+      materias_detectadas TEXT,
+      status TEXT NOT NULL DEFAULT 'pendente',
+      mensagem TEXT,
+      atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+}
+
+async function listarItens() {
+    return await sql`
+    SELECT
+      id,
+      clin_care_id,
+      nome_detectado,
+      unidades_detectadas,
+      materias_detectadas,
+      status,
+      mensagem,
+      to_char(atualizado_em AT TIME ZONE 'America/Bahia', 'DD/MM HH24:MI') AS atualizado_em
+    FROM importacao_profissionais_clincare
+    ORDER BY id DESC
+  `;
+}
+
 export async function GET() {
     await connection();
 
@@ -10,19 +41,8 @@ export async function GET() {
     }
 
     try {
-        const itens = await sql`
-      SELECT
-        id,
-        clin_care_id,
-        nome_detectado,
-        unidades_detectadas,
-        materias_detectadas,
-        status,
-        mensagem,
-        to_char(atualizado_em AT TIME ZONE 'America/Bahia', 'DD/MM HH24:MI') AS atualizado_em
-      FROM importacao_profissionais_clincare
-      ORDER BY atualizado_em DESC, id DESC
-    `;
+        await garantirTabelaImportacao();
+        const itens = await listarItens();
 
         return NextResponse.json(
             { itens },
@@ -31,7 +51,7 @@ export async function GET() {
     } catch (error) {
         console.error('Erro ao listar importações de professores:', error);
         return NextResponse.json(
-            { error: 'Falha ao carregar lista de IDs.' },
+            { error: 'Falha ao carregar lista de IDs do banco.' },
             { status: 500 }
         );
     }
@@ -43,20 +63,53 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+        await garantirTabelaImportacao();
         const body = await req.json();
-        const textoIds = String(body?.ids || '');
 
-        // Extrai todos os UUIDs válidos colados (separados por linha, vírgula ou espaço)
-        const matches =
-            textoIds.match(
+        // Modo 1: Enfileirar varredura completa de /painel/profissionais
+        if (body?.descobrirTodos === true) {
+            await sql`
+        INSERT INTO importacao_profissionais_clincare (
+          clin_care_id,
+          nome_detectado,
+          status,
+          mensagem,
+          atualizado_em
+        )
+        VALUES (
+          '__TODOS__',
+          'Varredura automática (/painel/profissionais)',
+          'pendente',
+          'Aguardando execução do robô no GitHub Actions',
+          now()
+        )
+        ON CONFLICT (clin_care_id)
+        DO UPDATE SET
+          status = 'pendente',
+          mensagem = 'Aguardando nova varredura completa',
+          atualizado_em = now()
+      `;
+
+            const itens = await listarItens();
+            return NextResponse.json({
+                sucesso: true,
+                modoTodos: true,
+                itens,
+            });
+        }
+
+        // Modo 2: Lista manual de UUIDs
+        const textoBruto = String(body?.ids || '').trim();
+        const uuids =
+            textoBruto.match(
                 /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
             ) || [];
 
-        const idsUnicos = Array.from(new Set(matches.map((id) => id.toLowerCase())));
+        const idsUnicos = Array.from(new Set(uuids.map((id) => id.toLowerCase())));
 
         if (idsUnicos.length === 0) {
             return NextResponse.json(
-                { error: 'Nenhum ID (UUID) válido do clin.care foi encontrado no texto.' },
+                { error: 'Nenhum ID (UUID) válido foi encontrado no texto colado.' },
                 { status: 400 }
             );
         }
@@ -73,14 +126,17 @@ export async function POST(req: NextRequest) {
       `;
         }
 
+        const itens = await listarItens();
+
         return NextResponse.json({
             sucesso: true,
             total: idsUnicos.length,
+            itens,
         });
     } catch (error) {
         console.error('Erro ao enfileirar IDs de professores:', error);
         return NextResponse.json(
-            { error: 'Erro ao salvar IDs para importação.' },
+            { error: 'Erro interno ao gravar IDs no banco Neon.' },
             { status: 500 }
         );
     }
@@ -92,6 +148,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
+        await garantirTabelaImportacao();
         const { searchParams } = new URL(req.url);
         const id = Number(searchParams.get('id'));
 
@@ -100,7 +157,9 @@ export async function DELETE(req: NextRequest) {
         }
 
         await sql`DELETE FROM importacao_profissionais_clincare WHERE id = ${id}`;
-        return NextResponse.json({ sucesso: true });
+        const itens = await listarItens();
+
+        return NextResponse.json({ sucesso: true, itens });
     } catch (error) {
         console.error('Erro ao remover item de importação:', error);
         return NextResponse.json({ error: 'Falha ao remover ID.' }, { status: 500 });
