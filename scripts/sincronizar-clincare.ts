@@ -45,9 +45,12 @@ async function main() {
         .replace(/^['"]+|['"]+$/g, '')
         .trim();
 
-    const clinCareUrl = (process.env.CLINCARE_URL || 'https://app.clin.care')
+    const clinCareBaseUrl = (process.env.CLINCARE_URL || 'https://app.clin.care')
         .trim()
-        .replace(/^['"]+|['"]+$/g, '');
+        .replace(/^['"]+|['"]+$/g, '')
+        .replace(/\/login\/?$/i, '')
+        .replace(/\/$/, '');
+
     const clinCareEmail = (process.env.CLINCARE_EMAIL || '')
         .trim()
         .replace(/^['"]+|['"]+$/g, '');
@@ -84,9 +87,7 @@ async function main() {
     );
 
     if (unidades.length === 0 || datas.length === 0) {
-        console.log(
-            'Nenhuma unidade com UUID real ou data futura liberada encontrada no banco.'
-        );
+        console.log('Nenhuma unidade com UUID real ou data futura liberada encontrada.');
         return;
     }
 
@@ -99,36 +100,91 @@ async function main() {
     const page = await context.newPage();
 
     try {
-        console.log(`[LOGIN] Acessando ${clinCareUrl}...`);
-        await page.goto(clinCareUrl, { waitUntil: 'networkidle', timeout: 60000 });
+        const loginUrl = `${clinCareBaseUrl}/login`;
+        console.log(`[LOGIN] Acedendo a ${loginUrl}...`);
+        await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        await page
-            .locator('input[type="email"], input[name*="email" i], input[name*="user" i]')
-            .first()
-            .fill(clinCareEmail);
+        // Aguarda os campos do formulário ficarem visíveis no ecrã
+        await page.locator('input:visible').first().waitFor({ timeout: 20000 });
 
-        await page.locator('input[type="password"]').first().fill(clinCarePassword);
+        const inputsVisiveis = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('input')).map((el) => ({
+                type: el.type,
+                name: el.name,
+                id: el.id,
+                placeholder: el.placeholder,
+                visible: el.offsetParent !== null,
+            }));
+        });
+        console.log('[LOGIN] Campos detetados no ecrã:', JSON.stringify(inputsVisiveis));
 
-        await page
-            .locator('button[type="submit"], button:has-text("Entrar")')
-            .first()
-            .click();
-
-        await page.waitForLoadState('networkidle', { timeout: 60000 });
-        console.log(`[LOGIN] URL após entrar: ${page.url()}`);
-
-        const linkMapa = page
+        const campoSenha = page.locator('input[type="password"]:visible').first();
+        const campoUsuario = page
             .locator(
-                'a:has-text("Mapa de Agenda"), button:has-text("Mapa de Agenda"), a[href*="mapa" i]'
+                'input:not([type="password"]):not([type="hidden"]):not([type="checkbox"]):visible'
             )
             .first();
 
-        if (await linkMapa.isVisible({ timeout: 10000 }).catch(() => false)) {
-            await linkMapa.click();
-            await page.waitForLoadState('networkidle', { timeout: 60000 });
-            console.log(`[MAPA] Navegou para: ${page.url()}`);
+        await campoUsuario.fill(clinCareEmail);
+        await campoSenha.fill(clinCarePassword);
+
+        const botaoEntrar = page
+            .locator(
+                'button[type="submit"]:visible, button:has-text("Entrar"):visible, button:has-text("Acessar"):visible, button:has-text("Login"):visible'
+            )
+            .first();
+
+        if (await botaoEntrar.isVisible().catch(() => false)) {
+            await botaoEntrar.click();
         } else {
-            console.log('[MAPA] Link "Mapa de Agenda" não encontrado diretamente no menu.');
+            await campoSenha.press('Enter');
+        }
+
+        // Aguarda até 15 segundos para sair da rota /login
+        await page
+            .waitForURL((url) => !url.pathname.toLowerCase().includes('/login'), {
+                timeout: 15000,
+            })
+            .catch(() => null);
+
+        await page.waitForTimeout(2000);
+        console.log(`[LOGIN] URL após submeter: ${page.url()}`);
+
+        if (page.url().toLowerCase().includes('/login')) {
+            const textoErro = await page.evaluate(() => {
+                const textos = Array.from(
+                    document.querySelectorAll('[role="alert"], .alert, .error, .toast, p, span')
+                )
+                    .map((el) => el.textContent?.trim() || '')
+                    .filter((t) => t.length > 3 && t.length < 140);
+                return Array.from(new Set(textos)).slice(0, 8);
+            });
+            console.log(
+                '[LOGIN] Permaneceu em /login. Mensagens visíveis no ecrã:',
+                JSON.stringify(textoErro)
+            );
+            return;
+        }
+
+        // Lista os links disponíveis no painel autenticado para localizar o Mapa de Agenda
+        const linksMenu = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('a[href]')).map((a) => ({
+                texto: (a.textContent || '').trim(),
+                href: a.getAttribute('href') || '',
+            }));
+        });
+        console.log('[MENU] Rotas encontradas:', JSON.stringify(linksMenu.slice(0, 25)));
+
+        const linkMapa = page
+            .locator(
+                'a:has-text("Mapa de Agenda"), button:has-text("Mapa de Agenda"), a[href*="mapa" i], a[href*="agenda" i]'
+            )
+            .first();
+
+        if (await linkMapa.isVisible({ timeout: 8000 }).catch(() => false)) {
+            await linkMapa.click();
+            await page.waitForTimeout(3000);
+            console.log(`[MAPA] Navegou para: ${page.url()}`);
         }
 
         const professoresBanco = (await sql`
@@ -141,7 +197,9 @@ async function main() {
 
         for (const unidade of unidades) {
             for (const itemData of datas) {
-                console.log(`[SYNC] Lendo ${unidade.nome} (${unidade.clin_care_id}) | ${itemData.data}...`);
+                console.log(
+                    `[SYNC] Lendo ${unidade.nome} (${unidade.clin_care_id}) | ${itemData.data}...`
+                );
 
                 const bloqueiosExtraidos: BloqueioExtraido[] = [];
                 const urlsJsonDetectadas: string[] = [];
@@ -187,7 +245,7 @@ async function main() {
                                 }
                             }
                         } catch {
-                            // Ignora JSON inválido
+                            // Ignora respostas JSON não estruturadas
                         }
                     }
                 };
@@ -197,7 +255,9 @@ async function main() {
                 page.off('response', listener);
 
                 console.log(
-                    `[DEBUG] Endpoints JSON capturados: ${urlsJsonDetectadas.slice(0, 5).join(' | ') || 'nenhum'}`
+                    `[DEBUG] Endpoints JSON capturados: ${
+                        urlsJsonDetectadas.slice(0, 8).join(' | ') || 'nenhum'
+                    }`
                 );
 
                 await sql`
@@ -215,12 +275,7 @@ async function main() {
                                 normalizarNome(p.nome) === normalizarNome(bl.nomeProfessor))
                     );
 
-                    if (!profMatch) {
-                        console.log(
-                            `[AVISO] Profissional "${bl.nomeProfessor}" não encontrado no banco para a unidade ${unidade.nome}.`
-                        );
-                        continue;
-                    }
+                    if (!profMatch) continue;
 
                     if (bl.clinCareProfId && !profMatch.clin_care_id) {
                         await sql`
