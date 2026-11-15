@@ -1,10 +1,16 @@
 import { Suspense } from 'react';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
 import PainelAdmin from '@/components/admin/PainelAdmin';
+import ImportadorProfessoresClinCare from '@/components/admin/ImportadorProfessoresClinCare';
 
 async function ConteudoAdmin() {
     const autenticado = await verificarAdminAutenticado();
-    return <PainelAdmin autenticadoInicial={autenticado} />;
+    return (
+        <div className="space-y-6">
+            <PainelAdmin autenticadoInicial={autenticado} />
+            {autenticado && <ImportadorProfessoresClinCare />}
+        </div>
+    );
 }
 
 export default function AdminPage() {
