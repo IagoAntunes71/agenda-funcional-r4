@@ -10,19 +10,53 @@ async function garantirTabelaAgendamentos() {
     await sql`
     CREATE TABLE IF NOT EXISTS agendamentos (
       id SERIAL PRIMARY KEY,
-      unidade_id INT NOT NULL,
-      professor_id INT NOT NULL,
-      materia TEXT NOT NULL,
-      data DATE NOT NULL,
-      hora_inicio TIME NOT NULL,
-      hora_fim TIME NOT NULL,
-      aluno_nome TEXT NOT NULL,
-      aluno_telefone TEXT NOT NULL,
+      unidade_id INT,
+      professor_id INT,
+      materia TEXT,
+      data DATE,
+      hora_inicio TIME,
+      hora_fim TIME,
+      aluno_nome TEXT,
+      aluno_telefone TEXT,
       responsavel_nome TEXT,
       observacoes TEXT,
       status TEXT NOT NULL DEFAULT 'confirmado',
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `;
+
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS unidade_id INT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS professor_id INT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS materia TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS data DATE`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_nome TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_telefone TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS observacoes TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'confirmado'`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ DEFAULT now()`;
+
+    await sql`
+    DO $$
+    DECLARE
+      col record;
+    BEGIN
+      FOR col IN
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'agendamentos'
+          AND is_nullable = 'NO'
+          AND column_name NOT IN (
+            'id', 'unidade_id', 'professor_id', 'materia', 'data',
+            'hora_inicio', 'hora_fim', 'aluno_nome', 'aluno_telefone', 'status'
+          )
+      LOOP
+        EXECUTE format('ALTER TABLE agendamentos ALTER COLUMN %I DROP NOT NULL', col.column_name);
+      END LOOP;
+    END $$;
   `;
 }
 
@@ -70,12 +104,12 @@ export async function POST(req: NextRequest) {
         }
 
         const dataValida = (await sql`
-      SELECT id
+      SELECT data
       FROM datas_liberadas
       WHERE data = ${data}::date
         AND ativo = true
       LIMIT 1
-    `) as { id: number }[];
+    `) as { data: string }[];
 
         if (dataValida.length === 0) {
             return NextResponse.json(
@@ -109,12 +143,12 @@ export async function POST(req: NextRequest) {
 
         const bloqueiosProf = (await sql`
       SELECT
-        to_char(b.hora_inicio, 'HH24:MI') AS hora_inicio,
-        to_char(b.hora_fim, 'HH24:MI') AS hora_fim,
+        LEFT(b.hora_inicio::text, 5) AS hora_inicio,
+        LEFT(b.hora_fim::text, 5) AS hora_fim,
         b.motivo
       FROM bloqueios_clincare b
       LEFT JOIN professores p ON p.id = b.professor_id
-      WHERE b.data = ${data}::date
+      WHERE LEFT(b.data::text, 10) = ${data}
         AND (
           b.professor_id = ${prof.id}
           OR (${prof.clin_care_id}::text IS NOT NULL AND p.clin_care_id = ${prof.clin_care_id})
@@ -123,12 +157,14 @@ export async function POST(req: NextRequest) {
 
         const agendamentosProf = (await sql`
       SELECT
-        to_char(a.hora_inicio, 'HH24:MI') AS hora_inicio,
-        to_char(a.hora_fim, 'HH24:MI') AS hora_fim
+        LEFT(a.hora_inicio::text, 5) AS hora_inicio,
+        LEFT(a.hora_fim::text, 5) AS hora_fim
       FROM agendamentos a
       LEFT JOIN professores p ON p.id = a.professor_id
-      WHERE a.data = ${data}::date
-        AND a.status <> 'cancelado'
+      WHERE LEFT(a.data::text, 10) = ${data}
+        AND a.hora_inicio IS NOT NULL
+        AND a.hora_fim IS NOT NULL
+        AND COALESCE(a.status, 'confirmado') <> 'cancelado'
         AND (
           a.professor_id = ${prof.id}
           OR (${prof.clin_care_id}::text IS NOT NULL AND p.clin_care_id = ${prof.clin_care_id})
@@ -205,8 +241,9 @@ export async function POST(req: NextRequest) {
         );
     } catch (error) {
         console.error('Erro ao registrar agendamento:', error);
+        const detalhe = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
-            { error: 'Não foi possível concluir o agendamento. Tente novamente.' },
+            { error: `Não foi possível concluir o agendamento: ${detalhe}` },
             { status: 500 }
         );
     }

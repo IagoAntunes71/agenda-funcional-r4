@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse, connection } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
     IntervaloOcupado,
@@ -18,31 +18,55 @@ interface BloqueioRow extends IntervaloOcupado {
     clin_care_id: string | null;
 }
 
-async function garantirTabelaAgendamentos() {
+async function garantirEstruturaBanco() {
     await sql`
-    CREATE TABLE IF NOT EXISTS agendamentos (
+    CREATE TABLE IF NOT EXISTS bloqueios_clincare (
       id SERIAL PRIMARY KEY,
-      unidade_id INT NOT NULL,
       professor_id INT NOT NULL,
-      materia TEXT NOT NULL,
+      unidade_id INT NOT NULL,
       data DATE NOT NULL,
       hora_inicio TIME NOT NULL,
       hora_fim TIME NOT NULL,
-      aluno_nome TEXT NOT NULL,
-      aluno_telefone TEXT NOT NULL,
+      motivo TEXT,
+      atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+    await sql`
+    CREATE TABLE IF NOT EXISTS agendamentos (
+      id SERIAL PRIMARY KEY,
+      unidade_id INT,
+      professor_id INT,
+      materia TEXT,
+      data DATE,
+      hora_inicio TIME,
+      hora_fim TIME,
+      aluno_nome TEXT,
+      aluno_telefone TEXT,
       responsavel_nome TEXT,
       observacoes TEXT,
       status TEXT NOT NULL DEFAULT 'confirmado',
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS unidade_id INT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS professor_id INT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS materia TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS data DATE`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_nome TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_telefone TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS observacoes TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'confirmado'`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ DEFAULT now()`;
 }
 
 export async function GET(req: NextRequest) {
-    await connection();
-
     try {
-        await garantirTabelaAgendamentos();
+        await garantirEstruturaBanco();
 
         const { searchParams } = new URL(req.url);
         const unidadeIdParam = Number(searchParams.get('unidadeId') || 0);
@@ -58,14 +82,13 @@ export async function GET(req: NextRequest) {
 
         const datas = (await sql`
       SELECT
-        id,
         to_char(data, 'YYYY-MM-DD') AS data,
         to_char(data, 'DD/MM/YYYY') AS data_formatada
       FROM datas_liberadas
       WHERE ativo = true
         AND data >= (now() AT TIME ZONE 'America/Bahia')::date
       ORDER BY data ASC
-    `) as { id: number; data: string; data_formatada: string }[];
+    `) as { data: string; data_formatada: string }[];
 
         const unidadeIdAtiva = unidadeIdParam || unidades[0]?.id || 0;
         const dataAtiva = dataParam || datas[0]?.data || '';
@@ -73,6 +96,8 @@ export async function GET(req: NextRequest) {
         if (!unidadeIdAtiva || !dataAtiva) {
             return NextResponse.json(
                 {
+                    unidadeIdSelecionada: unidadeIdAtiva,
+                    dataSelecionada: dataAtiva,
                     unidades,
                     datas,
                     materias: [],
@@ -99,24 +124,26 @@ export async function GET(req: NextRequest) {
       SELECT
         b.professor_id,
         p.clin_care_id,
-        to_char(b.hora_inicio, 'HH24:MI') AS hora_inicio,
-        to_char(b.hora_fim, 'HH24:MI') AS hora_fim,
+        LEFT(b.hora_inicio::text, 5) AS hora_inicio,
+        LEFT(b.hora_fim::text, 5) AS hora_fim,
         b.motivo
       FROM bloqueios_clincare b
       LEFT JOIN professores p ON p.id = b.professor_id
-      WHERE b.data = ${dataAtiva}::date
+      WHERE LEFT(b.data::text, 10) = ${dataAtiva}
     `) as BloqueioRow[];
 
         const agendamentosDia = (await sql`
       SELECT
         a.professor_id,
         p.clin_care_id,
-        to_char(a.hora_inicio, 'HH24:MI') AS hora_inicio,
-        to_char(a.hora_fim, 'HH24:MI') AS hora_fim
+        LEFT(a.hora_inicio::text, 5) AS hora_inicio,
+        LEFT(a.hora_fim::text, 5) AS hora_fim
       FROM agendamentos a
       LEFT JOIN professores p ON p.id = a.professor_id
-      WHERE a.data = ${dataAtiva}::date
-        AND a.status <> 'cancelado'
+      WHERE LEFT(a.data::text, 10) = ${dataAtiva}
+        AND a.hora_inicio IS NOT NULL
+        AND a.hora_fim IS NOT NULL
+        AND COALESCE(a.status, 'confirmado') <> 'cancelado'
     `) as BloqueioRow[];
 
         const materiasUnicasSet = new Set<string>();
@@ -187,8 +214,11 @@ export async function GET(req: NextRequest) {
         );
     } catch (error) {
         console.error('Erro ao consultar disponibilidade:', error);
+        const detalhe = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
-            { error: 'Erro interno ao buscar horários disponíveis.' },
+            {
+                error: `Erro interno ao buscar horários disponíveis: ${detalhe}`,
+            },
             { status: 500 }
         );
     }
