@@ -148,9 +148,8 @@ function extrairUuidsDePayloadTexto(
     idsUnidadesIgnorar: Set<string>,
     destino: Set<string>
 ) {
-    // Captura UUIDs associados a chaves de identificação ou rotas de profissionais
     const regexContextual =
-        /(?:"(?:id|professionalId|profissionalId|userId)"\s*:\s*"|\/profissionais\/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
+        /(?:\\?"(?:id|professionalId|profissionalId|userId)\\?"\s*:\s*\\?"|\/profissionais\/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
     let match: RegExpExecArray | null;
     while ((match = regexContextual.exec(texto)) !== null) {
         const uuid = match[1].toLowerCase();
@@ -184,9 +183,10 @@ async function descobrirTodosProfissionais(
                 res.status() === 200 &&
                 (ct.includes('application/json') ||
                     ct.includes('text/x-component') ||
-                    ct.includes('text/plain'))
+                    ct.includes('text/plain') ||
+                    ct.includes('text/html'))
             ) {
-                if (!url.includes('/api/auth/session')) {
+                if (!url.includes('/api/auth/session') && !url.includes('/_next/static/')) {
                     endpointsVistos.push(`${res.request().method()} ${url} (${ct.split(';')[0]})`);
                 }
                 const corpo = await res.text();
@@ -199,24 +199,13 @@ async function descobrirTodosProfissionais(
 
     page.on('response', listener);
 
-    // Abre a partir do /painel clicando no cartão "Profissionais" se visível, garantindo montagem SPA
-    await page.goto(`${baseUrl}/painel`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
-    await page.waitForTimeout(1500);
-
-    const cardProf = page
-        .locator('a[aria-label="Profissionais"], a[href="/painel/profissionais"]')
-        .first();
-
-    if (await cardProf.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await cardProf.click();
-        await page.waitForTimeout(3000);
-    } else {
-        await page.goto(urlLista, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => null);
-        await page.waitForTimeout(3000);
-    }
+    await page.goto(urlLista, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => null);
+    await page.waitForTimeout(3000);
 
     // Tenta aumentar o número de itens por página se houver seletor (ex: 50 ou 100)
-    const selectPagina = page.locator('select:has(option[value="50"]), select:has(option[value="100"])').first();
+    const selectPagina = page
+        .locator('select:has(option[value="50"]), select:has(option[value="100"])')
+        .first();
     if (await selectPagina.isVisible({ timeout: 1500 }).catch(() => false)) {
         const tem100 = await selectPagina.locator('option[value="100"]').count();
         await selectPagina.selectOption(tem100 > 0 ? '100' : '50').catch(() => null);
@@ -227,7 +216,6 @@ async function descobrirTodosProfissionais(
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.waitForTimeout(1000);
 
-        // Extrai UUIDs tanto do HTML/scripts Next.js (__next_f) quanto de links/atributos no DOM
         const htmlAtual = await page.content();
         extrairUuidsDePayloadTexto(htmlAtual, idsUnidadesIgnorar, idsEncontrados);
 
@@ -265,9 +253,11 @@ async function descobrirTodosProfissionais(
     console.log(`[DISCOVERY] Total de IDs encontrados: ${idsEncontrados.size}`);
     if (idsEncontrados.size === 0) {
         const amostra = await page.evaluate(() =>
-            (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 280)
+            (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 300)
         );
-        console.log(`[DISCOVERY][DEBUG] Endpoints vistos: ${endpointsVistos.slice(0, 6).join(' | ') || 'nenhum'}`);
+        console.log(
+            `[DISCOVERY][DEBUG] Endpoints vistos: ${endpointsVistos.slice(0, 8).join(' | ') || 'nenhum'}`
+        );
         console.log(`[DISCOVERY][DEBUG] Texto da tela: ${amostra}`);
     }
 
@@ -299,7 +289,6 @@ async function extrairUnidadesEMateriasDaTela(
     return await page.evaluate((listaUnidades) => {
         const raiz = document.querySelector('main') || document.body;
 
-        // 1. Nome do profissional
         const inputNome = raiz.querySelector(
             'input[name*="nome" i], input[name*="name" i], input[placeholder*="nome" i]'
         ) as HTMLInputElement | null;
@@ -317,18 +306,14 @@ async function extrairUnidadesEMateriasDaTela(
 
         const nomeBruto = (inputNome?.value || heading || '').trim();
 
-        // 2. Unidades vinculadas dentro de <main> (ignora navbar/header)
         const unidadesEncontradas = new Set<string>();
-
-        // Verifica checkboxes/switches marcados ou linhas de tabela/cartões na seção de unidades
         const checkboxesMarcados = Array.from(
             raiz.querySelectorAll(
                 'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], [role="switch"][aria-checked="true"]'
             )
         );
         for (const cb of checkboxesMarcados) {
-            const container =
-                cb.closest('label, tr, li, div') || cb.parentElement;
+            const container = cb.closest('label, tr, li, div') || cb.parentElement;
             const texto = (container as HTMLElement)?.innerText || '';
             for (const u of listaUnidades) {
                 if (texto.toLowerCase().includes(u.norm)) {
@@ -337,7 +322,6 @@ async function extrairUnidadesEMateriasDaTela(
             }
         }
 
-        // Caso as unidades apareçam como badges, chips, linhas de tabela ou texto em seção/aba "Unidades"
         if (unidadesEncontradas.size === 0) {
             const secoes = Array.from(raiz.querySelectorAll('section, div, table, ul'));
             for (const sec of secoes) {
@@ -354,7 +338,6 @@ async function extrairUnidadesEMateriasDaTela(
             }
         }
 
-        // 3. Matérias / Especialidades / Serviços vinculados dentro de <main>
         const materiasSet = new Set<string>();
         const blocos = Array.from(raiz.querySelectorAll('section, div, fieldset, table'));
         for (const bloco of blocos) {
@@ -389,9 +372,7 @@ async function extrairUnidadesEMateriasDaTela(
             }
         }
 
-        const abasDisponiveis = Array.from(
-            raiz.querySelectorAll('[role="tab"], button, a')
-        )
+        const abasDisponiveis = Array.from(raiz.querySelectorAll('[role="tab"], button, a'))
             .map((el) => (el.textContent || '').trim())
             .filter((t) => t.length >= 3 && t.length <= 35);
 
@@ -471,10 +452,11 @@ async function importarProfessoresPendentes(
             const unidadesEncontradas = new Set<string>(dadosIniciais.unidades);
             const materiasEncontradas = new Set<string>(dadosIniciais.materias);
 
-            // Se existir aba "Unidades" ou "Especialidades"/"Serviços", clica para carregar
             for (const termoAba of ['Unidades', 'Especialidades', 'Serviços', 'Matérias']) {
                 const aba = page
-                    .locator(`main [role="tab"]:has-text("${termoAba}"), main button:has-text("${termoAba}"), main a:has-text("${termoAba}")`)
+                    .locator(
+                        `main [role="tab"]:has-text("${termoAba}"), main button:has-text("${termoAba}"), main a:has-text("${termoAba}")`
+                    )
                     .first();
 
                 if (await aba.isVisible({ timeout: 800 }).catch(() => false)) {
