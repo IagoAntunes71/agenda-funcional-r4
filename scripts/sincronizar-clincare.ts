@@ -38,14 +38,32 @@ function normalizarNome(texto: string): string {
 }
 
 async function main() {
-    const databaseUrl = process.env.DATABASE_URL;
-    const clinCareUrl = process.env.CLINCARE_URL || 'https://app.clin.care';
-    const clinCareEmail = process.env.CLINCARE_EMAIL;
-    const clinCarePassword = process.env.CLINCARE_PASSWORD;
+    const databaseUrl = (process.env.DATABASE_URL || '')
+        .replace(/^DATABASE_URL=/i, '')
+        .replace(/^psql\s+/i, '')
+        .trim()
+        .replace(/^['"]+|['"]+$/g, '')
+        .trim();
 
-    if (!databaseUrl || !clinCareEmail || !clinCarePassword) {
+    const clinCareUrl = (process.env.CLINCARE_URL || 'https://app.clin.care')
+        .trim()
+        .replace(/^['"]+|['"]+$/g, '');
+    const clinCareEmail = (process.env.CLINCARE_EMAIL || '')
+        .trim()
+        .replace(/^['"]+|['"]+$/g, '');
+    const clinCarePassword = (process.env.CLINCARE_PASSWORD || '')
+        .trim()
+        .replace(/^['"]+|['"]+$/g, '');
+
+    if (!databaseUrl.startsWith('postgres')) {
         throw new Error(
-            'Variáveis DATABASE_URL, CLINCARE_EMAIL ou CLINCARE_PASSWORD ausentes.'
+            'DATABASE_URL inválida nos Secrets do GitHub. Ela deve começar com postgresql://'
+        );
+    }
+
+    if (!clinCareEmail || !clinCarePassword) {
+        throw new Error(
+            'Variáveis CLINCARE_EMAIL ou CLINCARE_PASSWORD ausentes nos Secrets do GitHub.'
         );
     }
 
