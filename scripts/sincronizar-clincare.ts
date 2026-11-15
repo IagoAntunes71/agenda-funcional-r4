@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
-import { chromium } from 'playwright';
+import { chromium, Page } from 'playwright';
 import { neon } from '@neondatabase/serverless';
 
 interface UnidadeRow {
@@ -21,20 +21,80 @@ interface ProfessorRow {
     unidade_id: number;
 }
 
-interface BloqueioExtraido {
-    clinCareProfId?: string;
-    nomeProfessor: string;
+interface BloqueioGrade {
+    nomeProfessorBruto: string;
     horaInicio: string;
     horaFim: string;
     motivo: string;
 }
 
-function normalizarNome(texto: string): string {
+function normalizarNomeProfessor(texto: string): string {
     return texto
+        .replace(/^\d+\s*\.\s*/, '') // Remove prefixo como "1." ou "2."
+        .replace(/\./g, ' ') // Troca pontos por espaços ("Arthur.Sarquis" -> "Arthur Sarquis")
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
+}
+
+async function realizarLogin(page: Page, baseUrl: string, email: string, senha: string) {
+    const destinoInicial = `${baseUrl}/painel/mapa-agenda`;
+    console.log(`[LOGIN] Acedendo a ${destinoInicial}...`);
+
+    await page.goto(destinoInicial, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(3000);
+
+    if (page.url().includes('/painel/mapa-agenda')) {
+        console.log('[LOGIN] Sessão já autenticada.');
+        return;
+    }
+
+    console.log(`[LOGIN] Redirecionado para tela de acesso: ${page.url()}`);
+
+    // Procura campos visíveis na página principal ou dentro de iframes
+    let contextoLogin = page.mainFrame();
+    for (const frame of page.frames()) {
+        const temSenha = await frame
+            .locator('input[type="password"]')
+            .count()
+            .catch(() => 0);
+        if (temSenha > 0) {
+            contextoLogin = frame;
+            break;
+        }
+    }
+
+    const campoSenha = contextoLogin.locator('input[type="password"]').first();
+    await campoSenha.waitFor({ state: 'visible', timeout: 30000 });
+
+    const campoEmail = contextoLogin
+        .locator(
+            'input:not([type="password"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"])'
+        )
+        .first();
+
+    await campoEmail.fill(email);
+    await campoSenha.fill(senha);
+
+    const botaoEntrar = contextoLogin
+        .locator(
+            'button[type="submit"], button:has-text("Entrar"), button:has-text("Acessar"), button:has-text("Login")'
+        )
+        .first();
+
+    if (await botaoEntrar.isVisible().catch(() => false)) {
+        await botaoEntrar.click();
+    } else {
+        await campoSenha.press('Enter');
+    }
+
+    await page.waitForURL((url) => url.pathname.includes('/painel'), {
+        timeout: 30000,
+    });
+
+    console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
 }
 
 async function main() {
@@ -48,7 +108,7 @@ async function main() {
     const clinCareBaseUrl = (process.env.CLINCARE_URL || 'https://app.clin.care')
         .trim()
         .replace(/^['"]+|['"]+$/g, '')
-        .replace(/\/login\/?$/i, '')
+        .replace(/\/(login|painel.*)$/i, '')
         .replace(/\/$/, '');
 
     const clinCareEmail = (process.env.CLINCARE_EMAIL || '')
@@ -91,172 +151,126 @@ async function main() {
         return;
     }
 
+    const professoresBanco = (await sql`
+    SELECT id, nome, clin_care_id, unidade_id
+    FROM professores
+    WHERE ativo = true
+  `) as ProfessorRow[];
+
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
-        viewport: { width: 1440, height: 900 },
+        viewport: { width: 3200, height: 1400 },
+        userAgent:
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         locale: 'pt-BR',
         timezoneId: 'America/Bahia',
     });
     const page = await context.newPage();
 
     try {
-        const loginUrl = `${clinCareBaseUrl}/login`;
-        console.log(`[LOGIN] Acedendo a ${loginUrl}...`);
-        await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-        // Aguarda os campos do formulário ficarem visíveis no ecrã
-        await page.locator('input:visible').first().waitFor({ timeout: 20000 });
-
-        const inputsVisiveis = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('input')).map((el) => ({
-                type: el.type,
-                name: el.name,
-                id: el.id,
-                placeholder: el.placeholder,
-                visible: el.offsetParent !== null,
-            }));
-        });
-        console.log('[LOGIN] Campos detetados no ecrã:', JSON.stringify(inputsVisiveis));
-
-        const campoSenha = page.locator('input[type="password"]:visible').first();
-        const campoUsuario = page
-            .locator(
-                'input:not([type="password"]):not([type="hidden"]):not([type="checkbox"]):visible'
-            )
-            .first();
-
-        await campoUsuario.fill(clinCareEmail);
-        await campoSenha.fill(clinCarePassword);
-
-        const botaoEntrar = page
-            .locator(
-                'button[type="submit"]:visible, button:has-text("Entrar"):visible, button:has-text("Acessar"):visible, button:has-text("Login"):visible'
-            )
-            .first();
-
-        if (await botaoEntrar.isVisible().catch(() => false)) {
-            await botaoEntrar.click();
-        } else {
-            await campoSenha.press('Enter');
-        }
-
-        // Aguarda até 15 segundos para sair da rota /login
-        await page
-            .waitForURL((url) => !url.pathname.toLowerCase().includes('/login'), {
-                timeout: 15000,
-            })
-            .catch(() => null);
-
-        await page.waitForTimeout(2000);
-        console.log(`[LOGIN] URL após submeter: ${page.url()}`);
-
-        if (page.url().toLowerCase().includes('/login')) {
-            const textoErro = await page.evaluate(() => {
-                const textos = Array.from(
-                    document.querySelectorAll('[role="alert"], .alert, .error, .toast, p, span')
-                )
-                    .map((el) => el.textContent?.trim() || '')
-                    .filter((t) => t.length > 3 && t.length < 140);
-                return Array.from(new Set(textos)).slice(0, 8);
-            });
-            console.log(
-                '[LOGIN] Permaneceu em /login. Mensagens visíveis no ecrã:',
-                JSON.stringify(textoErro)
-            );
-            return;
-        }
-
-        // Lista os links disponíveis no painel autenticado para localizar o Mapa de Agenda
-        const linksMenu = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('a[href]')).map((a) => ({
-                texto: (a.textContent || '').trim(),
-                href: a.getAttribute('href') || '',
-            }));
-        });
-        console.log('[MENU] Rotas encontradas:', JSON.stringify(linksMenu.slice(0, 25)));
-
-        const linkMapa = page
-            .locator(
-                'a:has-text("Mapa de Agenda"), button:has-text("Mapa de Agenda"), a[href*="mapa" i], a[href*="agenda" i]'
-            )
-            .first();
-
-        if (await linkMapa.isVisible({ timeout: 8000 }).catch(() => false)) {
-            await linkMapa.click();
-            await page.waitForTimeout(3000);
-            console.log(`[MAPA] Navegou para: ${page.url()}`);
-        }
-
-        const professoresBanco = (await sql`
-      SELECT id, nome, clin_care_id, unidade_id
-      FROM professores
-      WHERE ativo = true
-    `) as ProfessorRow[];
-
-        console.log(`[BANCO] Professores ativos cadastrados: ${professoresBanco.length}`);
+        await realizarLogin(page, clinCareBaseUrl, clinCareEmail, clinCarePassword);
 
         for (const unidade of unidades) {
             for (const itemData of datas) {
-                console.log(
-                    `[SYNC] Lendo ${unidade.nome} (${unidade.clin_care_id}) | ${itemData.data}...`
-                );
+                const urlMapa = `${clinCareBaseUrl}/painel/mapa-agenda?date=${itemData.data}&unitId=${unidade.clin_care_id}`;
+                console.log(`[SYNC] Abrindo ${unidade.nome} | ${itemData.data}...`);
 
-                const bloqueiosExtraidos: BloqueioExtraido[] = [];
-                const urlsJsonDetectadas: string[] = [];
+                await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                await page.waitForTimeout(4500);
 
-                const listener = async (response: import('playwright').Response) => {
-                    const url = response.url();
-                    const contentType = response.headers()['content-type'] || '';
-                    if (response.status() === 200 && contentType.includes('application/json')) {
-                        urlsJsonDetectadas.push(url);
-                        try {
-                            const dados = await response.json();
-                            const lista = Array.isArray(dados)
-                                ? dados
-                                : Array.isArray(dados?.data)
-                                    ? dados.data
-                                    : Array.isArray(dados?.agendamentos)
-                                        ? dados.agendamentos
-                                        : [];
+                // Extrai as colunas dos professores e os cartões de horário/bloqueio pela posição na grelha
+                const resultado = await page.evaluate(() => {
+                    const colunas: { nome: string; left: number; right: number }[] = [];
 
-                            for (const item of lista) {
-                                const horaIni = String(
-                                    item.hora_inicio || item.horaInicio || item.start || ''
-                                ).slice(0, 5);
-                                const horaFim = String(
-                                    item.hora_fim || item.horaFim || item.end || ''
-                                ).slice(0, 5);
-                                const nomeProf = String(
-                                    item.profissional_nome ||
-                                    item.profissional?.nome ||
-                                    item.professor ||
-                                    ''
-                                ).trim();
-                                const idProf = item.profissional_id || item.profissional?.id || null;
+                    // Localiza os cabeçalhos de cada coluna (ex: "1.Arthur.Sarquis\nAulas")
+                    const elementos = Array.from(document.querySelectorAll('div, header, th'));
+                    for (const el of elementos) {
+                        const texto = (el as HTMLElement).innerText?.trim() || '';
+                        const linhas = texto
+                            .split('\n')
+                            .map((l) => l.trim())
+                            .filter(Boolean);
 
-                                if (horaIni && horaFim && (nomeProf || idProf)) {
-                                    bloqueiosExtraidos.push({
-                                        clinCareProfId: idProf ? String(idProf) : undefined,
-                                        nomeProfessor: nomeProf,
-                                        horaInicio: horaIni,
-                                        horaFim: horaFim,
-                                        motivo: 'Ocupado no clin.care',
+                        if (
+                            linhas.length >= 2 &&
+                            linhas.length <= 4 &&
+                            linhas[1] === 'Aulas' &&
+                            linhas[0].length >= 3 &&
+                            linhas[0].length <= 50
+                        ) {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width >= 100 && rect.width <= 450 && rect.height >= 40) {
+                                const jaExiste = colunas.some(
+                                    (c) => Math.abs(c.left - rect.left) < 25
+                                );
+                                if (!jaExiste) {
+                                    colunas.push({
+                                        nome: linhas[0],
+                                        left: rect.left,
+                                        right: rect.right,
                                     });
                                 }
                             }
-                        } catch {
-                            // Ignora respostas JSON não estruturadas
                         }
                     }
-                };
 
-                page.on('response', listener);
-                await page.waitForTimeout(3000);
-                page.off('response', listener);
+                    colunas.sort((a, b) => a.left - b.left);
+
+                    // Localiza todos os blocos horários na grelha (ex: "08:30 - 20:30\nBLOQUEIO\n...")
+                    const regexHorario = /^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
+                    const blocos: BloqueioGrade[] = [];
+                    const assinaturasVistas = new Set<string>();
+
+                    const todosNos = Array.from(document.querySelectorAll('div, article, section'));
+                    for (const no of todosNos) {
+                        const texto = (no as HTMLElement).innerText?.trim() || '';
+                        const match = texto.match(regexHorario);
+                        if (!match) continue;
+
+                        const rect = no.getBoundingClientRect();
+                        if (rect.width < 60 || rect.width > 450 || rect.height < 18) continue;
+
+                        const centroX = rect.left + rect.width / 2;
+                        const colunaDona = colunas.find(
+                            (c) => centroX >= c.left - 10 && centroX <= c.right + 10
+                        );
+                        if (!colunaDona) continue;
+
+                        const horaInicio = match[1];
+                        let horaFim = match[2];
+                        // Se terminar após a meia-noite (ex: "14:00 - 02:00"), limita até 23:59 no dia
+                        if (horaFim <= horaInicio) {
+                            horaFim = '23:59';
+                        }
+
+                        const linhasTexto = texto
+                            .split('\n')
+                            .map((l) => l.trim())
+                            .filter((l) => l && l !== '.');
+                        const motivo =
+                            linhasTexto.slice(1).join(' - ').slice(0, 120) || 'Ocupado no clin.care';
+
+                        const assinatura = `${colunaDona.nome}|${horaInicio}|${horaFim}`;
+                        if (!assinaturasVistas.has(assinatura)) {
+                            assinaturasVistas.add(assinatura);
+                            blocos.push({
+                                nomeProfessorBruto: colunaDona.nome,
+                                horaInicio,
+                                horaFim,
+                                motivo,
+                            });
+                        }
+                    }
+
+                    return {
+                        nomesColunas: colunas.map((c) => c.nome),
+                        blocos,
+                    };
+                });
 
                 console.log(
-                    `[DEBUG] Endpoints JSON capturados: ${
-                        urlsJsonDetectadas.slice(0, 8).join(' | ') || 'nenhum'
+                    `[GRADE] Colunas detetadas em ${unidade.nome}: ${
+                        resultado.nomesColunas.join(', ') || 'nenhuma'
                     }`
                 );
 
@@ -267,22 +281,20 @@ async function main() {
         `;
 
                 let gravados = 0;
-                for (const bl of bloqueiosExtraidos) {
+                for (const bl of resultado.blocos) {
+                    const nomeNormalizado = normalizarNomeProfessor(bl.nomeProfessorBruto);
+
                     const profMatch = professoresBanco.find(
                         (p) =>
                             p.unidade_id === unidade.id &&
-                            ((bl.clinCareProfId && p.clin_care_id === bl.clinCareProfId) ||
-                                normalizarNome(p.nome) === normalizarNome(bl.nomeProfessor))
+                            normalizarNomeProfessor(p.nome) === nomeNormalizado
                     );
 
-                    if (!profMatch) continue;
-
-                    if (bl.clinCareProfId && !profMatch.clin_care_id) {
-                        await sql`
-              UPDATE professores
-              SET clin_care_id = ${bl.clinCareProfId}
-              WHERE id = ${profMatch.id}
-            `;
+                    if (!profMatch) {
+                        console.log(
+                            `[AVISO] Bloco ${bl.horaInicio}-${bl.horaFim} de "${bl.nomeProfessorBruto}" ignorado (professor não cadastrado no /admin para ${unidade.nome}).`
+                        );
+                        continue;
                     }
 
                     await sql`
@@ -309,7 +321,7 @@ async function main() {
                 }
 
                 console.log(
-                    `Concluído ${unidade.nome} (${itemData.data}): ${gravados} bloqueio(s) gravado(s) no Neon.`
+                    `Concluído ${unidade.nome} (${itemData.data}): ${resultado.blocos.length} bloco(s) lido(s), ${gravados} gravado(s) no Neon.`
                 );
             }
         }
