@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
             nome_responsavel,
             whatsapp_responsavel,
             nome_aluno,
+            colegio_aluno,
             serie_aluno,
             observacoes,
         } = body;
@@ -26,10 +27,11 @@ export async function POST(req: NextRequest) {
             !nome_responsavel?.trim() ||
             !whatsapp_responsavel?.trim() ||
             !nome_aluno?.trim() ||
+            !colegio_aluno?.trim() ||
             !serie_aluno?.trim()
         ) {
             return NextResponse.json(
-                { error: 'Preencha todos os campos obrigatórios antes de confirmar.' },
+                { error: 'Preencha todos os campos obrigatórios (incluindo colégio e série).' },
                 { status: 400 }
             );
         }
@@ -78,6 +80,7 @@ export async function POST(req: NextRequest) {
         nome_responsavel,
         whatsapp_responsavel,
         nome_aluno,
+        colegio_aluno,
         serie_aluno,
         observacoes
       )
@@ -91,6 +94,7 @@ export async function POST(req: NextRequest) {
         ${nome_responsavel.trim()},
         ${whatsapp_responsavel.trim()},
         ${nome_aluno.trim()},
+        ${colegio_aluno.trim()},
         ${serie_aluno.trim()},
         ${observacoes?.trim() || null}
       )
