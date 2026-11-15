@@ -9,7 +9,6 @@ interface Unidade {
 }
 
 interface DataLiberada {
-  id: number;
   data: string;
   data_formatada: string;
 }
@@ -56,7 +55,6 @@ export default function PaginaAgendamentoReforco() {
   const [carregando, setCarregando] = useState<boolean>(true);
   const [erroGeral, setErroGeral] = useState<string | null>(null);
 
-  // Seleção de professor e horário para agendar
   const [selecao, setSelecao] = useState<{
     professor: ProfessorDisponivel;
     slot: SlotAula;
@@ -72,10 +70,55 @@ export default function PaginaAgendamentoReforco() {
   const [comprovante, setComprovante] =
       useState<ComprovanteAgendamento | null>(null);
 
-  async function carregarDisponibilidade(
-      unId?: number,
-      dt?: string,
-      mat?: string
+  useEffect(() => {
+    let cancelado = false;
+
+    async function inicializar() {
+      try {
+        const res = await fetch('/api/disponibilidade', {
+          cache: 'no-store',
+        });
+        const json = await res.json();
+        if (cancelado) return;
+
+        if (!res.ok) {
+          setErroGeral(json.error || 'Falha ao carregar horários.');
+          return;
+        }
+
+        setUnidades(json.unidades || []);
+        setDatas(json.datas || []);
+        setMaterias(json.materias || []);
+        setProfessores(json.professores || []);
+
+        if (json.unidadeIdSelecionada) {
+          setUnidadeId(json.unidadeIdSelecionada);
+        }
+        if (json.dataSelecionada) {
+          setDataSelecionada(json.dataSelecionada);
+        }
+      } catch {
+        if (!cancelado) {
+          setErroGeral('Erro de conexão ao consultar horários disponíveis.');
+        }
+      } finally {
+        if (!cancelado) {
+          setCarregando(false);
+        }
+      }
+    }
+
+    void inicializar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  async function atualizarDisponibilidade(
+      unId: number,
+      dt: string,
+      mat: string
   ) {
     setCarregando(true);
     setErroGeral(null);
@@ -100,13 +143,6 @@ export default function PaginaAgendamentoReforco() {
       setDatas(json.datas || []);
       setMaterias(json.materias || []);
       setProfessores(json.professores || []);
-
-      if (!unId && json.unidadeIdSelecionada) {
-        setUnidadeId(json.unidadeIdSelecionada);
-      }
-      if (!dt && json.dataSelecionada) {
-        setDataSelecionada(json.dataSelecionada);
-      }
     } catch {
       setErroGeral('Erro de conexão ao consultar horários disponíveis.');
     } finally {
@@ -114,27 +150,23 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
-  useEffect(() => {
-    carregarDisponibilidade();
-  }, []);
-
   function handleTrocarUnidade(novoId: number) {
     setUnidadeId(novoId);
     setMateriaFiltro('todas');
     setSelecao(null);
-    carregarDisponibilidade(novoId, dataSelecionada, 'todas');
+    void atualizarDisponibilidade(novoId, dataSelecionada, 'todas');
   }
 
   function handleTrocarData(novaData: string) {
     setDataSelecionada(novaData);
     setSelecao(null);
-    carregarDisponibilidade(unidadeId, novaData, materiaFiltro);
+    void atualizarDisponibilidade(unidadeId, novaData, materiaFiltro);
   }
 
   function handleTrocarMateria(novaMateria: string) {
     setMateriaFiltro(novaMateria);
     setSelecao(null);
-    carregarDisponibilidade(unidadeId, dataSelecionada, novaMateria);
+    void atualizarDisponibilidade(unidadeId, dataSelecionada, novaMateria);
   }
 
   function abrirModalAgendamento(prof: ProfessorDisponivel, slot: SlotAula) {
@@ -183,7 +215,7 @@ export default function PaginaAgendamentoReforco() {
       setAlunoTelefone('');
       setResponsavelNome('');
       setObservacoes('');
-      await carregarDisponibilidade(unidadeId, dataSelecionada, materiaFiltro);
+      await atualizarDisponibilidade(unidadeId, dataSelecionada, materiaFiltro);
     } catch {
       setErroModal('Falha de rede ao enviar agendamento.');
     } finally {
@@ -200,7 +232,6 @@ export default function PaginaAgendamentoReforco() {
   return (
       <main className="min-h-screen bg-slate-950 text-slate-100">
         <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
-          {/* Cabeçalho */}
           <header className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4">
             <div>
             <span className="inline-block text-xs font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full">
@@ -215,7 +246,6 @@ export default function PaginaAgendamentoReforco() {
             </div>
           </header>
 
-          {/* Comprovante após agendar */}
           {comprovante && (
               <section className="bg-emerald-950/50 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
@@ -243,7 +273,6 @@ export default function PaginaAgendamentoReforco() {
               </section>
           )}
 
-          {/* Passo 1: Unidade e Data */}
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
@@ -284,7 +313,7 @@ export default function PaginaAgendamentoReforco() {
                       const ativa = d.data === dataSelecionada;
                       return (
                           <button
-                              key={d.id}
+                              key={d.data}
                               type="button"
                               onClick={() => handleTrocarData(d.data)}
                               className={`px-3.5 py-2 rounded-xl text-left border transition ${
@@ -306,7 +335,6 @@ export default function PaginaAgendamentoReforco() {
               )}
             </div>
 
-            {/* Passo 3: Filtro de Matéria e Busca */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
@@ -341,7 +369,6 @@ export default function PaginaAgendamentoReforco() {
             </div>
           </section>
 
-          {/* Lista de Professores e Horários de 100 min */}
           <section className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">
@@ -426,7 +453,6 @@ export default function PaginaAgendamentoReforco() {
           </section>
         </div>
 
-        {/* Modal de Confirmação de Agendamento */}
         {selecao && (
             <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
               <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
