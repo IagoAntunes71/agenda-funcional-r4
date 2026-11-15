@@ -5,6 +5,7 @@ import {
     SLOTS_FIXOS_100_MIN,
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
+import { normalizarTelefone } from '@/lib/cliente-helpers';
 
 async function garantirTabelaAgendamentos() {
     await sql`
@@ -12,12 +13,15 @@ async function garantirTabelaAgendamentos() {
       id SERIAL PRIMARY KEY,
       unidade_id INT,
       professor_id INT,
+      aluno_id INT,
       materia TEXT,
       data DATE,
       hora_inicio TIME,
       hora_fim TIME,
       aluno_nome TEXT,
       aluno_telefone TEXT,
+      colegio_nome TEXT,
+      serie TEXT,
       responsavel_nome TEXT,
       observacoes TEXT,
       status TEXT NOT NULL DEFAULT 'confirmado',
@@ -27,12 +31,15 @@ async function garantirTabelaAgendamentos() {
 
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS unidade_id INT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS professor_id INT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_id INT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS materia TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS data DATE`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_nome TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_telefone TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS colegio_nome TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS serie TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS observacoes TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'confirmado'`;
@@ -67,11 +74,14 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const unidadeId = Number(body?.unidadeId || 0);
         const professorId = Number(body?.professorId || 0);
+        const alunoId = Number(body?.alunoId || 0) || null;
         const materia = String(body?.materia || '').trim();
         const data = String(body?.data || '').trim();
         const horaInicio = String(body?.horaInicio || '').trim();
         const alunoNome = String(body?.alunoNome || '').trim();
-        const alunoTelefone = String(body?.alunoTelefone || '').trim();
+        const alunoTelefone = normalizarTelefone(String(body?.alunoTelefone || ''));
+        const colegioNome = String(body?.colegioNome || '').trim();
+        const serie = String(body?.serie || '').trim();
         const responsavelNome = String(body?.responsavelNome || '').trim();
         const observacoes = String(body?.observacoes || '').trim();
 
@@ -85,7 +95,7 @@ export async function POST(req: NextRequest) {
             !alunoTelefone
         ) {
             return NextResponse.json(
-                { error: 'Preencha todos os campos obrigatórios para confirmar a aula.' },
+                { error: 'Dados incompletos para confirmar a aula.' },
                 { status: 400 }
             );
         }
@@ -97,7 +107,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json(
                 {
                     error:
-                        'Horário inválido. As aulas de reforço seguem turnos fixos de 100 minutos entre 14:10 e 20:50.',
+                        'Horário inválido. As aulas seguem turnos fixos de 100 minutos entre 14:10 e 20:50.',
                 },
                 { status: 400 }
             );
@@ -194,12 +204,15 @@ export async function POST(req: NextRequest) {
       INSERT INTO agendamentos (
         unidade_id,
         professor_id,
+        aluno_id,
         materia,
         data,
         hora_inicio,
         hora_fim,
         aluno_nome,
         aluno_telefone,
+        colegio_nome,
+        serie,
         responsavel_nome,
         observacoes,
         status
@@ -207,12 +220,15 @@ export async function POST(req: NextRequest) {
       VALUES (
         ${unidadeId},
         ${prof.id},
+        ${alunoId},
         ${materia},
         ${data}::date,
         ${slotEscolhido.inicio}::time,
         ${slotEscolhido.fim}::time,
         ${alunoNome},
         ${alunoTelefone},
+        ${colegioNome || null},
+        ${serie || null},
         ${responsavelNome || null},
         ${observacoes || null},
         'confirmado'
@@ -235,6 +251,8 @@ export async function POST(req: NextRequest) {
                     data,
                     horario: slotEscolhido.label,
                     alunoNome,
+                    colegioNome,
+                    serie,
                 },
             },
             { status: 201 }
