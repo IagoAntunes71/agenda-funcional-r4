@@ -33,6 +33,9 @@ interface BloqueioGrade {
     motivo: string;
 }
 
+const HORA_INICIO_PADRAO = '14:10';
+const HORA_FIM_PADRAO = '20:50';
+
 function normalizarTexto(texto: string): string {
     return texto
         .replace(/^(\d+\s*\.\s*)+/, '')
@@ -82,12 +85,13 @@ function limparNomeMateria(servicoBruto: string): string {
         .trim();
 }
 
-async function ajustarEMesclarProfessoresBanco(sql: NeonQueryFunction<false, false>) {
+async function ajustarBancoEHorariosPadrao(sql: NeonQueryFunction<false, false>) {
     await sql`
     ALTER TABLE professores
     DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
   `;
 
+    // Mescla professores duplicados mantendo 1 registro por clin_care_id
     await sql`
     DELETE FROM bloqueios_clincare
     WHERE professor_id IN (
@@ -118,6 +122,15 @@ async function ajustarEMesclarProfessoresBanco(sql: NeonQueryFunction<false, fal
     CREATE UNIQUE INDEX IF NOT EXISTS idx_professores_clincare_unidade
     ON professores (clin_care_id, unidade_id)
     WHERE clin_care_id IS NOT NULL
+  `;
+
+    // Garante que todos os professores sigam a grade fixa 14:10 às 20:50
+    await sql`
+    UPDATE professores
+    SET hora_inicio = ${HORA_INICIO_PADRAO}::time,
+        hora_fim = ${HORA_FIM_PADRAO}::time
+    WHERE hora_inicio IS DISTINCT FROM ${HORA_INICIO_PADRAO}::time
+       OR hora_fim IS DISTINCT FROM ${HORA_FIM_PADRAO}::time
   `;
 }
 
@@ -364,7 +377,6 @@ async function descobrirTodosProfissionais(
 async function lerMateriasDeServicosEValoresNaMesmaAba(
     workerPage: Page
 ): Promise<string[]> {
-    // Obtém o href do cartão "Serviços e Valores" ou remove target="_blank" para abrir na própria aba
     const hrefServicos = await workerPage.evaluate(() => {
         const links = Array.from(document.querySelectorAll('main a'));
         const alvo = links.find((a) =>
@@ -524,7 +536,9 @@ async function processarUmProfessor(
         UPDATE professores
         SET nome = ${nomeLimpo},
             clin_care_id = ${item.clin_care_id},
-            materias = ${materiasFinais}::text[]
+            materias = ${materiasFinais}::text[],
+            hora_inicio = ${HORA_INICIO_PADRAO}::time,
+            hora_fim = ${HORA_FIM_PADRAO}::time
         WHERE clin_care_id = ${item.clin_care_id}
            OR lower(trim(nome)) = lower(trim(${nomeLimpo}))
       `;
@@ -549,8 +563,8 @@ async function processarUmProfessor(
           ${item.clin_care_id},
           ${unidadePadrao.id},
           ${materiasFinais}::text[],
-          '08:00'::time,
-          '20:00'::time,
+          ${HORA_INICIO_PADRAO}::time,
+          ${HORA_FIM_PADRAO}::time,
           true
         )
       `;
@@ -689,7 +703,7 @@ async function main() {
     }
 
     const sql = neon(databaseUrl);
-    await ajustarEMesclarProfessoresBanco(sql);
+    await ajustarBancoEHorariosPadrao(sql);
 
     const unidades = (await sql`
     SELECT id, nome, clin_care_id
@@ -754,7 +768,7 @@ async function main() {
                     .catch(() => null);
 
                 await agendaPage
-                    .locator('text="08:00"')
+                    .locator('text="14:00", text="08:00"')
                     .first()
                     .waitFor({ state: 'visible', timeout: 15000 })
                     .catch(() => null);
@@ -812,7 +826,8 @@ async function main() {
 
                     colunas.sort((a, b) => a.left - b.left);
 
-                    const regexHorario = /^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
+                    // Captura tanto agendamentos ("14:10 - 15:50\nAluno") quanto bloqueios ("BLOQUEIO\n14:10 - 17:30")
+                    const regexIntervalo = /(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
                     const blocos: BloqueioGrade[] = [];
                     const assinaturasVistas = new Set<string>();
 
@@ -822,11 +837,28 @@ async function main() {
 
                     for (const no of candidatosBloco) {
                         const texto = (no as HTMLElement).innerText?.trim() || '';
-                        const match = texto.match(regexHorario);
+                        if (!texto || texto.length > 350) continue;
+
+                        const linhasTexto = texto
+                            .split('\n')
+                            .map((l) => l.trim())
+                            .filter((l) => l && l !== '.');
+
+                        // Garante que estamos no cartão específico (e não num container pai com vários cartões)
+                        if (linhasTexto.length === 0 || linhasTexto.length > 8) continue;
+
+                        const linhaComHorario = linhasTexto
+                            .slice(0, 3)
+                            .find((l) => regexIntervalo.test(l));
+                        if (!linhaComHorario) continue;
+
+                        const match = linhaComHorario.match(regexIntervalo);
                         if (!match) continue;
 
                         const rect = no.getBoundingClientRect();
-                        if (rect.width < 60 || rect.width > 450 || rect.height < 16) continue;
+                        if (rect.width < 60 || rect.width > 450 || rect.height < 16 || rect.height > 1400) {
+                            continue;
+                        }
 
                         const centroX = rect.left + rect.width / 2;
                         const colunaDona = colunas.find(
@@ -840,12 +872,15 @@ async function main() {
                             horaFim = '23:59';
                         }
 
-                        const linhasTexto = texto
-                            .split('\n')
-                            .map((l) => l.trim())
-                            .filter((l) => l && l !== '.');
-                        const motivo =
-                            linhasTexto.slice(1).join(' - ').slice(0, 120) || 'Ocupado no clin.care';
+                        const ehBloqueioManual = linhasTexto.some((l) => /bloqueio/i.test(l));
+                        const detalhes = linhasTexto
+                            .filter((l) => l !== linhaComHorario)
+                            .join(' - ')
+                            .slice(0, 120);
+
+                        const motivo = ehBloqueioManual
+                            ? `BLOQUEIO${detalhes ? ` - ${detalhes}` : ''}`
+                            : detalhes || 'Ocupado no clin.care';
 
                         const assinatura = `${colunaDona.nome}|${horaInicio}|${horaFim}`;
                         if (!assinaturasVistas.has(assinatura)) {
@@ -902,7 +937,7 @@ async function main() {
                 }
 
                 console.log(
-                    `Concluído ${unidade.nome} (${itemData.data}): ${resultado.blocos.length} bloco(s) lido(s), ${gravados} gravado(s) no Neon.`
+                    `Concluído ${unidade.nome} (${itemData.data}): ${resultado.blocos.length} bloco(s)/aula(s) lido(s), ${gravados} gravado(s) no Neon.`
                 );
             }
         }

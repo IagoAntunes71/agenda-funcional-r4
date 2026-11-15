@@ -91,8 +91,8 @@ async function carregarDadosAgrupados() {
                 nome: r.nome,
                 unidades_ids: [r.unidade_id],
                 materias: Array.isArray(r.materias) ? r.materias : [],
-                hora_inicio: r.hora_inicio || '08:00',
-                hora_fim: r.hora_fim || '20:00',
+                hora_inicio: r.hora_inicio || '14:10',
+                hora_fim: r.hora_fim || '20:50',
                 ativo: r.ativo,
                 registros_ids: [r.id],
             });
@@ -190,15 +190,15 @@ export async function POST(req: NextRequest) {
                 ? modelo.materias
                 : ['Reforço Geral'];
 
-            // Atualiza o registro principal com a primeira unidade selecionada
             const primeiraUnidade = unidadesIds[0];
             await sql`
         UPDATE professores
-        SET unidade_id = ${primeiraUnidade}
+        SET unidade_id = ${primeiraUnidade},
+            hora_inicio = '14:10'::time,
+            hora_fim = '20:50'::time
         WHERE id = ${modelo.id}
       `;
 
-            // Remove outros registros desse professor que não estão mais selecionados
             const outrosIds = baseRows.slice(1).map((r) => r.id);
             if (outrosIds.length > 0) {
                 await sql`
@@ -211,7 +211,6 @@ export async function POST(req: NextRequest) {
         `;
             }
 
-            // Cria registros adicionais somente se o usuário selecionou 2 ou mais unidades
             for (const extraUnidadeId of unidadesIds.slice(1)) {
                 await sql`
           INSERT INTO professores (
@@ -228,8 +227,8 @@ export async function POST(req: NextRequest) {
             ${modelo.clin_care_id},
             ${extraUnidadeId},
             ${materiasModelo}::text[],
-            ${modelo.hora_inicio}::time,
-            ${modelo.hora_fim}::time,
+            '14:10'::time,
+            '20:50'::time,
             ${modelo.ativo}
           )
         `;
