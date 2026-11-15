@@ -74,6 +74,19 @@ function limparNomeExibicao(bruto: string): string {
         .trim();
 }
 
+async function ajustarRestricaoBanco(sql: NeonQueryFunction<false, false>) {
+    // Permite que o mesmo professor (mesmo clin_care_id) atenda em múltiplas unidades
+    await sql`
+    ALTER TABLE professores
+    DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
+  `;
+    await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_professores_clincare_unidade
+    ON professores (clin_care_id, unidade_id)
+    WHERE clin_care_id IS NOT NULL
+  `;
+}
+
 async function realizarLogin(
     page: Page,
     baseUrl: string,
@@ -141,29 +154,39 @@ async function descobrirTodosProfissionais(
     console.log(`[DISCOVERY] Varrendo lista de profissionais em ${urlLista}...`);
 
     const idsEncontrados = new Set<string>();
+    const urlsApiVistas: string[] = [];
     const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    const extrairDeJson = (valor: unknown) => {
+    const extrairDeJson = (valor: unknown, urlOrigem: string) => {
         if (!valor) return;
         if (Array.isArray(valor)) {
-            for (const item of valor) extrairDeJson(item);
+            for (const item of valor) extrairDeJson(item, urlOrigem);
             return;
         }
         if (typeof valor === 'object') {
             const obj = valor as Record<string, unknown>;
-            const temNome =
-                typeof obj.nome === 'string' ||
-                typeof obj.name === 'string' ||
-                typeof obj.full_name === 'string' ||
-                typeof obj.fullName === 'string';
+            const ehEndpointProf = /(profission|user|colaborador|equipe|staff|member)/i.test(
+                urlOrigem
+            );
 
-            if (temNome && typeof obj.id === 'string' && uuidRegex.test(obj.id)) {
-                idsEncontrados.add(obj.id.toLowerCase());
+            if (ehEndpointProf && typeof obj.id === 'string' && uuidRegex.test(obj.id)) {
+                const temIdentificadorPessoa =
+                    typeof obj.nome === 'string' ||
+                    typeof obj.name === 'string' ||
+                    typeof obj.full_name === 'string' ||
+                    typeof obj.fullName === 'string' ||
+                    typeof obj.email === 'string' ||
+                    typeof obj.user === 'object';
+
+                if (temIdentificadorPessoa) {
+                    idsEncontrados.add(obj.id.toLowerCase());
+                }
             }
+
             for (const val of Object.values(obj)) {
                 if (typeof val === 'object' && val !== null) {
-                    extrairDeJson(val);
+                    extrairDeJson(val, urlOrigem);
                 }
             }
         }
@@ -171,10 +194,12 @@ async function descobrirTodosProfissionais(
 
     const listener = async (res: import('playwright').Response) => {
         try {
+            const url = res.url();
             const ct = res.headers()['content-type'] || '';
             if (res.status() === 200 && ct.includes('application/json')) {
+                urlsApiVistas.push(url);
                 const json = await res.json();
-                extrairDeJson(json);
+                extrairDeJson(json, url);
             }
         } catch {
             // Ignora JSON inválido
@@ -185,11 +210,15 @@ async function descobrirTodosProfissionais(
     await page.goto(urlLista, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => null);
     await page.waitForTimeout(3000);
 
-    for (let pagina = 1; pagina <= 20; pagina++) {
+    for (let pagina = 1; pagina <= 25; pagina++) {
+        // Rola até o final da página para carregar listas virtuais / lazy loading
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await page.waitForTimeout(1000);
+
         const linksPagina = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('a[href*="/profissionais/"]'))
+            return Array.from(document.querySelectorAll('a[href]'))
                 .map((a) => a.getAttribute('href') || '')
-                .filter(Boolean);
+                .filter((h) => h.includes('/profissionais/'));
         });
 
         const tamanhoAntes = idsEncontrados.size;
@@ -204,7 +233,7 @@ async function descobrirTodosProfissionais(
 
         const botaoProxima = page
             .locator(
-                'button:has-text("Próxima"):not([disabled]), button:has-text("Próximo"):not([disabled]), button[aria-label*="next" i]:not([disabled]), a:has-text("Próxima")'
+                'button:has-text("Próxima"):not([disabled]), button:has-text("Próximo"):not([disabled]), button[aria-label*="next" i]:not([disabled]), button[aria-label*="próxim" i]:not([disabled]), a:has-text("Próxima")'
             )
             .first();
 
@@ -220,6 +249,13 @@ async function descobrirTodosProfissionais(
     page.off('response', listener);
 
     console.log(`[DISCOVERY] Total de IDs encontrados: ${idsEncontrados.size}`);
+    if (idsEncontrados.size <= 1) {
+        console.log(
+            `[DISCOVERY][DEBUG] Endpoints JSON vistos: ${
+                urlsApiVistas.slice(0, 8).join(' | ') || 'nenhum'
+            }`
+        );
+    }
 
     for (const uuid of idsEncontrados) {
         await sql`
@@ -232,6 +268,16 @@ async function descobrirTodosProfissionais(
         atualizado_em = now()
     `;
     }
+
+    // Reenfileira itens anteriores que haviam dado erro
+    await sql`
+    UPDATE importacao_profissionais_clincare
+    SET status = 'pendente',
+        mensagem = 'Reenfileirado após ajuste de índice multi-unidade',
+        atualizado_em = now()
+    WHERE clin_care_id <> '__TODOS__'
+      AND status = 'erro'
+  `;
 
     await sql`
     UPDATE importacao_profissionais_clincare
@@ -283,6 +329,7 @@ async function importarProfessoresPendentes(
     const nomesUnidades = unidades.map((u) => ({
         id: u.id,
         nome: u.nome,
+        clinCareId: u.clin_care_id.toLowerCase(),
         norm: normalizarTexto(u.nome),
     }));
 
@@ -291,13 +338,13 @@ async function importarProfessoresPendentes(
         console.log(`[IMPORT] Abrindo perfil ${urlPerfil}...`);
 
         try {
-            const payloadsJson: unknown[] = [];
+            const payloadsJson: { url: string; data: unknown }[] = [];
             const listenerJson = async (res: import('playwright').Response) => {
                 try {
                     const ct = res.headers()['content-type'] || '';
                     if (res.status() === 200 && ct.includes('application/json')) {
                         const json = await res.json();
-                        payloadsJson.push(json);
+                        payloadsJson.push({ url: res.url(), data: json });
                     }
                 } catch {
                     // Ignora respostas não JSON
@@ -329,13 +376,17 @@ async function importarProfessoresPendentes(
 
                 const nomeBruto = (inputNome?.value || heading || '').trim();
 
+                // Verifica checkboxes marcados ou switches ativos com nome da unidade
                 const unidadesEncontradas = new Set<string>();
                 const checkboxesMarcados = Array.from(
-                    document.querySelectorAll('input[type="checkbox"]:checked')
+                    document.querySelectorAll(
+                        'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], [role="switch"][aria-checked="true"]'
+                    )
                 );
                 for (const cb of checkboxesMarcados) {
-                    const label =
-                        cb.closest('label')?.innerText || cb.parentElement?.innerText || '';
+                    const container =
+                        cb.closest('label') || cb.parentElement?.parentElement || cb.parentElement;
+                    const label = (container as HTMLElement)?.innerText || '';
                     for (const u of listaUnidades) {
                         if (label.toLowerCase().includes(u.norm)) {
                             unidadesEncontradas.add(u.nome);
@@ -343,42 +394,27 @@ async function importarProfessoresPendentes(
                     }
                 }
 
-                if (unidadesEncontradas.size === 0) {
-                    const blocosTexto = Array.from(
-                        document.querySelectorAll('span, div, li, button, option:checked')
-                    )
-                        .map((el) => (el as HTMLElement).innerText?.trim() || '')
-                        .filter((t) => t.length >= 4 && t.length <= 45);
-
-                    for (const txt of blocosTexto) {
-                        for (const u of listaUnidades) {
-                            if (txt.toLowerCase().includes(u.norm)) {
-                                unidadesEncontradas.add(u.nome);
-                            }
-                        }
-                    }
-                }
-
+                // Extrai matérias/especialidades apenas de itens selecionados/marcados
                 const materiasSet = new Set<string>();
                 const secoes = Array.from(document.querySelectorAll('section, div, fieldset'));
                 for (const sec of secoes) {
                     const titulo = sec.querySelector('h2, h3, h4, label, legend');
                     const tituloTxt = (titulo?.textContent || '').trim();
-                    if (/(especialidade|mat[eé]ria|disciplina|servi[cç]o|cargo)/i.test(tituloTxt)) {
-                        const tags = Array.from(
+                    if (/(especialidade|mat[eé]ria|disciplina|servi[cç]o)/i.test(tituloTxt)) {
+                        const marcados = Array.from(
                             sec.querySelectorAll(
-                                'span, li, option:checked, input[type="checkbox"]:checked'
+                                'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], option:checked'
                             )
                         );
-                        for (const tag of tags) {
+                        for (const tag of marcados) {
                             const val =
-                                tag.tagName === 'INPUT'
-                                    ? (
+                                tag.tagName === 'OPTION'
+                                    ? (tag.textContent || '').trim()
+                                    : (
                                         tag.closest('label')?.innerText ||
                                         tag.parentElement?.innerText ||
                                         ''
-                                    ).trim()
-                                    : (tag.textContent || '').trim();
+                                    ).trim();
 
                             if (
                                 val.length >= 3 &&
@@ -394,36 +430,60 @@ async function importarProfessoresPendentes(
                 }
 
                 return {
-                    urlAtual: window.location.href,
                     nomeBruto,
                     unidades: Array.from(unidadesEncontradas),
                     materias: Array.from(materiasSet),
-                    amostraTexto: (document.body.innerText || '')
-                        .replace(/\s+/g, ' ')
-                        .slice(0, 260),
                 };
             }, nomesUnidades);
 
+            // Complementa usando especificamente o payload JSON do próprio profissional
             let nomeApi = '';
             const unidadesApi = new Set<string>(dadosPerfil.unidades);
             const materiasApi = new Set<string>(dadosPerfil.materias);
 
-            const textoJson = JSON.stringify(payloadsJson);
-            for (const u of nomesUnidades) {
-                if (textoJson.toLowerCase().includes(u.norm)) {
-                    unidadesApi.add(u.nome);
-                }
-            }
-
             for (const payload of payloadsJson) {
+                if (!payload.url.includes(item.clin_care_id)) continue;
+
+                const root = payload.data as { data?: Record<string, unknown> } | Record<string, unknown>;
                 const obj =
-                    (payload as { data?: Record<string, unknown> })?.data ||
-                    (payload as Record<string, unknown>);
+                    root && typeof root === 'object' && 'data' in root && root.data && typeof root.data === 'object'
+                        ? (root.data as Record<string, unknown>)
+                        : (root as Record<string, unknown>);
+
                 if (obj && typeof obj === 'object') {
                     const candidatoNome = obj.nome || obj.name || obj.full_name || obj.fullName;
                     if (typeof candidatoNome === 'string' && candidatoNome.trim().length >= 3) {
                         nomeApi = candidatoNome.trim();
                     }
+
+                    const listaUn = obj.unidades || obj.units || obj.clinicas || obj.locations;
+                    if (Array.isArray(listaUn)) {
+                        for (const unItem of listaUn) {
+                            const idUn =
+                                typeof unItem === 'string'
+                                    ? unItem.toLowerCase()
+                                    : String(
+                                        (unItem as { id?: string; unitId?: string })?.id ||
+                                        (unItem as { id?: string; unitId?: string })?.unitId ||
+                                        ''
+                                    ).toLowerCase();
+                            const nomeUn =
+                                typeof unItem === 'string'
+                                    ? unItem.toLowerCase()
+                                    : String(
+                                        (unItem as { nome?: string; name?: string })?.nome ||
+                                        (unItem as { nome?: string; name?: string })?.name ||
+                                        ''
+                                    ).toLowerCase();
+
+                            for (const u of nomesUnidades) {
+                                if (idUn === u.clinCareId || (nomeUn && nomeUn.includes(u.norm))) {
+                                    unidadesApi.add(u.nome);
+                                }
+                            }
+                        }
+                    }
+
                     const listaEsp =
                         obj.especialidades || obj.specialties || obj.servicos || obj.services;
                     if (Array.isArray(listaEsp)) {
@@ -444,9 +504,6 @@ async function importarProfessoresPendentes(
             const nomeLimpo = limparNomeExibicao(dadosPerfil.nomeBruto || nomeApi);
 
             if (!nomeLimpo) {
-                console.log(
-                    `[IMPORT][DEBUG] Sem nome em ${dadosPerfil.urlAtual}. Texto da tela: ${dadosPerfil.amostraTexto}`
-                );
                 await sql`
           UPDATE importacao_profissionais_clincare
           SET status = 'erro',
@@ -579,6 +636,7 @@ async function main() {
     }
 
     const sql = neon(databaseUrl);
+    await ajustarRestricaoBanco(sql);
 
     const unidades = (await sql`
     SELECT id, nome, clin_care_id
