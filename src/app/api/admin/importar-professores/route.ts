@@ -66,7 +66,23 @@ export async function POST(req: NextRequest) {
         await garantirTabelaImportacao();
         const body = await req.json();
 
-        // Modo 1: Enfileirar varredura completa de /painel/profissionais
+        if (body?.reimportarMaterias === true) {
+            await sql`
+        UPDATE importacao_profissionais_clincare
+        SET status = 'pendente',
+            mensagem = 'Aguardando leitura de Serviços e Valores',
+            atualizado_em = now()
+        WHERE clin_care_id <> '__TODOS__'
+      `;
+
+            const itens = await listarItens();
+            return NextResponse.json({
+                sucesso: true,
+                reimportar: true,
+                itens,
+            });
+        }
+
         if (body?.descobrirTodos === true) {
             await sql`
         INSERT INTO importacao_profissionais_clincare (
@@ -98,7 +114,6 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // Modo 2: Lista manual de UUIDs
         const textoBruto = String(body?.ids || '').trim();
         const uuids =
             textoBruto.match(

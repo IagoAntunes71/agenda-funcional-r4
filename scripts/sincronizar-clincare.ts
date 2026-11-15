@@ -74,11 +74,47 @@ function limparNomeExibicao(bruto: string): string {
         .trim();
 }
 
-async function ajustarRestricaoBanco(sql: NeonQueryFunction<false, false>) {
+function limparNomeMateria(servicoBruto: string): string {
+    return servicoBruto
+        .replace(/\s+\d+\s*(?:['′"]|min(?:utos?)?)?\s*(?:x\b.*)?$/i, '')
+        .replace(/\s+-\s+.*$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+async function ajustarEMesclarProfessoresBanco(sql: NeonQueryFunction<false, false>) {
     await sql`
     ALTER TABLE professores
     DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
   `;
+
+    // Mescla professores duplicados (mantém apenas 1 registro por clin_care_id)
+    await sql`
+    DELETE FROM bloqueios_clincare
+    WHERE professor_id IN (
+      SELECT p.id
+      FROM professores p
+      WHERE p.clin_care_id IS NOT NULL
+        AND p.id NOT IN (
+          SELECT MIN(id)
+          FROM professores
+          WHERE clin_care_id IS NOT NULL
+          GROUP BY clin_care_id
+        )
+    )
+  `;
+
+    await sql`
+    DELETE FROM professores
+    WHERE clin_care_id IS NOT NULL
+      AND id NOT IN (
+        SELECT MIN(id)
+        FROM professores
+        WHERE clin_care_id IS NOT NULL
+        GROUP BY clin_care_id
+      )
+  `;
+
     await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_professores_clincare_unidade
     ON professores (clin_care_id, unidade_id)
@@ -147,7 +183,6 @@ function extrairParesIdNomeDeTexto(texto: string): Map<string, string> {
     const pares = new Map<string, string>();
     const textoDesescapado = texto.replace(/\\"/g, '"');
 
-    // Padrão 1: "id":"uuid" seguido de "nome":"..." ou "name":"..."
     const regexIdAntes =
         /"id"\s*:\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"[^{}]{0,250}?"(?:nome|name|fullName|full_name)"\s*:\s*"([^"]{2,80})"/gi;
     let m: RegExpExecArray | null;
@@ -155,7 +190,6 @@ function extrairParesIdNomeDeTexto(texto: string): Map<string, string> {
         pares.set(m[1].toLowerCase(), m[2].trim());
     }
 
-    // Padrão 2: "nome":"..." seguido de "id":"uuid"
     const regexNomeAntes =
         /"(?:nome|name|fullName|full_name)"\s*:\s*"([^"]{2,80})"[^{}]{0,250}?"id"\s*:\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/gi;
     while ((m = regexNomeAntes.exec(textoDesescapado)) !== null) {
@@ -208,7 +242,6 @@ async function descobrirTodosProfissionais(
     await page.goto(urlLista, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => null);
     await page.waitForTimeout(3000);
 
-    // Tenta selecionar 100 ou 50 itens por página, se disponível
     const selectPagina = page
         .locator('select:has(option[value="50"]), select:has(option[value="100"])')
         .first();
@@ -227,7 +260,6 @@ async function descobrirTodosProfissionais(
             paresPayloadGlobal.set(uuid, nome);
         }
 
-        // Coleta apenas os textos e links visíveis dentro da área principal (<main>) de /painel/profissionais
         const dadosVisiveisMain = await page.evaluate(() => {
             const main = document.querySelector('main') || document.body;
             const linksProf = Array.from(main.querySelectorAll('a[href*="/profissionais/"]'))
@@ -246,7 +278,6 @@ async function descobrirTodosProfissionais(
             };
         });
 
-        // 1. Links diretos /profissionais/{uuid} dentro de <main>
         for (const href of dadosVisiveisMain.linksProf) {
             const m = href.match(
                 /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
@@ -262,14 +293,12 @@ async function descobrirTodosProfissionais(
             }
         }
 
-        // 2. Cruza (uuid, nome) do payload APENAS com os nomes realmente visíveis dentro de <main>
         const textosVisiveisSet = new Set(
             dadosVisiveisMain.textosLinhas.map((t) => t.toLowerCase())
         );
 
         for (const [uuid, nome] of paresPayloadGlobal.entries()) {
             if (idsUnidadesIgnorar.has(uuid)) continue;
-            // Ignora registros com padrão de aluno (ex: "Fulano - 8 ano - Escola")
             if (/\s-\s*\d+[º°]?\s*(ano|semestre|s[eé]rie)/i.test(nome)) continue;
 
             if (textosVisiveisSet.has(nome.toLowerCase())) {
@@ -299,13 +328,6 @@ async function descobrirTodosProfissionais(
     console.log(
         `[DISCOVERY] Total de profissionais encontrados: ${profissionaisEncontrados.size}`
     );
-    if (profissionaisEncontrados.size > 0) {
-        console.log(
-            `[DISCOVERY] Amostra: ${Array.from(profissionaisEncontrados.values())
-                .slice(0, 10)
-                .join(', ')}`
-        );
-    }
 
     for (const [uuid, nomePrevio] of profissionaisEncontrados.entries()) {
         await sql`
@@ -340,107 +362,108 @@ async function descobrirTodosProfissionais(
   `;
 }
 
-async function extrairUnidadesEMateriasDaTela(
-    page: Page,
-    nomesUnidades: { id: number; nome: string; clinCareId: string; norm: string }[]
-) {
-    return await page.evaluate((listaUnidades) => {
-        const raiz = document.querySelector('main') || document.body;
+async function lerMateriasDeServicosEValores(
+    context: BrowserContext,
+    page: Page
+): Promise<string[]> {
+    // Procura o link ou cartão "Serviços e Valores" na ficha do profissional
+    const linkServicos = page
+        .locator(
+            'main a[aria-label*="Serviços" i], main a[href*="servico" i], main a:has-text("Serviços e Valores")'
+        )
+        .first();
 
-        const inputNome = raiz.querySelector(
-            'input[name*="nome" i], input[name*="name" i], input[placeholder*="nome" i]'
-        ) as HTMLInputElement | null;
+    const textoCard = page.locator('main :text("Serviços e Valores")').first();
 
-        const heading = Array.from(raiz.querySelectorAll('h1, h2, h3'))
-            .map((el) => (el.textContent || '').trim())
-            .find(
-                (t) =>
-                    t.length >= 3 &&
-                    t.length <= 70 &&
-                    !/^(profissionais|editar|dados|unidades|especialidades|servi[cç]os|r4 ensina|agenda|hor[aá]rios)$/i.test(
-                        t
-                    )
-            );
+    const temLink = await linkServicos.isVisible({ timeout: 1500 }).catch(() => false);
+    const temTexto =
+        temLink || (await textoCard.isVisible({ timeout: 1500 }).catch(() => false));
 
-        const nomeBruto = (inputNome?.value || heading || '').trim();
+    if (!temTexto) return [];
 
-        const unidadesEncontradas = new Set<string>();
-        const checkboxesMarcados = Array.from(
-            raiz.querySelectorAll(
-                'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], [role="switch"][aria-checked="true"]'
-            )
-        );
-        for (const cb of checkboxesMarcados) {
-            const container = cb.closest('label, tr, li, div') || cb.parentElement;
-            const texto = (container as HTMLElement)?.innerText || '';
-            for (const u of listaUnidades) {
-                if (texto.toLowerCase().includes(u.norm)) {
-                    unidadesEncontradas.add(u.nome);
-                }
-            }
-        }
+    const popupPromise = context.waitForEvent('page', { timeout: 3000 }).catch(() => null);
+    if (temLink) {
+        await linkServicos.click({ force: true }).catch(() => null);
+    } else {
+        await textoCard.click({ force: true }).catch(() => null);
+    }
 
-        if (unidadesEncontradas.size === 0) {
-            const secoes = Array.from(raiz.querySelectorAll('section, div, table, ul'));
-            for (const sec of secoes) {
-                const cabecalho = sec.querySelector('h2, h3, h4, th, legend, label');
-                const tit = (cabecalho?.textContent || '').trim();
-                if (/unidade/i.test(tit)) {
-                    const textoSecao = (sec as HTMLElement).innerText || '';
-                    for (const u of listaUnidades) {
-                        if (textoSecao.toLowerCase().includes(u.norm)) {
-                            unidadesEncontradas.add(u.nome);
+    const novaAba = await popupPromise;
+    const paginaServicos = novaAba ?? page;
+
+    try {
+        await paginaServicos
+            .locator('text="BUSCAR SERVIÇOS", text="Ativo"')
+            .first()
+            .waitFor({ state: 'visible', timeout: 8000 })
+            .catch(() => null);
+
+        await paginaServicos.waitForTimeout(1200);
+        await paginaServicos.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await paginaServicos.waitForTimeout(600);
+
+        const servicosAtivosBrutos = await paginaServicos.evaluate(() => {
+            const raiz = document.querySelector('main') || document.body;
+            const titulos: string[] = [];
+
+            // Localiza todas as etiquetas exatas "Ativo" (ignorando "Inativo")
+            const todosNos = Array.from(raiz.querySelectorAll('*'));
+            for (const el of todosNos) {
+                if (el.children.length === 0 && el.textContent?.trim() === 'Ativo') {
+                    let card: HTMLElement | null = el.parentElement;
+                    for (let nivel = 0; nivel < 4 && card; nivel++) {
+                        const rect = card.getBoundingClientRect();
+                        if (
+                            rect.width >= 150 &&
+                            rect.width <= 680 &&
+                            rect.height >= 45 &&
+                            rect.height <= 300
+                        ) {
+                            const linhas = (card.innerText || '')
+                                .split('\n')
+                                .map((l) => l.trim())
+                                .filter(Boolean);
+
+                            const titulo = linhas[0];
+                            if (
+                                titulo &&
+                                titulo !== 'Ativo' &&
+                                titulo !== 'Aulas' &&
+                                titulo.length >= 2 &&
+                                titulo.length <= 60
+                            ) {
+                                titulos.push(titulo);
+                            }
+                            break;
                         }
+                        card = card.parentElement;
                     }
                 }
             }
-        }
 
-        const materiasSet = new Set<string>();
-        const blocos = Array.from(raiz.querySelectorAll('section, div, fieldset, table'));
-        for (const bloco of blocos) {
-            const cabecalho = bloco.querySelector('h2, h3, h4, label, legend, th');
-            const tituloTxt = (cabecalho?.textContent || '').trim();
-            if (/(especialidade|mat[eé]ria|disciplina|servi[cç]o)/i.test(tituloTxt)) {
-                const itens = Array.from(
-                    bloco.querySelectorAll(
-                        'input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"], option:checked, td, li, span[class*="badge" i], span[class*="tag" i], span[class*="chip" i]'
-                    )
-                );
-                for (const el of itens) {
-                    const val =
-                        el.tagName === 'INPUT'
-                            ? (
-                                el.closest('label, tr, li')?.textContent ||
-                                el.parentElement?.textContent ||
-                                ''
-                            ).trim()
-                            : (el.textContent || '').trim();
+            return titulos;
+        });
 
-                    if (
-                        val.length >= 3 &&
-                        val.length <= 45 &&
-                        !/(especialidade|mat[eé]ria|disciplina|servi[cç]o|selecione|adicionar|buscar|ativo|inativo|a[cç][oõ]es)/i.test(
-                            val
-                        )
-                    ) {
-                        materiasSet.add(val);
-                    }
-                }
+        const materiasUnicas = new Map<string, string>();
+        for (const bruto of servicosAtivosBrutos) {
+            const limpa = limparNomeMateria(bruto);
+            const chave = normalizarTexto(limpa);
+            if (limpa.length >= 2 && chave && !materiasUnicas.has(chave)) {
+                materiasUnicas.set(chave, limpa);
             }
         }
 
-        return {
-            nomeBruto,
-            unidades: Array.from(unidadesEncontradas),
-            materias: Array.from(materiasSet),
-            textoMain: (raiz as HTMLElement).innerText?.replace(/\s+/g, ' ').slice(0, 350) || '',
-        };
-    }, nomesUnidades);
+        return Array.from(materiasUnicas.values());
+    } finally {
+        if (novaAba && !novaAba.isClosed()) {
+            await novaAba.close().catch(() => null);
+        }
+    }
 }
 
 async function importarProfessoresPendentes(
     sql: NeonQueryFunction<false, false>,
+    context: BrowserContext,
     page: Page,
     baseUrl: string,
     unidades: UnidadeRow[]
@@ -483,14 +506,7 @@ async function importarProfessoresPendentes(
 
     if (pendentes.length === 0) return;
 
-    const nomesUnidades = unidades.map((u) => ({
-        id: u.id,
-        nome: u.nome,
-        clinCareId: u.clin_care_id.toLowerCase(),
-        norm: normalizarTexto(u.nome),
-    }));
-
-    let logouAmostraFicha = false;
+    const unidadePadrao = unidades[0];
 
     for (const item of pendentes) {
         const urlPerfil = `${baseUrl}/painel/profissionais/${item.clin_care_id}`;
@@ -500,40 +516,24 @@ async function importarProfessoresPendentes(
             await page
                 .goto(urlPerfil, { waitUntil: 'networkidle', timeout: 45000 })
                 .catch(() => null);
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(1800);
 
-            const dadosIniciais = await extrairUnidadesEMateriasDaTela(page, nomesUnidades);
-            const unidadesEncontradas = new Set<string>(dadosIniciais.unidades);
-            const materiasEncontradas = new Set<string>(dadosIniciais.materias);
+            const nomeBruto = await page.evaluate(() => {
+                const raiz = document.querySelector('main') || document.body;
+                const heading = Array.from(raiz.querySelectorAll('h1, h2, h3'))
+                    .map((el) => (el.textContent || '').trim())
+                    .find(
+                        (t) =>
+                            t.length >= 3 &&
+                            t.length <= 70 &&
+                            !/^(profissionais|editar|dados|dados pessoais|unidades|especialidades|servi[cç]os|r4 ensina|agenda|hor[aá]rios)$/i.test(
+                                t
+                            )
+                    );
+                return heading || '';
+            });
 
-            // Extrai também vínculos do próprio registro no HTML/RSC da ficha
-            const htmlFicha = (await page.content()).replace(/\\"/g, '"');
-            const idxId = htmlFicha.toLowerCase().indexOf(item.clin_care_id.toLowerCase());
-            if (idxId !== -1) {
-                const trechoRegistro = htmlFicha.slice(
-                    Math.max(0, idxId - 400),
-                    Math.min(htmlFicha.length, idxId + 2500)
-                );
-                for (const u of nomesUnidades) {
-                    if (
-                        trechoRegistro.toLowerCase().includes(u.clinCareId) ||
-                        trechoRegistro.toLowerCase().includes(`"${u.norm}"`)
-                    ) {
-                        unidadesEncontradas.add(u.nome);
-                    }
-                }
-            }
-
-            if (
-                !logouAmostraFicha &&
-                unidadesEncontradas.size === 0 &&
-                materiasEncontradas.size === 0
-            ) {
-                logouAmostraFicha = true;
-                console.log(`[IMPORT][DEBUG] Conteúdo da ficha: ${dadosIniciais.textoMain}`);
-            }
-
-            const nomeLimpo = limparNomeExibicao(dadosIniciais.nomeBruto);
+            const nomeLimpo = limparNomeExibicao(nomeBruto);
 
             if (!nomeLimpo) {
                 await sql`
@@ -546,63 +546,64 @@ async function importarProfessoresPendentes(
                 continue;
             }
 
-            const listaUnidadesFinal = Array.from(unidadesEncontradas);
-            const unidadesAlvo =
-                listaUnidadesFinal.length > 0
-                    ? unidades.filter((u) => listaUnidadesFinal.includes(u.nome))
-                    : unidades;
-
+            // Abre a aba "Serviços e Valores" e extrai as matérias únicas ativas
+            const materiasDetectadas = await lerMateriasDeServicosEValores(context, page);
             const materiasFinais =
-                materiasEncontradas.size > 0
-                    ? Array.from(materiasEncontradas)
-                    : ['Reforço Geral'];
+                materiasDetectadas.length > 0 ? materiasDetectadas : ['Reforço Geral'];
 
-            for (const un of unidadesAlvo) {
-                const existentes = (await sql`
-          SELECT id
-          FROM professores
-          WHERE unidade_id = ${un.id}
-            AND (clin_care_id = ${item.clin_care_id} OR lower(trim(nome)) = lower(trim(${nomeLimpo})))
-          LIMIT 1
-        `) as { id: number }[];
+            // Atualiza o(s) registro(s) existente(s) sem duplicar unidades, ou cria 1 único registro
+            const existentes = (await sql`
+        SELECT id, unidade_id
+        FROM professores
+        WHERE clin_care_id = ${item.clin_care_id}
+           OR lower(trim(nome)) = lower(trim(${nomeLimpo}))
+        ORDER BY id ASC
+      `) as { id: number; unidade_id: number }[];
 
-                if (existentes.length > 0) {
-                    await sql`
-            UPDATE professores
-            SET nome = ${nomeLimpo},
-                clin_care_id = ${item.clin_care_id},
-                materias = ${materiasFinais}::text[],
-                ativo = true
-            WHERE id = ${existentes[0].id}
-          `;
-                } else {
-                    await sql`
-            INSERT INTO professores (
-              nome,
-              clin_care_id,
-              unidade_id,
-              materias,
-              hora_inicio,
-              hora_fim,
-              ativo
-            )
-            VALUES (
-              ${nomeLimpo},
-              ${item.clin_care_id},
-              ${un.id},
-              ${materiasFinais}::text[],
-              '08:00'::time,
-              '20:00'::time,
-              true
-            )
-          `;
-                }
+            let nomesUnidadesAtuais: string[] = [];
+
+            if (existentes.length > 0) {
+                await sql`
+          UPDATE professores
+          SET nome = ${nomeLimpo},
+              clin_care_id = ${item.clin_care_id},
+              materias = ${materiasFinais}::text[]
+          WHERE clin_care_id = ${item.clin_care_id}
+             OR lower(trim(nome)) = lower(trim(${nomeLimpo}))
+        `;
+
+                const idsUnidades = Array.from(new Set(existentes.map((e) => e.unidade_id)));
+                nomesUnidadesAtuais = unidades
+                    .filter((u) => idsUnidades.includes(u.id))
+                    .map((u) => u.nome);
+            } else {
+                await sql`
+          INSERT INTO professores (
+            nome,
+            clin_care_id,
+            unidade_id,
+            materias,
+            hora_inicio,
+            hora_fim,
+            ativo
+          )
+          VALUES (
+            ${nomeLimpo},
+            ${item.clin_care_id},
+            ${unidadePadrao.id},
+            ${materiasFinais}::text[],
+            '08:00'::time,
+            '20:00'::time,
+            true
+          )
+        `;
+                nomesUnidadesAtuais = [unidadePadrao.nome];
             }
 
             await sql`
         UPDATE importacao_profissionais_clincare
         SET nome_detectado = ${nomeLimpo},
-            unidades_detectadas = ${unidadesAlvo.map((u) => u.nome).join(', ')},
+            unidades_detectadas = ${nomesUnidadesAtuais.join(', ') || unidadePadrao.nome},
             materias_detectadas = ${materiasFinais.join(', ')},
             status = 'importado',
             mensagem = 'Cadastrado/atualizado com sucesso',
@@ -611,16 +612,16 @@ async function importarProfessoresPendentes(
       `;
 
             console.log(
-                `[IMPORT] Sucesso: ${nomeLimpo} | Unidades: ${unidadesAlvo
-                    .map((u) => u.nome)
-                    .join(', ')} | Matérias: ${materiasFinais.join(', ')}`
+                `[IMPORT] Sucesso: ${nomeLimpo} | Unidade(s): ${
+                    nomesUnidadesAtuais.join(', ') || unidadePadrao.nome
+                } | Matérias: ${materiasFinais.join(', ')}`
             );
         } catch (err) {
             console.error(`[IMPORT] Falha ao importar ${item.clin_care_id}:`, err);
             await sql`
         UPDATE importacao_profissionais_clincare
         SET status = 'erro',
-            mensagem = 'Erro ao acessar perfil no clin.care',
+            mensagem = 'Erro ao acessar perfil/serviços no clin.care',
             atualizado_em = now()
         WHERE id = ${item.id}
       `;
@@ -670,13 +671,14 @@ async function main() {
     }
 
     const sql = neon(databaseUrl);
-    await ajustarRestricaoBanco(sql);
+    await ajustarEMesclarProfessoresBanco(sql);
 
     const unidades = (await sql`
     SELECT id, nome, clin_care_id
     FROM unidades
     WHERE ativa = true
       AND clin_care_id NOT LIKE 'id-%'
+    ORDER BY id ASC
   `) as UnidadeRow[];
 
     const datas = (await sql`
@@ -705,7 +707,7 @@ async function main() {
     try {
         await realizarLogin(page, clinCareBaseUrl, clinCareEmail, clinCarePassword);
 
-        await importarProfessoresPendentes(sql, page, clinCareBaseUrl, unidades);
+        await importarProfessoresPendentes(sql, context, page, clinCareBaseUrl, unidades);
 
         if (datas.length === 0) {
             console.log('Nenhuma data futura liberada para sincronizar horários.');
