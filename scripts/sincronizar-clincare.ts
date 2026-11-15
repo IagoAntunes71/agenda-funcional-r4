@@ -31,7 +31,7 @@ interface BloqueioGrade {
 function normalizarNomeProfessor(texto: string): string {
     return texto
         .replace(/^\d+\s*\.\s*/, '') // Remove prefixo numérico ("1." ou "2.")
-        .replace(/\./g, ' ') // Converte pontos em espaços ("Arthur.Sarquis" -> "Arthur Sarquis")
+        .replace(/\./g, ' ') // Troca pontos por espaços ("Arthur.Sarquis" -> "Arthur Sarquis")
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/\s+/g, ' ')
@@ -95,29 +95,26 @@ async function realizarLoginEAbrirMapa(
     }
 
     console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
-    await page.waitForTimeout(2000);
 
-    // Localiza e clica no cartão "Mapa de agenda" dentro de /painel
-    const cardMapa = page
-        .locator('text="Visão completa da agenda profissionais."')
+    // Clica diretamente no link de sobreposição do cartão "Mapa de agenda"
+    const linkMapa = page
+        .locator('a[href="/painel/mapa-agenda"], a[aria-label="Mapa de agenda"]')
         .first();
 
-    const fallbackMapa = page
-        .locator('a:has-text("Mapa de agenda"), div:has-text("Mapa de agenda")')
-        .last();
+    await linkMapa.waitFor({ state: 'visible', timeout: 15000 });
 
-    const alvoClique = (await cardMapa.isVisible({ timeout: 8000 }).catch(() => false))
-        ? cardMapa
-        : fallbackMapa;
-
-    const popupPromise = context.waitForEvent('page', { timeout: 6000 }).catch(() => null);
-    await alvoClique.click();
+    const popupPromise = context.waitForEvent('page', { timeout: 5000 }).catch(() => null);
+    await linkMapa.click();
     const novaAba = await popupPromise;
 
     const agendaPage = novaAba ?? page;
-    await agendaPage.waitForLoadState('domcontentloaded', { timeout: 30000 });
-    await agendaPage.waitForTimeout(3000);
+    await agendaPage
+        .waitForURL((url) => url.pathname.includes('/painel/mapa-agenda'), {
+            timeout: 20000,
+        })
+        .catch(() => null);
 
+    await agendaPage.waitForTimeout(2500);
     console.log(`[MAPA] Tela aberta em: ${agendaPage.url()}`);
     return agendaPage;
 }
@@ -184,7 +181,7 @@ async function main() {
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
-        viewport: { width: 4000, height: 1800 },
+        viewport: { width: 4200, height: 1800 },
         userAgent:
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         locale: 'pt-BR',
@@ -211,33 +208,25 @@ async function main() {
                     timeout: 60000,
                 });
 
-                // Garante que o seletor de unidade esteja apontando para o UUID atual
-                const selectUnidade = agendaPage
-                    .locator(`select:has(option[value="${unidade.clin_care_id}"])`)
-                    .first();
-                if (await selectUnidade.isVisible({ timeout: 5000 }).catch(() => false)) {
-                    const valorAtual = await selectUnidade.inputValue().catch(() => '');
-                    if (valorAtual !== unidade.clin_care_id) {
-                        await selectUnidade.selectOption(unidade.clin_care_id);
-                    }
-                }
-
-                // Aguarda a renderização das colunas ("Aulas") na grelha
+                // Aguarda a grade horária ("08:00") aparecer na tela
                 await agendaPage
-                    .locator('text="Aulas"')
+                    .locator('text="08:00"')
                     .first()
-                    .waitFor({ state: 'visible', timeout: 15000 })
+                    .waitFor({ state: 'visible', timeout: 20000 })
                     .catch(() => null);
 
-                await agendaPage.waitForTimeout(2500);
+                await agendaPage.waitForTimeout(3000);
 
                 const resultado = await agendaPage.evaluate(() => {
                     const colunas: { nome: string; left: number; right: number }[] = [];
 
-                    // Localiza cada rótulo "Aulas" e sobe para o cabeçalho da coluna do professor
+                    // 1. Tenta localizar pelo rótulo "Aulas" ou pelo padrão numérico "1.Nome.Sobrenome"
                     const todosElementos = Array.from(document.querySelectorAll('*'));
                     for (const el of todosElementos) {
-                        if (el.children.length === 0 && el.textContent?.trim() === 'Aulas') {
+                        if (el.children.length > 0) continue;
+                        const textoFolha = (el.textContent || '').trim();
+
+                        if (textoFolha === 'Aulas' || /^\d+\.[A-Za-zÀ-ÿ]/.test(textoFolha)) {
                             let container: HTMLElement | null = el.parentElement;
                             for (let nivel = 0; nivel < 4 && container; nivel++) {
                                 const rect = container.getBoundingClientRect();
@@ -246,19 +235,24 @@ async function main() {
                                     .map((l) => l.trim())
                                     .filter(Boolean);
 
-                                const idxAulas = linhas.indexOf('Aulas');
+                                const nomeProf =
+                                    linhas.find((l) => /^\d+\.[A-Za-zÀ-ÿ]/.test(l)) ||
+                                    (linhas.indexOf('Aulas') > 0
+                                        ? linhas[linhas.indexOf('Aulas') - 1]
+                                        : '');
+
                                 if (
-                                    idxAulas > 0 &&
+                                    nomeProf &&
+                                    nomeProf.length <= 60 &&
                                     rect.width >= 100 &&
                                     rect.width <= 450 &&
-                                    rect.height >= 40 &&
+                                    rect.height >= 35 &&
                                     rect.height <= 260
                                 ) {
-                                    const nomeProf = linhas[idxAulas - 1];
                                     const jaExiste = colunas.some(
                                         (c) => Math.abs(c.left - rect.left) < 25
                                     );
-                                    if (!jaExiste && nomeProf && nomeProf.length <= 60) {
+                                    if (!jaExiste) {
                                         colunas.push({
                                             nome: nomeProf,
                                             left: rect.left,
@@ -274,7 +268,7 @@ async function main() {
 
                     colunas.sort((a, b) => a.left - b.left);
 
-                    // Captura todos os cartões com intervalo horário ("HH:MM - HH:MM") dentro de cada coluna
+                    // 2. Captura todos os blocos horários ("HH:MM - HH:MM") posicionados dentro de cada coluna
                     const regexHorario = /^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/;
                     const blocos: BloqueioGrade[] = [];
                     const assinaturasVistas = new Set<string>();
@@ -328,7 +322,7 @@ async function main() {
                         blocos,
                         amostraTexto:
                             colunas.length === 0
-                                ? (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 220)
+                                ? (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 250)
                                 : '',
                     };
                 });
