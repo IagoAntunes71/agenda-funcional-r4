@@ -1,0 +1,36 @@
+name: Sincronizar Mapa de Agenda clin.care
+
+on:
+  schedule:
+    # Roda automaticamente a cada 30 minutos
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Permite rodar manualmente com 1 clique na aba Actions do GitHub
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Instalar navegador Chromium do Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Executar leitura do Mapa de Agenda
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CLINCARE_URL: ${{ secrets.CLINCARE_URL }}
+          CLINCARE_EMAIL: ${{ secrets.CLINCARE_EMAIL }}
+          CLINCARE_PASSWORD: ${{ secrets.CLINCARE_PASSWORD }}
+        run: npx tsx scripts/sincronizar-clincare.ts
