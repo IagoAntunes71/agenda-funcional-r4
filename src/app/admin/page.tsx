@@ -6,11 +6,24 @@ import AdminColegios from '@/components/AdminColegios';
 import AdminWhatsApp from '@/components/AdminWhatsApp';
 
 async function ConteudoAdmin() {
-    const autenticado = await verificarAdminAutenticado();
+    let autenticado = false;
+    try {
+        autenticado = await verificarAdminAutenticado();
+    } catch (error) {
+        console.error('Erro ao verificar sessão admin:', error);
+        autenticado = false;
+    }
+
     return (
         <div className="space-y-6">
             <PainelAdmin autenticadoInicial={autenticado} />
-            {autenticado && <ImportadorProfessoresClinCare />}
+            {autenticado && (
+                <>
+                    <AdminWhatsApp />
+                    <AdminColegios />
+                    <ImportadorProfessoresClinCare />
+                </>
+            )}
         </div>
     );
 }
@@ -36,8 +49,6 @@ export default function AdminPage() {
                     }
                 >
                     <ConteudoAdmin />
-                    <AdminColegios />
-                    <AdminWhatsApp />
                 </Suspense>
             </div>
         </main>

@@ -17,7 +17,6 @@ export const SERIES_ESCOLARES: string[] = [
 
 export function normalizarTelefone(bruto: string): string {
     let digitos = String(bruto || '').replace(/\D/g, '');
-    // Remove o DDI 55 caso venha de link do WhatsApp (ex: 5571999999999 -> 71999999999)
     if ((digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55')) {
         digitos = digitos.slice(2);
     }
