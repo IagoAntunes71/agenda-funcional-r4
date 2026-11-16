@@ -90,26 +90,6 @@ export async function POST(req: NextRequest) {
         const responsavelNome = String(body?.responsavelNome || '').trim();
         const observacoes = String(body?.observacoes || '').trim();
 
-        let responsavelFinal = responsavelNome;
-        if (!responsavelFinal && alunoTelefone) {
-            const respRows = (await sql`
-              SELECT responsavel_nome
-              FROM alunos
-              WHERE telefone = ${alunoTelefone}
-                AND NULLIF(trim(responsavel_nome), '') IS NOT NULL
-              ORDER BY id DESC
-              LIMIT 1
-            `) as { responsavel_nome: string }[];
-            responsavelFinal = respRows[0]?.responsavel_nome?.trim() || '';
-        } else if (responsavelFinal && alunoTelefone) {
-            await sql`
-              UPDATE alunos
-              SET responsavel_nome = ${responsavelFinal}
-              WHERE telefone = ${alunoTelefone}
-                AND COALESCE(trim(responsavel_nome), '') = ''
-            `;
-        }
-
         if (
             !unidadeId ||
             !professorId ||
@@ -123,6 +103,26 @@ export async function POST(req: NextRequest) {
                 { error: 'Dados incompletos para confirmar a aula.' },
                 { status: 400 }
             );
+        }
+
+        let responsavelFinal = responsavelNome;
+        if (!responsavelFinal && alunoTelefone) {
+            const respRows = (await sql`
+        SELECT responsavel_nome
+        FROM alunos
+        WHERE telefone = ${alunoTelefone}
+          AND NULLIF(trim(responsavel_nome), '') IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 1
+      `) as { responsavel_nome: string }[];
+            responsavelFinal = respRows[0]?.responsavel_nome?.trim() || '';
+        } else if (responsavelFinal && alunoTelefone) {
+            await sql`
+        UPDATE alunos
+        SET responsavel_nome = ${responsavelFinal}
+        WHERE telefone = ${alunoTelefone}
+          AND COALESCE(trim(responsavel_nome), '') = ''
+      `;
         }
 
         const slotEscolhido = SLOTS_FIXOS_100_MIN.find(
@@ -150,6 +150,36 @@ export async function POST(req: NextRequest) {
             return NextResponse.json(
                 { error: 'A data selecionada não está liberada para agendamento.' },
                 { status: 400 }
+            );
+        }
+
+        // TRAVA DE CHOQUE DE HORÁRIO DO MESMO ALUNO
+        const choqueAluno = (await sql`
+      SELECT
+        a.id,
+        a.materia,
+        COALESCE(p.nome, 'Professor') AS professor_nome
+      FROM agendamentos a
+      LEFT JOIN professores p ON p.id = a.professor_id
+      WHERE LEFT(a.data::text, 10) = ${data}
+        AND LEFT(COALESCE(a.hora_inicio, a.horario)::text, 5) = ${slotEscolhido.inicio}
+        AND COALESCE(a.status, 'confirmado') <> 'cancelado'
+        AND (
+          (${alunoId}::int IS NOT NULL AND a.aluno_id = ${alunoId})
+          OR (
+            lower(trim(COALESCE(a.aluno_nome, a.nome_aluno, ''))) = lower(trim(${alunoNome}))
+            AND regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g') = ${alunoTelefone}
+          )
+        )
+      LIMIT 1
+    `) as { id: number; materia: string; professor_nome: string }[];
+
+        if (choqueAluno.length > 0) {
+            return NextResponse.json(
+                {
+                    error: `${alunoNome} já possui uma aula agendada neste mesmo horário (${slotEscolhido.label} — ${choqueAluno[0].materia} com Prof. ${choqueAluno[0].professor_nome}).`,
+                },
+                { status: 409 }
             );
         }
 
@@ -256,7 +286,7 @@ export async function POST(req: NextRequest) {
         ${alunoTelefone},
         ${colegioNome || null},
         ${serie || null},
-        ${responsavelFinal || null}.
+        ${responsavelFinal || null},
         ${observacoes || null},
         'confirmado',
         false,

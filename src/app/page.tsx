@@ -37,6 +37,22 @@ interface AlunoCadastrado {
   serie: string;
 }
 
+interface ProximaAula {
+  id: number;
+  unidade_nome: string;
+  professor_nome: string;
+  materia: string;
+  data: string;
+  data_formatada: string;
+  hora_inicio: string;
+  horario: string;
+  aluno_nome: string;
+  colegio_nome: string;
+  serie: string;
+  observacoes: string | null;
+  pode_cancelar: boolean;
+}
+
 interface ColegioOficial {
   id: number;
   nome: string;
@@ -75,8 +91,19 @@ export default function PaginaAgendamentoReforco() {
 
   const [alunos, setAlunos] = useState<AlunoCadastrado[]>([]);
   const [alunoSelecionadoId, setAlunoSelecionadoId] = useState<number>(0);
+  const [alunoEditandoId, setAlunoEditandoId] = useState<number | null>(null);
   const [colegiosOficiais, setColegiosOficiais] = useState<ColegioOficial[]>([]);
   const [exibirFormNovoAluno, setExibirFormNovoAluno] = useState<boolean>(false);
+
+  const [proximasAulas, setProximasAulas] = useState<ProximaAula[]>([]);
+  const [confirmandoCancelamentoId, setConfirmandoCancelamentoId] = useState<
+      number | null
+  >(null);
+  const [cancelandoAulaId, setCancelandoAulaId] = useState<number | null>(null);
+  const [avisoProximasAulas, setAvisoProximasAulas] = useState<{
+    tipo: 'sucesso' | 'erro';
+    texto: string;
+  } | null>(null);
 
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [colegioOpcao, setColegioOpcao] = useState<string>('');
@@ -172,6 +199,8 @@ export default function PaginaAgendamentoReforco() {
               window.localStorage.setItem('r4_responsavel_cliente', nomeResp);
             }
 
+            setProximasAulas(jsonCliente.proximasAulas || []);
+
             const listaAlunos: AlunoCadastrado[] = jsonCliente.alunos || [];
             setAlunos(listaAlunos);
             if (listaAlunos.length > 0) {
@@ -216,12 +245,31 @@ export default function PaginaAgendamentoReforco() {
     };
   }, []);
 
+  async function atualizarProximasAulas(tel: string) {
+    if (!tel) return;
+    try {
+      const res = await fetch(
+          `/api/cliente?telefone=${encodeURIComponent(tel)}`,
+          { cache: 'no-store' }
+      );
+      if (res.ok) {
+        const json = await res.json();
+        setProximasAulas(json.proximasAulas || []);
+      }
+    } catch {
+      // Ignora falha silenciosa
+    }
+  }
+
   async function handleAlterarTelefoneInput(valor: string) {
     const formatado = formatarTelefone(valor);
     setTelefoneInput(formatado);
 
     const telLimpo = normalizarTelefone(valor);
-    if ((telLimpo.length === 10 || telLimpo.length === 11) && !responsavelInput.trim()) {
+    if (
+        (telLimpo.length === 10 || telLimpo.length === 11) &&
+        !responsavelInput.trim()
+    ) {
       try {
         const res = await fetch(
             `/api/cliente?telefone=${encodeURIComponent(telLimpo)}`,
@@ -275,6 +323,7 @@ export default function PaginaAgendamentoReforco() {
       setTelefoneInput(formatarTelefone(json.telefone));
       setResponsavelConfirmado(nomeFinal);
       setResponsavelInput(nomeFinal);
+      setProximasAulas(json.proximasAulas || []);
 
       window.localStorage.setItem('r4_whatsapp_cliente', json.telefone);
       window.localStorage.setItem('r4_responsavel_cliente', nomeFinal);
@@ -319,9 +368,32 @@ export default function PaginaAgendamentoReforco() {
     setTelefoneConfirmado('');
     setResponsavelConfirmado('');
     setAlunos([]);
+    setProximasAulas([]);
     setAlunoSelecionadoId(0);
+    setAlunoEditandoId(null);
     setExibirFormNovoAluno(false);
     setSelecaoSlot(null);
+    setAvisoProximasAulas(null);
+  }
+
+  function iniciarEdicaoAluno(al: AlunoCadastrado) {
+    setAlunoEditandoId(al.id);
+    setNovoAlunoNome(al.nome_aluno);
+    setSerieAluno(al.serie || SERIES_ESCOLARES[0]);
+    const oficial = colegiosOficiais.find(
+        (c) =>
+            c.id === al.colegio_id ||
+            c.nome.toLowerCase() === al.colegio_nome.toLowerCase()
+    );
+    if (oficial) {
+      setColegioOpcao(String(oficial.id));
+      setColegioOutroNome('');
+    } else {
+      setColegioOpcao('outros');
+      setColegioOutroNome(al.colegio_nome);
+    }
+    setErroFormAluno(null);
+    setExibirFormNovoAluno(true);
   }
 
   async function handleCadastrarAluno(e: React.FormEvent) {
@@ -334,7 +406,8 @@ export default function PaginaAgendamentoReforco() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          acao: 'cadastrarAluno',
+          acao: alunoEditandoId ? 'editarAluno' : 'cadastrarAluno',
+          alunoId: alunoEditandoId,
           telefone: telefoneConfirmado,
           responsavelNome: responsavelConfirmado,
           nomeAluno: novoAlunoNome,
@@ -346,7 +419,7 @@ export default function PaginaAgendamentoReforco() {
 
       const json = await res.json();
       if (!res.ok) {
-        setErroFormAluno(json.error || 'Erro ao cadastrar aluno.');
+        setErroFormAluno(json.error || 'Erro ao salvar aluno.');
         return;
       }
 
@@ -357,11 +430,55 @@ export default function PaginaAgendamentoReforco() {
       }
       setNovoAlunoNome('');
       setColegioOutroNome('');
+      setAlunoEditandoId(null);
       setExibirFormNovoAluno(false);
     } catch {
       setErroFormAluno('Erro de rede ao salvar aluno.');
     } finally {
       setSalvandoAluno(false);
+    }
+  }
+
+  async function handleCancelarProximaAula(agendamentoId: number) {
+    setCancelandoAulaId(agendamentoId);
+    setAvisoProximasAulas(null);
+
+    try {
+      const res = await fetch('/api/cliente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'cancelarAgendamento',
+          agendamentoId,
+          telefone: telefoneConfirmado,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setAvisoProximasAulas({
+          tipo: 'erro',
+          texto: json.error || 'Não foi possível cancelar a aula.',
+        });
+        return;
+      }
+
+      setProximasAulas(json.proximasAulas || []);
+      setConfirmandoCancelamentoId(null);
+      setAvisoProximasAulas({
+        tipo: 'sucesso',
+        texto:
+            'Aula cancelada com sucesso! O horário já voltou a ficar disponível na agenda.',
+      });
+
+      await atualizarDisponibilidade(unidadeId, dataSelecionada, materiaFiltro);
+    } catch {
+      setAvisoProximasAulas({
+        tipo: 'erro',
+        texto: 'Erro de conexão ao cancelar o agendamento.',
+      });
+    } finally {
+      setCancelandoAulaId(null);
     }
   }
 
@@ -466,7 +583,10 @@ export default function PaginaAgendamentoReforco() {
       setComprovante(json.agendamento);
       setSelecaoSlot(null);
       setObservacoes('');
-      await atualizarDisponibilidade(unidadeId, dataSelecionada, materiaFiltro);
+      await Promise.all([
+        atualizarDisponibilidade(unidadeId, dataSelecionada, materiaFiltro),
+        atualizarProximasAulas(telefoneConfirmado),
+      ]);
     } catch {
       setErroModal('Falha de rede ao enviar agendamento.');
     } finally {
@@ -576,7 +696,9 @@ export default function PaginaAgendamentoReforco() {
                         type="tel"
                         required
                         value={telefoneInput}
-                        onChange={(e) => void handleAlterarTelefoneInput(e.target.value)}
+                        onChange={(e) =>
+                            void handleAlterarTelefoneInput(e.target.value)
+                        }
                         placeholder="(71) 99999-9999"
                         className="w-full rounded-xl bg-slate-950 border border-slate-700 px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500"
                     />
@@ -618,7 +740,12 @@ export default function PaginaAgendamentoReforco() {
                       {alunos.length > 0 && !exibirFormNovoAluno && (
                           <button
                               type="button"
-                              onClick={() => setExibirFormNovoAluno(true)}
+                              onClick={() => {
+                                setAlunoEditandoId(null);
+                                setNovoAlunoNome('');
+                                setColegioOutroNome('');
+                                setExibirFormNovoAluno(true);
+                              }}
                               className="px-3.5 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600 border border-sky-500/50 text-sky-200 hover:text-white text-xs font-semibold transition cursor-pointer"
                           >
                             + Cadastrar outro filho(a)
@@ -643,12 +770,12 @@ export default function PaginaAgendamentoReforco() {
                           {alunos.map((al) => {
                             const selecionado = al.id === alunoSelecionadoId;
                             return (
-                                <button
+                                <div
                                     key={al.id}
-                                    type="button"
                                     onClick={() => {
                                       setAlunoSelecionadoId(al.id);
                                       setExibirFormNovoAluno(false);
+                                      setAlunoEditandoId(null);
                                     }}
                                     className={`text-left p-4 rounded-xl border transition cursor-pointer ${
                                         selecionado
@@ -660,17 +787,29 @@ export default function PaginaAgendamentoReforco() {
                             <span className="font-bold text-sm">
                               {al.nome_aluno}
                             </span>
-                                    {selecionado && (
-                                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">
-                                Selecionado
-                              </span>
-                                    )}
+                                    <div className="flex items-center gap-1.5">
+                                      {selecionado && (
+                                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">
+                                  Selecionado
+                                </span>
+                                      )}
+                                      <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            iniciarEdicaoAluno(al);
+                                          }}
+                                          className="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                                      >
+                                        Editar
+                                      </button>
+                                    </div>
                                   </div>
                                   <p className="text-xs text-slate-400 mt-1">
                                     {al.colegio_nome}
                                   </p>
                                   <p className="text-xs text-slate-500">{al.serie}</p>
-                                </button>
+                                </div>
                             );
                           })}
                         </div>
@@ -684,14 +823,19 @@ export default function PaginaAgendamentoReforco() {
                       >
                         <div className="flex items-center justify-between">
                           <h3 className="text-sm font-bold text-white">
-                            {alunos.length === 0
-                                ? 'Cadastrar Dados do Aluno(a)'
-                                : 'Cadastrar Novo Filho(a) neste WhatsApp'}
+                            {alunoEditandoId
+                                ? 'Editar Dados do Aluno(a)'
+                                : alunos.length === 0
+                                    ? 'Cadastrar Dados do Aluno(a)'
+                                    : 'Cadastrar Novo Filho(a) neste WhatsApp'}
                           </h3>
                           {alunos.length > 0 && (
                               <button
                                   type="button"
-                                  onClick={() => setExibirFormNovoAluno(false)}
+                                  onClick={() => {
+                                    setExibirFormNovoAluno(false);
+                                    setAlunoEditandoId(null);
+                                  }}
                                   className="text-xs text-slate-400 hover:text-white cursor-pointer"
                               >
                                 Cancelar
@@ -783,13 +927,138 @@ export default function PaginaAgendamentoReforco() {
                               className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
                           >
                             {salvandoAluno
-                                ? 'Salvando aluno...'
-                                : 'Salvar Aluno e Escolher Horário'}
+                                ? 'Salvando...'
+                                : alunoEditandoId
+                                    ? 'Salvar Alterações'
+                                    : 'Salvar Aluno e Escolher Horário'}
                           </button>
                         </div>
                       </form>
                   )}
                 </section>
+
+                {/* SEÇÃO PRÓXIMAS AULAS AGENDADAS (AUTONOMIA DOS PAIS) */}
+                {(proximasAulas.length > 0 || avisoProximasAulas) && (
+                    <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-sky-400">
+                      Agenda Confirmada
+                    </span>
+                          <h2 className="text-base font-bold text-white">
+                            Próximas Aulas ({proximasAulas.length})
+                          </h2>
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          Cancelamentos pelo site são permitidos até 2h antes do início da aula.
+                        </p>
+                      </div>
+
+                      {avisoProximasAulas && (
+                          <div
+                              className={`rounded-xl border px-4 py-3 text-xs ${
+                                  avisoProximasAulas.tipo === 'sucesso'
+                                      ? 'border-emerald-500/40 bg-emerald-950/60 text-emerald-200'
+                                      : 'border-rose-500/40 bg-rose-950/60 text-rose-200'
+                              }`}
+                          >
+                            {avisoProximasAulas.texto}
+                          </div>
+                      )}
+
+                      {proximasAulas.length > 0 && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {proximasAulas.map((aula) => {
+                              const pedindoConfirmacao =
+                                  confirmandoCancelamentoId === aula.id;
+                              const cancelandoEsta = cancelandoAulaId === aula.id;
+
+                              return (
+                                  <div
+                                      key={aula.id}
+                                      className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3"
+                                  >
+                                    <div className="space-y-1">
+                                      <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-bold text-white">
+                                {aula.aluno_nome}
+                              </span>
+                                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                {aula.data_formatada} • {aula.horario}
+                              </span>
+                                      </div>
+
+                                      <p className="text-xs text-slate-300">
+                                        <strong>Matéria:</strong> {aula.materia} •{' '}
+                                        <strong>Prof.:</strong> {aula.professor_nome}
+                                      </p>
+                                      <p className="text-xs text-slate-400">
+                                        <strong>Unidade:</strong> {aula.unidade_nome}
+                                      </p>
+                                      {aula.observacoes && (
+                                          <p className="text-xs text-slate-400">
+                                            <strong>Assunto:</strong> {aula.observacoes}
+                                          </p>
+                                      )}
+                                    </div>
+
+                                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                                      {aula.pode_cancelar ? (
+                                          pedindoConfirmacao ? (
+                                              <div className="flex flex-wrap items-center gap-2 w-full justify-between">
+                                  <span className="text-xs text-amber-300 font-medium">
+                                    Liberar esta vaga?
+                                  </span>
+                                                <div className="flex items-center gap-2">
+                                                  <button
+                                                      type="button"
+                                                      disabled={cancelandoEsta}
+                                                      onClick={() =>
+                                                          setConfirmandoCancelamentoId(null)
+                                                      }
+                                                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 cursor-pointer"
+                                                  >
+                                                    Manter
+                                                  </button>
+                                                  <button
+                                                      type="button"
+                                                      disabled={cancelandoEsta}
+                                                      onClick={() =>
+                                                          void handleCancelarProximaAula(aula.id)
+                                                      }
+                                                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
+                                                  >
+                                                    {cancelandoEsta
+                                                        ? 'Cancelando...'
+                                                        : 'Sim, cancelar'}
+                                                  </button>
+                                                </div>
+                                              </div>
+                                          ) : (
+                                              <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setConfirmandoCancelamentoId(aula.id);
+                                                    setAvisoProximasAulas(null);
+                                                  }}
+                                                  className="px-3 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800/80 text-rose-200 text-xs font-semibold cursor-pointer transition"
+                                              >
+                                                Cancelar Aula
+                                              </button>
+                                          )
+                                      ) : (
+                                          <span className="text-[11px] text-amber-300/90">
+                                Menos de 2h para a aula — para alterar, contate a secretaria.
+                              </span>
+                                      )}
+                                    </div>
+                                  </div>
+                              );
+                            })}
+                          </div>
+                      )}
+                    </section>
+                )}
 
                 {/* PASSO 3: ESCOLHA DE UNIDADE, DATA, MATÉRIA E HORÁRIO (100 MIN) */}
                 {alunoAtivo && (
