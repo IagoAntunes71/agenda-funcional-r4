@@ -15,6 +15,87 @@ export const SERIES_ESCOLARES: string[] = [
     'Outra Série / Curso',
 ];
 
+export const SERIES_FUNDAMENTAL_1: string[] = [
+    '1º Ano - Ensino Fundamental',
+    '2º Ano - Ensino Fundamental',
+    '3º Ano - Ensino Fundamental',
+    '4º Ano - Ensino Fundamental',
+    '5º Ano - Ensino Fundamental',
+];
+
+export const SERIES_FUNDAMENTAL_2: string[] = [
+    '6º Ano - Ensino Fundamental',
+    '7º Ano - Ensino Fundamental',
+    '8º Ano - Ensino Fundamental',
+    '9º Ano - Ensino Fundamental',
+];
+
+export const SERIES_FUNDAMENTAL_COMPLETO: string[] = [
+    ...SERIES_FUNDAMENTAL_1,
+    ...SERIES_FUNDAMENTAL_2,
+];
+
+export const SERIES_ENSINO_MEDIO: string[] = [
+    '1ª Série - Ensino Médio',
+    '2ª Série - Ensino Médio',
+    '3ª Série - Ensino Médio',
+    'Pré-Vestibular / ENEM',
+];
+
+export type MapaMateriasSeries = Record<string, string[]>;
+
+/**
+ * Retorna true se a matéria daquele professor atende a série informada.
+ * Se não houver restrição salva para a matéria (array vazio ou ausente), atende todas.
+ */
+export function professorAtendeMateriaNaSerie(
+    materiasSeries: MapaMateriasSeries | null | undefined,
+    materia: string,
+    serieAluno: string | null | undefined
+): boolean {
+    const serieLimpa = String(serieAluno || '').trim();
+    if (!serieLimpa) return true;
+    if (!materiasSeries || typeof materiasSeries !== 'object') return true;
+
+    const chaveExata = Object.keys(materiasSeries).find(
+        (k) => k.trim().toLowerCase() === materia.trim().toLowerCase()
+    );
+    if (!chaveExata) return true;
+
+    const permitidas = materiasSeries[chaveExata];
+    if (!Array.isArray(permitidas) || permitidas.length === 0) return true;
+
+    return permitidas.some(
+        (s) => s.trim().toLowerCase() === serieLimpa.toLowerCase()
+    );
+}
+
+export function filtrarMateriasProfessorPorSerie(
+    materias: string[],
+    materiasSeries: MapaMateriasSeries | null | undefined,
+    serieAluno: string | null | undefined
+): string[] {
+    return (materias || []).filter((mat) =>
+        professorAtendeMateriaNaSerie(materiasSeries, mat, serieAluno)
+    );
+}
+
+export function resumirSeriesCurto(series: string[]): string {
+    if (!Array.isArray(series) || series.length === 0) return 'Todas as séries';
+    if (series.length >= SERIES_ESCOLARES.length - 1) return 'Todas as séries';
+
+    const nomesCurtos = series.map((s) =>
+        s
+            .replace(' - Ensino Fundamental', ' Fund.')
+            .replace(' - Ensino Médio', ' Médio')
+            .replace('Pré-Vestibular / ENEM', 'ENEM')
+            .replace('Outra Série / Curso', 'Outros')
+    );
+
+    if (nomesCurtos.length <= 3) return nomesCurtos.join(', ');
+    return `${nomesCurtos[0]} até ${nomesCurtos[nomesCurtos.length - 1]} (${nomesCurtos.length})`;
+}
+
 export function normalizarTelefone(bruto: string): string {
     let digitos = String(bruto || '').replace(/\D/g, '');
     if ((digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55')) {

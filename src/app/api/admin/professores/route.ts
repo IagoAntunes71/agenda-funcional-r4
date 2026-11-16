@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { MapaMateriasSeries, SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 
 function normalizarMaterias(raw: unknown): string[] {
     if (Array.isArray(raw)) {
@@ -12,10 +13,40 @@ function normalizarMaterias(raw: unknown): string[] {
         .filter(Boolean);
 }
 
-async function garantirColunasManha() {
+function normalizarMateriasSeries(
+    raw: unknown,
+    materiasValidas: string[]
+): MapaMateriasSeries {
+    if (!raw || typeof raw !== 'object') return {};
+    const entrada = raw as Record<string, unknown>;
+    const resultado: MapaMateriasSeries = {};
+
+    for (const mat of materiasValidas) {
+        const chaveEntrada = Object.keys(entrada).find(
+            (k) => k.trim().toLowerCase() === mat.toLowerCase()
+        );
+        if (!chaveEntrada) continue;
+
+        const listaBruta = entrada[chaveEntrada];
+        if (!Array.isArray(listaBruta)) continue;
+
+        const seriesFiltradas = listaBruta
+            .map((s) => String(s).trim())
+            .filter((s) => SERIES_ESCOLARES.includes(s));
+
+        if (seriesFiltradas.length > 0) {
+            resultado[mat] = Array.from(new Set(seriesFiltradas));
+        }
+    }
+
+    return resultado;
+}
+
+async function garantirColunasProfessor() {
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
 }
 
 export async function POST(req: NextRequest) {
@@ -25,12 +56,16 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        await garantirColunasManha();
+        await garantirColunasProfessor();
         const body = await req.json();
         const nome = String(body?.nome || '').trim();
         const clinCareId = String(body?.clin_care_id || '').trim() || null;
         const unidadeId = Number(body?.unidade_id || 0);
         const materias = normalizarMaterias(body?.materias);
+        const materiasSeries = normalizarMateriasSeries(
+            body?.materias_series,
+            materias
+        );
         const manhaAtivo = Boolean(body?.manha_ativo);
         const manhaInicio = String(body?.manha_inicio || '08:00').trim();
         const manhaFim = String(body?.manha_fim || '11:20').trim();
@@ -50,6 +85,7 @@ export async function POST(req: NextRequest) {
         clin_care_id,
         unidade_id,
         materias,
+        materias_series,
         manha_ativo,
         manha_inicio,
         manha_fim,
@@ -62,6 +98,7 @@ export async function POST(req: NextRequest) {
         ${clinCareId},
         ${unidadeId},
         ${materias},
+        ${JSON.stringify(materiasSeries)}::jsonb,
         ${manhaAtivo},
         ${manhaAtivo ? manhaInicio : null}::time,
         ${manhaAtivo ? manhaFim : null}::time,
@@ -88,7 +125,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     try {
-        await garantirColunasManha();
+        await garantirColunasProfessor();
         const body = await req.json();
         const id = Number(body?.id || 0);
 
@@ -116,6 +153,10 @@ export async function PATCH(req: NextRequest) {
         const clinCareId = String(body?.clin_care_id || '').trim() || null;
         const unidadeId = Number(body?.unidade_id || 0);
         const materias = normalizarMaterias(body?.materias);
+        const materiasSeries = normalizarMateriasSeries(
+            body?.materias_series,
+            materias
+        );
         const manhaAtivo = Boolean(body?.manha_ativo);
         const manhaInicio = String(body?.manha_inicio || '08:00').trim();
         const manhaFim = String(body?.manha_fim || '11:20').trim();
@@ -136,6 +177,7 @@ export async function PATCH(req: NextRequest) {
         clin_care_id = ${clinCareId},
         unidade_id = ${unidadeId},
         materias = ${materias},
+        materias_series = ${JSON.stringify(materiasSeries)}::jsonb,
         manha_ativo = ${manhaAtivo},
         manha_inicio = ${manhaAtivo ? manhaInicio : null}::time,
         manha_fim = ${manhaAtivo ? manhaFim : null}::time,

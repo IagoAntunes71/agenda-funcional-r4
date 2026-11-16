@@ -7,6 +7,10 @@ import {
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
+import {
+    MapaMateriasSeries,
+    filtrarMateriasProfessorPorSerie,
+} from '@/lib/cliente-helpers';
 
 interface ProfessorRow {
     id: number;
@@ -14,6 +18,7 @@ interface ProfessorRow {
     clin_care_id: string | null;
     unidade_id: number;
     materias: string[] | null;
+    materias_series: MapaMateriasSeries | null;
     manha_ativo: boolean | null;
     manha_inicio: string | null;
     manha_fim: string | null;
@@ -43,6 +48,7 @@ async function garantirEstruturaBanco() {
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
 }
 
 export async function GET(req: NextRequest) {
@@ -55,6 +61,7 @@ export async function GET(req: NextRequest) {
         const unidadeIdParam = Number(searchParams.get('unidadeId') || 0);
         const dataParam = String(searchParams.get('data') || '').trim();
         const materiaParam = String(searchParams.get('materia') || '').trim();
+        const serieParam = String(searchParams.get('serie') || '').trim();
 
         const unidades = (await sql`
       SELECT id, nome
@@ -119,6 +126,7 @@ export async function GET(req: NextRequest) {
         clin_care_id,
         unidade_id,
         materias,
+        COALESCE(materias_series, '{}'::jsonb) AS materias_series,
         COALESCE(manha_ativo, false) AS manha_ativo,
         to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
         to_char(manha_fim, 'HH24:MI') AS manha_fim,
@@ -156,12 +164,26 @@ export async function GET(req: NextRequest) {
         AND COALESCE(a.status, 'confirmado') <> 'cancelado'
     `) as BloqueioRow[];
 
+        // Filtra as matérias de cada professor conforme a série do aluno
+        const professoresElegiveisSerie = professoresRaw
+            .map((p) => {
+                const todasMaterias = Array.isArray(p.materias) ? p.materias : [];
+                const materiasValidas = filtrarMateriasProfessorPorSerie(
+                    todasMaterias,
+                    p.materias_series,
+                    serieParam
+                );
+                return {
+                    ...p,
+                    materiasValidas,
+                };
+            })
+            .filter((p) => p.materiasValidas.length > 0);
+
         const materiasUnicasSet = new Set<string>();
-        for (const p of professoresRaw) {
-            if (Array.isArray(p.materias)) {
-                for (const m of p.materias) {
-                    if (m && m.trim()) materiasUnicasSet.add(m.trim());
-                }
+        for (const p of professoresElegiveisSerie) {
+            for (const m of p.materiasValidas) {
+                if (m && m.trim()) materiasUnicasSet.add(m.trim());
             }
         }
         const materias = Array.from(materiasUnicasSet).sort((a, b) =>
@@ -170,14 +192,12 @@ export async function GET(req: NextRequest) {
 
         const professoresFiltrados =
             materiaParam && materiaParam !== 'todas'
-                ? professoresRaw.filter((p) =>
-                    Array.isArray(p.materias)
-                        ? p.materias.some(
-                            (m) => m.trim().toLowerCase() === materiaParam.toLowerCase()
-                        )
-                        : false
+                ? professoresElegiveisSerie.filter((p) =>
+                    p.materiasValidas.some(
+                        (m) => m.trim().toLowerCase() === materiaParam.toLowerCase()
+                    )
                 )
-                : professoresRaw;
+                : professoresElegiveisSerie;
 
         const professoresComHorarios = professoresFiltrados.map((prof) => {
             const bloqueiosDoProf = bloqueiosDia.filter(
@@ -208,7 +228,7 @@ export async function GET(req: NextRequest) {
                 id: prof.id,
                 nome: prof.nome,
                 unidade_id: prof.unidade_id,
-                materias: Array.isArray(prof.materias) ? prof.materias : [],
+                materias: prof.materiasValidas,
                 todosSlots,
                 slotsDisponiveis,
             };

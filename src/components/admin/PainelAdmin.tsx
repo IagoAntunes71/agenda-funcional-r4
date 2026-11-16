@@ -34,6 +34,15 @@ import {
 } from 'lucide-react';
 import LogoR4 from '@/components/LogoR4';
 import {
+    MapaMateriasSeries,
+    SERIES_ENSINO_MEDIO,
+    SERIES_ESCOLARES,
+    SERIES_FUNDAMENTAL_1,
+    SERIES_FUNDAMENTAL_2,
+    SERIES_FUNDAMENTAL_COMPLETO,
+    resumirSeriesCurto,
+} from '@/lib/cliente-helpers';
+import {
     ModoChaveMestra,
     gerarTodosSlotsProfessor,
     horaParaMinutos,
@@ -53,6 +62,7 @@ interface ProfessorAdmin {
     unidade_id: number;
     unidade_nome: string;
     materias: string[];
+    materias_series?: MapaMateriasSeries;
     manha_ativo: boolean;
     manha_inicio: string;
     manha_fim: string;
@@ -132,6 +142,214 @@ function escaparCelulaCSV(
     return `"${texto.replace(/"/g, '""')}"`;
 }
 
+function extrairListaMaterias(texto: string): string[] {
+    return Array.from(
+        new Set(
+            texto
+                .split(',')
+                .map((m) => m.trim())
+                .filter(Boolean)
+        )
+    );
+}
+
+function SeletorSeriesPorMateria({
+                                     materiasTexto,
+                                     mapaAtual,
+                                     onChangeMapa,
+                                     escuro,
+                                 }: {
+    materiasTexto: string;
+    mapaAtual: MapaMateriasSeries;
+    onChangeMapa: (novo: MapaMateriasSeries) => void;
+    escuro: boolean;
+}) {
+    const listaMaterias = extrairListaMaterias(materiasTexto);
+    if (listaMaterias.length === 0) return null;
+
+    function obterSeriesMateria(materia: string): string[] {
+        const chave = Object.keys(mapaAtual).find(
+            (k) => k.trim().toLowerCase() === materia.toLowerCase()
+        );
+        return chave && Array.isArray(mapaAtual[chave]) ? mapaAtual[chave] : [];
+    }
+
+    function definirSeriesMateria(materia: string, novasSeries: string[]) {
+        const proximo: MapaMateriasSeries = {};
+        for (const [k, v] of Object.entries(mapaAtual)) {
+            if (k.trim().toLowerCase() !== materia.toLowerCase() && v.length > 0) {
+                proximo[k] = v;
+            }
+        }
+        if (novasSeries.length > 0) {
+            proximo[materia] = novasSeries;
+        }
+        onChangeMapa(proximo);
+    }
+
+    function alternarSerie(materia: string, serie: string) {
+        const atuais = obterSeriesMateria(materia);
+        const existe = atuais.includes(serie);
+        const atualizadas = existe
+            ? atuais.filter((s) => s !== serie)
+            : SERIES_ESCOLARES.filter((s) => atuais.includes(s) || s === serie);
+        definirSeriesMateria(materia, atualizadas);
+    }
+
+    return (
+        <div
+            className={`border rounded-xl p-3.5 space-y-3 ${
+                escuro
+                    ? 'bg-[#0E1217] border-[#232B35]'
+                    : 'bg-stone-50 border-stone-200/80'
+            }`}
+        >
+            <div>
+                <p className="text-xs font-bold text-[#1496A1]">
+                    Séries permitidas por matéria
+                </p>
+                <p
+                    className={`text-[11px] ${
+                        escuro ? 'text-stone-400' : 'text-stone-500'
+                    }`}
+                >
+                    Deixe em <strong>Todas as séries</strong> ou clique nas séries
+                    específicas para restringir o agendamento dos pais.
+                </p>
+            </div>
+
+            <div className="space-y-3">
+                {listaMaterias.map((mat) => {
+                    const selecionadas = obterSeriesMateria(mat);
+                    const todasAtivas = selecionadas.length === 0;
+
+                    return (
+                        <div
+                            key={mat}
+                            className={`border rounded-xl p-3 space-y-2.5 ${
+                                escuro
+                                    ? 'bg-[#151A21] border-[#232B35]'
+                                    : 'bg-white border-stone-200'
+                            }`}
+                        >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                <span
+                    className={`text-xs font-bold ${
+                        escuro ? 'text-stone-100' : 'text-stone-900'
+                    }`}
+                >
+                  {mat}
+                </span>
+                                <span className="text-[11px] font-semibold text-[#1496A1]">
+                  {resumirSeriesCurto(selecionadas)}
+                </span>
+                            </div>
+
+                            {/* Atalhos rápidos */}
+                            <div className="flex flex-wrap gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => definirSeriesMateria(mat, [])}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold border cursor-pointer ${
+                                        todasAtivas
+                                            ? 'bg-[#0E7C86] border-[#1496A1] text-white'
+                                            : escuro
+                                                ? 'bg-[#0E1217] border-[#232B35] text-stone-400'
+                                                : 'bg-stone-100 border-stone-200 text-stone-600'
+                                    }`}
+                                >
+                                    Todas as séries
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        definirSeriesMateria(mat, SERIES_FUNDAMENTAL_1)
+                                    }
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold border cursor-pointer ${
+                                        escuro
+                                            ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
+                                            : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
+                                    }`}
+                                >
+                                    Fund. I (1º-5º)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        definirSeriesMateria(mat, SERIES_FUNDAMENTAL_2)
+                                    }
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold border cursor-pointer ${
+                                        escuro
+                                            ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
+                                            : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
+                                    }`}
+                                >
+                                    Fund. II (6º-9º)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        definirSeriesMateria(mat, SERIES_FUNDAMENTAL_COMPLETO)
+                                    }
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold border cursor-pointer ${
+                                        escuro
+                                            ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
+                                            : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
+                                    }`}
+                                >
+                                    Fundamental (1º-9º)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        definirSeriesMateria(mat, SERIES_ENSINO_MEDIO)
+                                    }
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold border cursor-pointer ${
+                                        escuro
+                                            ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
+                                            : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
+                                    }`}
+                                >
+                                    Médio + ENEM
+                                </button>
+                            </div>
+
+                            {/* Pílulas individuais das séries */}
+                            <div className="flex flex-wrap gap-1">
+                                {SERIES_ESCOLARES.map((serie) => {
+                                    const marcada = selecionadas.includes(serie);
+                                    const rotuloCurto = serie
+                                        .replace(' - Ensino Fundamental', ' Fund.')
+                                        .replace(' - Ensino Médio', ' Médio')
+                                        .replace('Pré-Vestibular / ENEM', 'ENEM')
+                                        .replace('Outra Série / Curso', 'Outros');
+
+                                    return (
+                                        <button
+                                            key={serie}
+                                            type="button"
+                                            onClick={() => alternarSerie(mat, serie)}
+                                            className={`px-2 py-0.5 rounded-md text-[10px] font-medium border transition cursor-pointer ${
+                                                marcada
+                                                    ? 'bg-[#0E7C86]/25 border-[#1496A1] text-[#39B8C4]'
+                                                    : escuro
+                                                        ? 'bg-[#0E1217] border-[#232B35] text-stone-400 hover:text-stone-200'
+                                                        : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-stone-800'
+                                            }`}
+                                        >
+                                            {rotuloCurto}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 export default function PainelAdmin({
                                         autenticadoInicial,
                                     }: {
@@ -205,6 +423,8 @@ export default function PainelAdmin({
     const [profClinCareId, setProfClinCareId] = useState('');
     const [profUnidadeId, setProfUnidadeId] = useState<number>(1);
     const [profMaterias, setProfMaterias] = useState('');
+    const [profMateriasSeries, setProfMateriasSeries] =
+        useState<MapaMateriasSeries>({});
     const [profManhaAtivo, setProfManhaAtivo] = useState(false);
     const [profManhaInicio, setProfManhaInicio] = useState('08:00');
     const [profManhaFim, setProfManhaFim] = useState('11:20');
@@ -217,6 +437,8 @@ export default function PainelAdmin({
     const [editProfClinCareId, setEditProfClinCareId] = useState('');
     const [editProfUnidadeId, setEditProfUnidadeId] = useState<number>(1);
     const [editProfMaterias, setEditProfMaterias] = useState('');
+    const [editProfMateriasSeries, setEditProfMateriasSeries] =
+        useState<MapaMateriasSeries>({});
     const [editProfManhaAtivo, setEditProfManhaAtivo] = useState(false);
     const [editProfManhaInicio, setEditProfManhaInicio] = useState('08:00');
     const [editProfManhaFim, setEditProfManhaFim] = useState('11:20');
@@ -224,10 +446,11 @@ export default function PainelAdmin({
     const [editProfFim, setEditProfFim] = useState('20:50');
     const [salvandoProf, setSalvandoProf] = useState(false);
 
-    // Unidades
+    // Unidades e Reset de PIN
     const [edicaoUnidades, setEdicaoUnidades] = useState<Record<number, string>>(
         {}
     );
+    const [resetandoPin, setResetandoPin] = useState(false);
 
     useEffect(() => {
         const salvo = window.localStorage.getItem('r4_admin_tema');
@@ -482,6 +705,7 @@ export default function PainelAdmin({
                 clin_care_id: profClinCareId,
                 unidade_id: profUnidadeId,
                 materias: profMaterias,
+                materias_series: profMateriasSeries,
                 manha_ativo: profManhaAtivo,
                 manha_inicio: profManhaInicio,
                 manha_fim: profManhaFim,
@@ -492,6 +716,7 @@ export default function PainelAdmin({
         setProfNome('');
         setProfClinCareId('');
         setProfMaterias('');
+        setProfMateriasSeries({});
         setProfManhaAtivo(false);
         await carregarDados();
     }
@@ -502,6 +727,7 @@ export default function PainelAdmin({
         setEditProfClinCareId(p.clin_care_id || '');
         setEditProfUnidadeId(p.unidade_id);
         setEditProfMaterias((p.materias || []).join(', '));
+        setEditProfMateriasSeries(p.materias_series || {});
         setEditProfManhaAtivo(Boolean(p.manha_ativo));
         setEditProfManhaInicio(p.manha_inicio || '08:00');
         setEditProfManhaFim(p.manha_fim || '11:20');
@@ -523,6 +749,7 @@ export default function PainelAdmin({
                     clin_care_id: editProfClinCareId,
                     unidade_id: editProfUnidadeId,
                     materias: editProfMaterias,
+                    materias_series: editProfMateriasSeries,
                     manha_ativo: editProfManhaAtivo,
                     manha_inicio: editProfManhaInicio,
                     manha_fim: editProfManhaFim,
@@ -559,8 +786,6 @@ export default function PainelAdmin({
         await carregarDados();
     }
 
-    const [resetandoPin, setResetandoPin] = useState(false);
-
     async function resetarPinCliente(telefoneAlvo: string) {
         if (!telefoneAlvo.trim()) return;
         setResetandoPin(true);
@@ -579,10 +804,6 @@ export default function PainelAdmin({
 
     const escuro = tema === 'escuro';
 
-    // Paleta executiva derivada da logo R4:
-    // Primária: Azul-Petróleo (#0E7C86 / #1496A1)
-    // Base escura: Carvão Café (#0B0E11 / #151A21)
-    // Acentos pontuais: Carmesim (#BE1E23) e Terracota (#C24124)
     const clsBgApp = escuro
         ? 'bg-[#0B0E11] text-stone-100'
         : 'bg-[#F4F6F8] text-stone-900';
@@ -734,7 +955,7 @@ export default function PainelAdmin({
         {
             id: 'professores',
             rotulo: 'Professores',
-            subtitulo: 'Turnos e matérias',
+            subtitulo: 'Turnos, matérias e séries',
             badge: professores.filter((p) => p.ativo).length,
             icone: <GraduationCap className="w-4 h-4" />,
         },
@@ -768,7 +989,7 @@ export default function PainelAdmin({
         professores: {
             titulo: 'Equipe de Professores',
             descricao:
-                'Configure matérias, unidades e turnos de 100 minutos (manhã e tarde/noite).',
+                'Configure matérias, séries atendidas e turnos de 100 minutos (manhã e tarde/noite).',
         },
         unidades: {
             titulo: 'Unidades & Integração',
@@ -868,7 +1089,6 @@ export default function PainelAdmin({
         URL.revokeObjectURL(url);
     }
 
-    // Dados calculados para a aba Mapa do Dia
     const professoresMapa = professores.filter((p) => {
         if (!p.ativo) return false;
         if (mapaUnidadeId && p.unidade_id !== mapaUnidadeId) return false;
@@ -904,7 +1124,6 @@ export default function PainelAdmin({
         return (
             <div className="flex flex-col justify-between h-full p-5">
                 <div className="space-y-7">
-                    {/* Logo da Empresa sem fundo */}
                     <div className="flex items-center justify-between">
                         <LogoR4 temaEscuro={escuro} subtitulo="Painel Administrativo" />
                         <button
@@ -916,7 +1135,6 @@ export default function PainelAdmin({
                         </button>
                     </div>
 
-                    {/* Blocos Principais de Navegação */}
                     <nav className="space-y-1.5">
                         <p
                             className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${clsSubtexto}`}
@@ -993,7 +1211,6 @@ export default function PainelAdmin({
                     </nav>
                 </div>
 
-                {/* Rodapé da Sidebar */}
                 <div
                     className={`pt-4 border-t space-y-1.5 ${
                         escuro ? 'border-[#1F262E]' : 'border-stone-200'
@@ -1046,14 +1263,12 @@ export default function PainelAdmin({
 
     return (
         <div className={`min-h-screen flex transition-colors ${clsBgApp}`}>
-            {/* SIDEBAR DESKTOP FIXA À ESQUERDA */}
             <aside
                 className={`hidden lg:block w-72 shrink-0 border-r sticky top-0 h-screen ${clsSidebar}`}
             >
                 {renderConteudoSidebar()}
             </aside>
 
-            {/* SIDEBAR MOBILE (DRAWER) */}
             {menuMobileAberto && (
                 <div className="fixed inset-0 z-50 lg:hidden flex">
                     <div
@@ -1068,9 +1283,7 @@ export default function PainelAdmin({
                 </div>
             )}
 
-            {/* ÁREA PRINCIPAL */}
             <div className="flex-1 min-w-0 flex flex-col">
-                {/* TOPBAR */}
                 <header
                     className={`sticky top-0 z-30 border-b px-4 sm:px-8 py-4 backdrop-blur-md ${
                         escuro
@@ -1111,27 +1324,25 @@ export default function PainelAdmin({
                         </div>
 
                         <div className="flex items-center gap-2.5">
-                            {/* Indicador Status Link */}
-                            <span
-                                className={`hidden sm:inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-full border ${
-                                    sistemaAbertoAgora
-                                        ? escuro
-                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                            : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                                        : escuro
-                                            ? 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-300'
-                                            : 'bg-rose-50 border-rose-200 text-[#BE1E23]'
-                                }`}
-                            >
+              <span
+                  className={`hidden sm:inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-full border ${
+                      sistemaAbertoAgora
+                          ? escuro
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                              : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : escuro
+                              ? 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-300'
+                              : 'bg-rose-50 border-rose-200 text-[#BE1E23]'
+                  }`}
+              >
                 <span
                     className={`w-2 h-2 rounded-full ${
                         sistemaAbertoAgora ? 'bg-emerald-400' : 'bg-[#BE1E23]'
                     }`}
                 />
-                                {sistemaAbertoAgora ? 'Link Aberto' : 'Link Fechado'}
+                  {sistemaAbertoAgora ? 'Link Aberto' : 'Link Fechado'}
               </span>
 
-                            {/* Atualizar Dados */}
                             <button
                                 type="button"
                                 onClick={() => void carregarDados()}
@@ -1147,7 +1358,6 @@ export default function PainelAdmin({
                                 />
                             </button>
 
-                            {/* Botão Tema Claro / Escuro */}
                             <button
                                 type="button"
                                 onClick={alternarTema}
@@ -1173,7 +1383,6 @@ export default function PainelAdmin({
                     </div>
                 </header>
 
-                {/* CORPO PRINCIPAL */}
                 <div className="max-w-[1440px] w-full mx-auto px-4 sm:px-8 py-6">
                     {carregandoDados && (
                         <p className={`text-xs mb-4 ${clsSubtexto}`}>
@@ -1181,10 +1390,9 @@ export default function PainelAdmin({
                         </p>
                     )}
 
-                    {/* ABA 1: AGENDAMENTOS (COM COLUNA DE CONTROLE À DIREITA) */}
+                    {/* ABA 1: AGENDAMENTOS */}
                     {aba === 'agendamentos' && (
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-                            {/* LISTA E FILTROS (8 COLUNAS) */}
                             <section className="xl:col-span-8 space-y-4">
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1508,9 +1716,7 @@ export default function PainelAdmin({
                                 )}
                             </section>
 
-                            {/* COLUNA DIREITA DE WIDGETS — EXIBIDA SOMENTE EM AGENDAMENTOS */}
                             <aside className="xl:col-span-4 space-y-5">
-                                {/* Widget 1: Chave Mestra */}
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="flex items-center gap-2.5">
@@ -1585,7 +1791,6 @@ export default function PainelAdmin({
                                     </div>
                                 </div>
 
-                                {/* Widget 2: Sincronização Clin Care */}
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -1691,7 +1896,6 @@ export default function PainelAdmin({
                                     )}
                                 </div>
 
-                                {/* Widget 3: Resumo Operacional */}
                                 <div className={`border rounded-2xl p-5 space-y-3 ${clsCard}`}>
                                     <h2 className={`text-sm font-bold ${clsTitulo}`}>
                                         Resumo Operacional
@@ -1728,7 +1932,7 @@ export default function PainelAdmin({
                         </div>
                     )}
 
-                    {/* ABA 2: MAPA DO DIA (LARGURA TOTAL) */}
+                    {/* ABA 2: MAPA DO DIA */}
                     {aba === 'mapa' && (
                         <section className="space-y-4">
                             <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
@@ -1970,7 +2174,7 @@ export default function PainelAdmin({
                         </section>
                     )}
 
-                    {/* ABA 3: BLOQUEAR / LIBERAR DIAS (LARGURA TOTAL) */}
+                    {/* ABA 3: BLOQUEAR / LIBERAR DIAS */}
                     {aba === 'datas' && (
                         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                             <form
@@ -2106,7 +2310,7 @@ export default function PainelAdmin({
                         </section>
                     )}
 
-                    {/* ABA 4: PROFESSORES (LARGURA TOTAL) */}
+                    {/* ABA 4: PROFESSORES (COM CONFIGURAÇÃO DE SÉRIES POR MATÉRIA) */}
                     {aba === 'professores' && (
                         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                             <form
@@ -2170,17 +2374,24 @@ export default function PainelAdmin({
 
                                 <div>
                                     <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                                        Matérias (vírgula) *
+                                        Matérias (separadas por vírgula) *
                                     </label>
                                     <input
                                         type="text"
                                         required
-                                        placeholder="Ex: Português, Redação"
+                                        placeholder="Ex: Matemática, Geografia"
                                         value={profMaterias}
                                         onChange={(e) => setProfMaterias(e.target.value)}
                                         className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                                     />
                                 </div>
+
+                                <SeletorSeriesPorMateria
+                                    materiasTexto={profMaterias}
+                                    mapaAtual={profMateriasSeries}
+                                    onChangeMapa={setProfMateriasSeries}
+                                    escuro={escuro}
+                                />
 
                                 <div
                                     className={`border rounded-xl p-3.5 space-y-3 ${clsSubCard}`}
@@ -2278,10 +2489,11 @@ export default function PainelAdmin({
                                     Professores Cadastrados ({professores.length})
                                 </h3>
 
-                                <div className="space-y-2.5 max-h-[680px] overflow-y-auto pr-1">
+                                <div className="space-y-2.5 max-h-[760px] overflow-y-auto pr-1">
                                     {professores.map((p) => {
                                         const editandoEste = editProfId === p.id;
                                         const slotsProf = gerarTodosSlotsProfessor(p);
+                                        const mapaSeries = p.materias_series || {};
 
                                         if (editandoEste) {
                                             return (
@@ -2334,6 +2546,13 @@ export default function PainelAdmin({
                                                             setEditProfMaterias(e.target.value)
                                                         }
                                                         className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
+                                                    />
+
+                                                    <SeletorSeriesPorMateria
+                                                        materiasTexto={editProfMaterias}
+                                                        mapaAtual={editProfMateriasSeries}
+                                                        onChangeMapa={setEditProfMateriasSeries}
+                                                        escuro={escuro}
                                                     />
 
                                                     <div
@@ -2425,16 +2644,37 @@ export default function PainelAdmin({
                                                 key={p.id}
                                                 className={`flex flex-wrap items-center justify-between gap-3 border rounded-xl p-3.5 ${clsSubCard}`}
                                             >
-                                                <div className="space-y-0.5">
+                                                <div className="space-y-1">
                                                     <p className={`font-bold text-sm ${clsTitulo}`}>
                                                         {p.nome}{' '}
                                                         <span className="text-xs font-medium text-[#1496A1]">
                               • {p.unidade_nome}
                             </span>
                                                     </p>
-                                                    <p className={`text-xs ${clsSubtexto}`}>
-                                                        {(p.materias || []).join(', ')}
-                                                    </p>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {(p.materias || []).map((mat) => {
+                                                            const chave = Object.keys(mapaSeries).find(
+                                                                (k) =>
+                                                                    k.trim().toLowerCase() === mat.toLowerCase()
+                                                            );
+                                                            const seriesMat = chave ? mapaSeries[chave] : [];
+                                                            const restrito = seriesMat.length > 0;
+
+                                                            return (
+                                                                <span
+                                                                    key={mat}
+                                                                    className={`text-[11px] px-2 py-0.5 rounded-md border ${
+                                                                        restrito
+                                                                            ? 'bg-[#0E7C86]/15 border-[#0E7C86]/40 text-[#25A4AF]'
+                                                                            : `${clsCard} ${clsSubtexto}`
+                                                                    }`}
+                                                                >
+                                  <strong>{mat}</strong>:{' '}
+                                                                    {resumirSeriesCurto(seriesMat)}
+                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
                                                     <p className={`text-[11px] ${clsSubtexto}`}>
                                                         {p.manha_ativo && (
                                                             <span className="text-[#D96B43] font-medium">
@@ -2477,7 +2717,7 @@ export default function PainelAdmin({
                         </section>
                     )}
 
-                    {/* ABA 5: UNIDADES / Clin Care (LARGURA TOTAL) */}
+                    {/* ABA 5: UNIDADES / CLIN CARE */}
                     {aba === 'unidades' && (
                         <section
                             className={`border rounded-2xl p-6 space-y-4 max-w-3xl ${clsCard}`}

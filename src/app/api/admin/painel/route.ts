@@ -18,6 +18,7 @@ export async function GET() {
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
+        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
         await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`;
@@ -44,6 +45,7 @@ export async function GET() {
           p.unidade_id,
           u.nome AS unidade_nome,
           p.materias,
+          COALESCE(p.materias_series, '{}'::jsonb) AS materias_series,
           COALESCE(p.manha_ativo, false) AS manha_ativo,
           COALESCE(to_char(p.manha_inicio, 'HH24:MI'), '08:00') AS manha_inicio,
           COALESCE(to_char(p.manha_fim, 'HH24:MI'), '11:20') AS manha_fim,

@@ -109,13 +109,11 @@ function formatarDiaSemana(isoDate: string): string {
 }
 
 export default function PaginaAgendamentoReforco() {
-  // Tema Claro / Escuro
   const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
 
   const [sistemaAberto, setSistemaAberto] = useState<boolean>(true);
   const [motivoFechado, setMotivoFechado] = useState<string | null>(null);
 
-  // Autenticação com WhatsApp + PIN de 4 dígitos + Sessão de 30 dias
   const [etapaLogin, setEtapaLogin] = useState<EtapaLoginCliente>('telefone');
   const [telefonePendente, setTelefonePendente] = useState<string>('');
   const [pinInput, setPinInput] = useState<string>('');
@@ -196,7 +194,53 @@ export default function PaginaAgendamentoReforco() {
     });
   }
 
-  async function carregarDadosFamiliaAutenticada(telNorm: string) {
+  async function atualizarDisponibilidade(
+      unId: number,
+      dt: string,
+      mat: string,
+      serie?: string
+  ) {
+    setCarregandoHorarios(true);
+    setErroGeral(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (unId) params.set('unidadeId', String(unId));
+      if (dt) params.set('data', dt);
+      if (mat && mat !== 'todas') params.set('materia', mat);
+      if (serie && serie.trim()) params.set('serie', serie.trim());
+
+      const res = await fetch(`/api/disponibilidade?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setErroGeral(json.error || 'Falha ao carregar horários.');
+        return;
+      }
+
+      setSistemaAberto(json.sistemaAberto !== false);
+      setMotivoFechado(json.motivoFechado || null);
+      setUnidades(json.unidades || []);
+      setDatas(json.datas || []);
+      setMaterias(json.materias || []);
+      setProfessores(json.professores || []);
+      if (json.dataSelecionada) {
+        setDataSelecionada(json.dataSelecionada);
+      }
+    } catch {
+      setErroGeral('Erro de conexão ao consultar horários disponíveis.');
+    } finally {
+      setCarregandoHorarios(false);
+    }
+  }
+
+  async function carregarDadosFamiliaAutenticada(
+      telNorm: string,
+      unAtual?: number,
+      dtAtual?: string
+  ): Promise<AlunoCadastrado[]> {
     const resCliente = await fetch(
         `/api/cliente?telefone=${encodeURIComponent(telNorm)}`,
         { cache: 'no-store' }
@@ -230,9 +274,18 @@ export default function PaginaAgendamentoReforco() {
     if (listaAlunos.length > 0) {
       setAlunoSelecionadoId(listaAlunos[0].id);
       setExibirFormNovoAluno(false);
+      setMateriaFiltro('todas');
+      await atualizarDisponibilidade(
+          unAtual ?? unidadeId,
+          dtAtual ?? dataSelecionada,
+          'todas',
+          listaAlunos[0].serie
+      );
     } else {
       setExibirFormNovoAluno(true);
     }
+
+    return listaAlunos;
   }
 
   useEffect(() => {
@@ -272,13 +325,8 @@ export default function PaginaAgendamentoReforco() {
           );
         }
 
-        // Se já possui cookie de sessão de 30 dias válido, restaura automaticamente
-        if (resSessao.ok && jsonSessao.autenticado && jsonSessao.telefone) {
-          if (jsonSessao.limiteSimultaneo) {
-            setLimiteSimultaneo(Number(jsonSessao.limiteSimultaneo));
-          }
-          await carregarDadosFamiliaAutenticada(jsonSessao.telefone);
-        }
+        const unIni = jsonDisp.unidadeIdSelecionada || 0;
+        const dtIni = jsonDisp.dataSelecionada || '';
 
         if (resDisp.ok) {
           setSistemaAberto(jsonDisp.sistemaAberto !== false);
@@ -288,14 +336,21 @@ export default function PaginaAgendamentoReforco() {
           setMaterias(jsonDisp.materias || []);
           setProfessores(jsonDisp.professores || []);
 
-          if (jsonDisp.unidadeIdSelecionada) {
-            setUnidadeId(jsonDisp.unidadeIdSelecionada);
-          }
-          if (jsonDisp.dataSelecionada) {
-            setDataSelecionada(jsonDisp.dataSelecionada);
-          }
+          if (unIni) setUnidadeId(unIni);
+          if (dtIni) setDataSelecionada(dtIni);
         } else {
           setErroGeral(jsonDisp.error || 'Falha ao carregar horários.');
+        }
+
+        if (resSessao.ok && jsonSessao.autenticado && jsonSessao.telefone) {
+          if (jsonSessao.limiteSimultaneo) {
+            setLimiteSimultaneo(Number(jsonSessao.limiteSimultaneo));
+          }
+          await carregarDadosFamiliaAutenticada(
+              jsonSessao.telefone,
+              unIni,
+              dtIni
+          );
         }
       } catch {
         if (!cancelado) {
@@ -332,7 +387,6 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
-  // PASSO 1: Verifica o telefone no endpoint seguro sem expor dados antes do PIN
   async function handleVerificarTelefone(e: React.FormEvent) {
     e.preventDefault();
     const tel = normalizarTelefone(telefoneInput);
@@ -380,7 +434,6 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
-  // PASSO 2A: Entra com o PIN de 4 dígitos existente
   async function handleEntrarComPin(e: React.FormEvent) {
     e.preventDefault();
     if (pinInput.length !== 4) {
@@ -422,7 +475,6 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
-  // PASSO 2B: Cria PIN de 4 dígitos para cadastro já existente
   async function handleCriarPinPrimeiroAcesso(e: React.FormEvent) {
     e.preventDefault();
     if (pinInput.length !== 4 || confirmarPinInput.length !== 4) {
@@ -469,7 +521,6 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
-  // PASSO 2C: Primeiro cadastro completo (Responsável + Aluno + Criação do PIN)
   async function handleFinalizarNovoCadastro(e: React.FormEvent) {
     e.preventDefault();
     const nomeResp = responsavelInput.trim();
@@ -496,7 +547,6 @@ export default function PaginaAgendamentoReforco() {
     setErroCliente(null);
 
     try {
-      // 1. Cria o registro do aluno no banco
       const resCad = await fetch('/api/cliente', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -517,7 +567,6 @@ export default function PaginaAgendamentoReforco() {
         return;
       }
 
-      // 2. Grava o PIN criptografado e emite o cookie de sessão de 30 dias
       const resPin = await fetch('/api/cliente/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -531,7 +580,9 @@ export default function PaginaAgendamentoReforco() {
       const jsonPin = await resPin.json();
 
       if (!resPin.ok) {
-        setErroCliente(jsonPin.error || 'Cadastro salvo, mas falha ao criar PIN.');
+        setErroCliente(
+            jsonPin.error || 'Cadastro salvo, mas falha ao criar PIN.'
+        );
         return;
       }
 
@@ -618,8 +669,19 @@ export default function PaginaAgendamentoReforco() {
 
       const listaAtualizada: AlunoCadastrado[] = json.alunos || [];
       setAlunos(listaAtualizada);
-      if (json.alunoCriado?.id) {
-        setAlunoSelecionadoId(json.alunoCriado.id);
+      const idAtivo = json.alunoCriado?.id || alunoEditandoId || alunoSelecionadoId;
+      if (idAtivo) {
+        setAlunoSelecionadoId(idAtivo);
+      }
+      const alunoAtualizado = listaAtualizada.find((a) => a.id === idAtivo);
+      if (alunoAtualizado) {
+        setMateriaFiltro('todas');
+        await atualizarDisponibilidade(
+            unidadeId,
+            dataSelecionada,
+            'todas',
+            alunoAtualizado.serie
+        );
       }
       setNovoAlunoNome('');
       setColegioOutroNome('');
@@ -631,6 +693,8 @@ export default function PaginaAgendamentoReforco() {
       setSalvandoAluno(false);
     }
   }
+
+  const alunoAtivo = alunos.find((a) => a.id === alunoSelecionadoId) || null;
 
   async function handleCancelarProximaAula(agendamentoId: number) {
     setCancelandoAulaId(agendamentoId);
@@ -668,7 +732,8 @@ export default function PaginaAgendamentoReforco() {
         await atualizarDisponibilidade(
             unidadeId,
             dataSelecionada,
-            materiaFiltro
+            materiaFiltro,
+            alunoAtivo?.serie
         );
       }
     } catch {
@@ -681,63 +746,52 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
-  async function atualizarDisponibilidade(
-      unId: number,
-      dt: string,
-      mat: string
-  ) {
-    setCarregandoHorarios(true);
-    setErroGeral(null);
-
-    try {
-      const params = new URLSearchParams();
-      if (unId) params.set('unidadeId', String(unId));
-      if (dt) params.set('data', dt);
-      if (mat && mat !== 'todas') params.set('materia', mat);
-
-      const res = await fetch(`/api/disponibilidade?${params.toString()}`, {
-        cache: 'no-store',
-      });
-      const json = await res.json();
-
-      if (!res.ok) {
-        setErroGeral(json.error || 'Falha ao carregar horários.');
-        return;
-      }
-
-      setSistemaAberto(json.sistemaAberto !== false);
-      setMotivoFechado(json.motivoFechado || null);
-      setUnidades(json.unidades || []);
-      setDatas(json.datas || []);
-      setMaterias(json.materias || []);
-      setProfessores(json.professores || []);
-      if (json.dataSelecionada) {
-        setDataSelecionada(json.dataSelecionada);
-      }
-    } catch {
-      setErroGeral('Erro de conexão ao consultar horários disponíveis.');
-    } finally {
-      setCarregandoHorarios(false);
-    }
+  function handleSelecionarAluno(al: AlunoCadastrado) {
+    setAlunoSelecionadoId(al.id);
+    setExibirFormNovoAluno(false);
+    setAlunoEditandoId(null);
+    setSelecaoSlot(null);
+    setMateriaFiltro('todas');
+    void atualizarDisponibilidade(
+        unidadeId,
+        dataSelecionada,
+        'todas',
+        al.serie
+    );
   }
 
   function handleTrocarUnidade(novoId: number) {
     setUnidadeId(novoId);
     setMateriaFiltro('todas');
     setSelecaoSlot(null);
-    void atualizarDisponibilidade(novoId, dataSelecionada, 'todas');
+    void atualizarDisponibilidade(
+        novoId,
+        dataSelecionada,
+        'todas',
+        alunoAtivo?.serie
+    );
   }
 
   function handleTrocarData(novaData: string) {
     setDataSelecionada(novaData);
     setSelecaoSlot(null);
-    void atualizarDisponibilidade(unidadeId, novaData, materiaFiltro);
+    void atualizarDisponibilidade(
+        unidadeId,
+        novaData,
+        materiaFiltro,
+        alunoAtivo?.serie
+    );
   }
 
   function handleTrocarMateria(novaMateria: string) {
     setMateriaFiltro(novaMateria);
     setSelecaoSlot(null);
-    void atualizarDisponibilidade(unidadeId, dataSelecionada, novaMateria);
+    void atualizarDisponibilidade(
+        unidadeId,
+        dataSelecionada,
+        novaMateria,
+        alunoAtivo?.serie
+    );
   }
 
   function abrirModalAgendamento(prof: ProfessorDisponivel, slot: SlotAula) {
@@ -752,7 +806,6 @@ export default function PaginaAgendamentoReforco() {
 
   async function handleConfirmarAgendamento(e: React.FormEvent) {
     e.preventDefault();
-    const alunoAtivo = alunos.find((a) => a.id === alunoSelecionadoId);
     if (!selecaoSlot || !alunoAtivo) return;
 
     setEnviandoAgendamento(true);
@@ -791,7 +844,12 @@ export default function PaginaAgendamentoReforco() {
       setSelecaoSlot(null);
       setObservacoes('');
       await Promise.all([
-        atualizarDisponibilidade(unidadeId, dataSelecionada, materiaFiltro),
+        atualizarDisponibilidade(
+            unidadeId,
+            dataSelecionada,
+            materiaFiltro,
+            alunoAtivo.serie
+        ),
         atualizarProximasAulas(telefoneConfirmado),
       ]);
     } catch {
@@ -803,7 +861,6 @@ export default function PaginaAgendamentoReforco() {
 
   const escuro = tema === 'escuro';
 
-  // Paleta executiva derivada da logo R4 (Azul-Petróleo, Carvão Café, Terracota e Carmesim)
   const clsBg = escuro
       ? 'bg-[#0B0E11] text-stone-100'
       : 'bg-[#F4F6F8] text-stone-900';
@@ -819,7 +876,6 @@ export default function PaginaAgendamentoReforco() {
   const clsTitulo = escuro ? 'text-stone-100' : 'text-stone-900';
   const clsSubtexto = escuro ? 'text-stone-400' : 'text-stone-500';
 
-  const alunoAtivo = alunos.find((a) => a.id === alunoSelecionadoId) || null;
   const unidadeAtual = unidades.find((u) => u.id === unidadeId);
   const professoresExibidos = professores.filter(
       (p) =>
@@ -827,7 +883,6 @@ export default function PaginaAgendamentoReforco() {
           p.nome.toLowerCase().includes(buscaProfessor.trim().toLowerCase())
   );
 
-  // Conta aulas futuras ativas do aluno selecionado
   const aulasAtivasAlunoSelecionado = alunoAtivo
       ? proximasAulas.filter(
           (a) =>
@@ -838,7 +893,6 @@ export default function PaginaAgendamentoReforco() {
 
   return (
       <main className={`min-h-screen transition-colors ${clsBg}`}>
-        {/* TOPBAR INSTITUCIONAL */}
         <div
             className={`border-b backdrop-blur-md sticky top-0 z-30 ${
                 escuro
@@ -883,12 +937,11 @@ export default function PaginaAgendamentoReforco() {
         </div>
 
         <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
-          {/* BANNER INFORMATIVO */}
           <header className={`border rounded-2xl p-6 space-y-3 ${clsCard}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1] bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-3 py-1 rounded-full">
               <GraduationCap className="w-3.5 h-3.5" />
-              Agendamento de Aulas R4 Ensina
+              Agendamento de Reforço Escolar (100 min)
             </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
               <ShieldCheck className="w-4 h-4" /> Acesso protegido por PIN
@@ -911,7 +964,6 @@ export default function PaginaAgendamentoReforco() {
             </div>
           </header>
 
-          {/* COMPROVANTE DE AGENDAMENTO */}
           {comprovante && (
               <section className="bg-emerald-500/10 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
@@ -954,12 +1006,10 @@ export default function PaginaAgendamentoReforco() {
               </section>
           )}
 
-          {/* TELA DE ACESSO SEGURO (WHATSAPP + PIN DE 4 DÍGITOS) */}
           {!telefoneConfirmado ? (
               <section
                   className={`border rounded-2xl p-6 sm:p-8 max-w-lg mx-auto space-y-5 ${clsCard}`}
               >
-                {/* ETAPA 1: INFORMAR WHATSAPP */}
                 {etapaLogin === 'telefone' && (
                     <>
                       <div className="space-y-1">
@@ -1011,7 +1061,6 @@ export default function PaginaAgendamentoReforco() {
                     </>
                 )}
 
-                {/* ETAPA 2A: DIGITAR PIN DE 4 DÍGITOS EXISTENTE */}
                 {etapaLogin === 'exige_pin' && (
                     <>
                       <div className="space-y-1">
@@ -1089,7 +1138,6 @@ export default function PaginaAgendamentoReforco() {
                     </>
                 )}
 
-                {/* ETAPA 2B: CRIAR PIN DE 4 DÍGITOS (CADASTRO JÁ EXISTENTE SEM PIN) */}
                 {etapaLogin === 'criar_pin' && (
                     <>
                       <div className="space-y-1">
@@ -1192,7 +1240,6 @@ export default function PaginaAgendamentoReforco() {
                     </>
                 )}
 
-                {/* ETAPA 2C: NOVO CADASTRO COMPLETO + CRIAÇÃO DO PIN */}
                 {etapaLogin === 'novo_cadastro' && (
                     <>
                       <div className="space-y-1">
@@ -1379,7 +1426,6 @@ export default function PaginaAgendamentoReforco() {
               </section>
           ) : (
               <>
-                {/* ÁREA LOGADA: CABEÇALHO DO RESPONSÁVEL + SELEÇÃO DE ALUNO */}
                 <section className={`border rounded-2xl p-6 space-y-5 ${clsCard}`}>
                   <div
                       className={`flex flex-wrap items-center justify-between gap-3 border-b pb-4 ${
@@ -1451,11 +1497,7 @@ export default function PaginaAgendamentoReforco() {
                             return (
                                 <div
                                     key={al.id}
-                                    onClick={() => {
-                                      setAlunoSelecionadoId(al.id);
-                                      setExibirFormNovoAluno(false);
-                                      setAlunoEditandoId(null);
-                                    }}
+                                    onClick={() => handleSelecionarAluno(al)}
                                     className={`text-left p-4 rounded-xl border transition cursor-pointer ${
                                         selecionado
                                             ? 'bg-[#0E7C86]/15 border-[#0E7C86] shadow-xs'
@@ -1487,7 +1529,9 @@ export default function PaginaAgendamentoReforco() {
                                   <p className={`text-xs mt-1 ${clsSubtexto}`}>
                                     {al.colegio_nome}
                                   </p>
-                                  <p className={`text-xs ${clsSubtexto}`}>{al.serie}</p>
+                                  <p className="text-xs font-medium text-[#1496A1] mt-0.5">
+                                    {al.serie}
+                                  </p>
                                 </div>
                             );
                           })}
@@ -1622,7 +1666,6 @@ export default function PaginaAgendamentoReforco() {
                   )}
                 </section>
 
-                {/* PRÓXIMAS AULAS AGENDADAS */}
                 {(proximasAulas.length > 0 || avisoProximasAulas) && (
                     <section className={`border rounded-2xl p-6 space-y-4 ${clsCard}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1750,7 +1793,6 @@ export default function PaginaAgendamentoReforco() {
                     </section>
                 )}
 
-                {/* AVISO DE AGENDAMENTO PAUSADO */}
                 {!sistemaAberto ? (
                     <section
                         className={`border border-[#C24124]/45 rounded-2xl p-6 text-center space-y-3 ${clsCard}`}
@@ -1769,10 +1811,16 @@ export default function PaginaAgendamentoReforco() {
                 ) : (
                     alunoAtivo && (
                         <>
-                          {/* FILTROS: UNIDADE, DATA, MATÉRIA E PROFESSOR */}
                           <section
                               className={`border rounded-2xl p-6 space-y-6 ${clsCard}`}
                           >
+                            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-dashed border-[#0E7C86]/35">
+                      <span className="text-xs font-semibold text-[#1496A1]">
+                        Exibindo professores habilitados para:{' '}
+                        <strong>{alunoAtivo.serie}</strong>
+                      </span>
+                            </div>
+
                             <div>
                               <label
                                   className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-2.5 ${clsSubtexto}`}
@@ -1895,7 +1943,6 @@ export default function PaginaAgendamentoReforco() {
                             </div>
                           </section>
 
-                          {/* LISTA DE PROFESSORES E TURNOS DE 100 MIN */}
                           <section className="space-y-4">
                             {aulasAtivasAlunoSelecionado >= limiteSimultaneo && (
                                 <div className="rounded-2xl border border-[#C24124]/45 bg-[#C24124]/15 p-4 text-xs text-[#E07A5F] flex items-center gap-2.5">
@@ -1925,7 +1972,9 @@ export default function PaginaAgendamentoReforco() {
                                 <div
                                     className={`border rounded-2xl p-8 text-center text-sm ${clsCard} ${clsSubtexto}`}
                                 >
-                                  Nenhum professor disponível encontrado para este filtro.
+                                  Nenhum professor habilitado para{' '}
+                                  <strong>{alunoAtivo.serie}</strong> encontrado neste
+                                  filtro.
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1999,7 +2048,6 @@ export default function PaginaAgendamentoReforco() {
               </>
           )}
 
-          {/* MODAL DE CONFIRMAÇÃO DO AGENDAMENTO */}
           {selecaoSlot && alunoAtivo && (
               <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
                 <div
