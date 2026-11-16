@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
     } catch (error) {
         console.error('Erro ao disparar sincronização:', error);
         return NextResponse.json(
-            { error: 'Falha interna ao iniciar sincronização com o clin.care.' },
+            { error: 'Falha interna ao iniciar sincronização com o Clin Care.' },
             { status: 500 }
         );
     }

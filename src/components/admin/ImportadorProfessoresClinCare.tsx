@@ -236,7 +236,7 @@ export default function ImportadorProfessoresClinCare() {
                             Unidades e Matérias dos Professores ({professores.length})
                         </h2>
                         <p className="text-sm text-slate-400 mt-1">
-                            Clique na unidade de cada professor para salvar automaticamente. As matérias são importadas de &quot;Serviços e Valores&quot; no clin.care.
+                            Clique na unidade de cada professor para salvar automaticamente. As matérias são importadas de &quot;Serviços e Valores&quot; no Clin Care.
                         </p>
                     </div>
 
@@ -399,12 +399,12 @@ export default function ImportadorProfessoresClinCare() {
                 </div>
             </section>
 
-            {/* Bloco 2: Sincronização e Descoberta com clin.care */}
+            {/* Bloco 2: Sincronização e Descoberta com Clin Care */}
             <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                         <h2 className="text-lg font-semibold text-white">
-                            Importação Automática de Professores (clin.care)
+                            Importação Automática de Professores (Clin Care)
                         </h2>
                         <p className="text-sm text-slate-400 mt-1">
                             Descubra novos profissionais de /painel/profissionais ou cole IDs específicos abaixo.
@@ -422,7 +422,7 @@ export default function ImportadorProfessoresClinCare() {
                         disabled={salvando}
                         className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-sm font-medium text-white transition"
                     >
-                        {salvando ? 'Agendando...' : 'Descobrir Novos do clin.care'}
+                        {salvando ? 'Agendando...' : 'Descobrir Novos do Clin Care'}
                     </button>
                 </div>
 
@@ -458,7 +458,7 @@ export default function ImportadorProfessoresClinCare() {
 
                 {itens.length > 0 && (
                     <p className="text-xs text-slate-400">
-                        Fila clin.care: {itens.filter((i) => i.clin_care_id !== '__TODOS__').length}{' '}
+                        Fila Clin Care: {itens.filter((i) => i.clin_care_id !== '__TODOS__').length}{' '}
                         profissional(is) mapeado(s).
                     </p>
                 )}

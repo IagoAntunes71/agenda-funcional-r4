@@ -279,7 +279,7 @@ export default function AdminWhatsApp() {
                 </div>
                 {pendentesClinCare > 0 && (
                     <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold">
-            {pendentesClinCare} aula(s) pendente(s) de lançar no clin.care
+            {pendentesClinCare} aula(s) pendente(s) de lançar no Clin Care
           </span>
                 )}
             </div>
@@ -592,7 +592,7 @@ export default function AdminWhatsApp() {
             {/* Fila de Agendamentos Recentes para controle dos atendentes */}
             <div className="space-y-3 pt-2 border-t border-slate-800">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Últimos Agendamentos (Controle de Lançamento no clin.care)
+                    Últimos Agendamentos (Controle de Lançamento no Clin Care)
                 </h3>
 
                 {carregando ? (
@@ -661,8 +661,8 @@ export default function AdminWhatsApp() {
                                         }`}
                                     >
                                         {ag.lancado_clincare
-                                            ? '✓ Lançado no clin.care'
-                                            : 'Marcar como lançado no clin.care'}
+                                            ? '✓ Lançado no Clin Care'
+                                            : 'Marcar como lançado no Clin Care'}
                                     </button>
                                 </div>
                             </div>

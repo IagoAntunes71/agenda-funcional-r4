@@ -151,7 +151,7 @@ export default function PainelAdmin({
         null
     );
 
-    // Botões de Sincronização clin.care + Cronômetros
+    // Botões de Sincronização Clin Care + Cronômetros
     const [cooldownsSync, setCooldownsSync] = useState<CooldownsSync>({
         hoje: null,
         semana: null,
@@ -361,7 +361,7 @@ export default function PainelAdmin({
 
             setFeedbackSync({
                 tipo: 'sucesso',
-                texto: `Sincronização "${json.rotulo}" iniciada! Os bloqueios do clin.care serão atualizados em ${tempoEstimado}.`,
+                texto: `Sincronização "${json.rotulo}" iniciada! Os bloqueios do Clin Care serão atualizados em ${tempoEstimado}.`,
             });
         } catch {
             setFeedbackSync({
@@ -722,7 +722,7 @@ export default function PainelAdmin({
         {
             id: 'unidades',
             rotulo: 'Unidades',
-            subtitulo: 'IDs e clin.care',
+            subtitulo: 'IDs e Clin Care',
             icone: <Building2 className="w-4 h-4" />,
         },
     ];
@@ -734,12 +734,12 @@ export default function PainelAdmin({
         agendamentos: {
             titulo: 'Agendamentos & Operação',
             descricao:
-                'Acompanhe as aulas marcadas, sincronize bloqueios do clin.care e exporte relatórios.',
+                'Acompanhe as aulas marcadas, sincronize bloqueios do Clin Care e exporte relatórios.',
         },
         mapa: {
             titulo: 'Mapa do Dia',
             descricao:
-                'Visualize horários livres, aulas agendadas e bloqueios do clin.care por unidade.',
+                'Visualize horários livres, aulas agendadas e bloqueios do Clin Care por unidade.',
         },
         datas: {
             titulo: 'Bloquear ou Liberar Datas',
@@ -754,7 +754,7 @@ export default function PainelAdmin({
         unidades: {
             titulo: 'Unidades & Integração',
             descricao:
-                'Gerencie as unidades presenciais, Online, Imbuí e os vínculos com o clin.care.',
+                'Gerencie as unidades presenciais, Online, Imbuí e os vínculos com o Clin Care.',
         },
     };
 
@@ -809,7 +809,7 @@ export default function PainelAdmin({
             'Responsável',
             'WhatsApp',
             'Status',
-            'Lançado clin.care',
+            'Lançado Clin Care',
             'Assunto / Observações',
         ];
 
@@ -1253,7 +1253,7 @@ export default function PainelAdmin({
 
                                         <div>
                                             <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                                Lançamento clin.care
+                                                Lançamento Clin Care
                                             </label>
                                             <select
                                                 value={filtroClinCare}
@@ -1369,8 +1369,8 @@ export default function PainelAdmin({
                                                                     }`}
                                                                 >
                                   {ag.sincronizado_clincare
-                                      ? 'Lançado clin.care'
-                                      : 'Pendente clin.care'}
+                                      ? 'Lançado Clin Care'
+                                      : 'Pendente Clin Care'}
                                 </span>
                                                             )}
                                                         </div>
@@ -1553,12 +1553,12 @@ export default function PainelAdmin({
                                     </div>
                                 </div>
 
-                                {/* Widget 2: Sincronização clin.care */}
+                                {/* Widget 2: Sincronização Clin Care */}
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <h2 className={`text-sm font-bold ${clsTitulo}`}>
-                                                Sincronizar clin.care
+                                                Sincronizar Clin Care
                                             </h2>
                                             <p className={`text-[11px] ${clsSubtexto}`}>
                                                 Última leitura:{' '}
@@ -1684,7 +1684,7 @@ export default function PainelAdmin({
                                             className={`border rounded-xl p-3.5 text-left transition cursor-pointer hover:border-[#C24124]/60 ${clsSubCard}`}
                                         >
                                             <p className={`text-[11px] ${clsSubtexto}`}>
-                                                Pendentes clin.care
+                                                Pendentes Clin Care
                                             </p>
                                             <p className="text-2xl font-bold text-[#D96B43] mt-0.5">
                                                 {pendentesClinCare}
@@ -1758,7 +1758,7 @@ export default function PainelAdmin({
                     </span>
                                         <span className="inline-flex items-center gap-1.5 text-[#D96B43] font-medium">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#C24124]" />
-                      Bloqueio clin.care
+                      Bloqueio Clin Care
                     </span>
                                     </div>
                                 </div>
@@ -1907,7 +1907,7 @@ export default function PainelAdmin({
                                                                 >
                                                                     <div className="bg-[#C24124]/15 border border-[#C24124]/45 rounded-xl p-2.5 text-[#E07A5F]">
                                                                         <p className="font-semibold">
-                                                                            Bloqueio clin.care
+                                                                            Bloqueio Clin Care
                                                                         </p>
                                                                         <p className="text-[11px] opacity-85 truncate mt-0.5">
                                                                             {bloqueioNoSlot.motivo}
@@ -2124,7 +2124,7 @@ export default function PainelAdmin({
 
                                     <div>
                                         <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                                            ID clin.care
+                                            ID Clin Care
                                         </label>
                                         <input
                                             type="text"
@@ -2344,7 +2344,7 @@ export default function PainelAdmin({
                                                     <div className="grid grid-cols-3 gap-2">
                                                         <input
                                                             type="text"
-                                                            placeholder="ID clin.care"
+                                                            placeholder="ID Clin Care"
                                                             value={editProfClinCareId}
                                                             onChange={(e) =>
                                                                 setEditProfClinCareId(e.target.value)
@@ -2445,7 +2445,7 @@ export default function PainelAdmin({
                         </section>
                     )}
 
-                    {/* ABA 5: UNIDADES / CLIN.CARE (LARGURA TOTAL) */}
+                    {/* ABA 5: UNIDADES / Clin Care (LARGURA TOTAL) */}
                     {aba === 'unidades' && (
                         <section
                             className={`border rounded-2xl p-6 space-y-4 max-w-3xl ${clsCard}`}
@@ -2454,13 +2454,13 @@ export default function PainelAdmin({
                                 className={`text-sm font-bold flex items-center gap-2 ${clsTitulo}`}
                             >
                                 <Building2 className="w-4 h-4 text-[#1496A1]" />
-                                Vínculo de Unidades com o clin.care
+                                Vínculo de Unidades com o Clin Care
                             </h3>
                             <p className={`text-xs ${clsSubtexto}`}>
                                 Para as unidades <strong>Online</strong> e{' '}
                                 <strong>Imbuí</strong>, mantenha <code>id-online</code> e{' '}
                                 <code>id-imbui</code> (ou informe o UUID caso elas também
-                                possuam agenda no clin.care).
+                                possuam agenda no Clin Care).
                             </p>
 
                             <div className="space-y-3">
@@ -2474,7 +2474,7 @@ export default function PainelAdmin({
                                                 {u.nome}
                                             </p>
                                             <p className={`text-xs ${clsSubtexto}`}>
-                                                ID de Unidade no clin.care
+                                                ID de Unidade no Clin Care
                                             </p>
                                         </div>
 

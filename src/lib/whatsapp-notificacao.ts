@@ -151,7 +151,7 @@ export function montarMensagemAgendamento(
         `📱 *WhatsApp:* ${formatarTelefone(dados.alunoTelefone)}`,
         dados.observacoes ? `📝 *Obs:* ${dados.observacoes}` : null,
         ``,
-        `⚠️ _Confirmar e lançar este horário na agenda do professor no clin.care._`,
+        `⚠️ _Confirmar e lançar este horário na agenda do professor no Clin Care._`,
     ].filter((l): l is string => l !== null);
 
     return linhas.join('\n');
