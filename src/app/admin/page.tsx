@@ -13,7 +13,7 @@ export default function AdminPage() {
     useEffect(() => {
         let cancelado = false;
 
-        async function checarSessao() {
+        const checarSessao = async () => {
             try {
                 const res = await fetch('/api/admin/colegios', {
                     cache: 'no-store',
@@ -30,11 +30,10 @@ export default function AdminPage() {
                     setVerificandoSessao(false);
                 }
             }
-        }
+        };
 
         void checarSessao();
 
-        // Se ainda não estiver logado, verifica a cada 2.5s para liberar os painéis assim que fizer login
         const intervalo = window.setInterval(() => {
             if (!autenticado) {
                 void checarSessao();
