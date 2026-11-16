@@ -15,6 +15,10 @@ import {
 import { normalizarTelefone } from '@/lib/cliente-helpers';
 import { notificarGrupoNovoAgendamento } from '@/lib/whatsapp-notificacao';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
+import {
+    dispararRoboReservaClinCare,
+    garantirColunasFilaReserva,
+} from '@/lib/clincare-fila';
 
 async function garantirTabelaAgendamentos() {
     await sql`
@@ -61,6 +65,8 @@ async function garantirTabelaAgendamentos() {
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
+
+    await garantirColunasFilaReserva();
 }
 
 export async function POST(req: NextRequest) {
@@ -109,7 +115,6 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Valida se a data está dentro da janela semanal permitida e não foi bloqueada pelo admin
         const overridesRaw = await sql`
       SELECT
         to_char(data, 'YYYY-MM-DD') AS data,
@@ -183,7 +188,6 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Validação de sessão (WhatsApp + PIN) e limite de aulas simultâneas
         const sessaoCliente = await lerSessaoCliente();
         if (!sessaoCliente) {
             return NextResponse.json(
@@ -215,7 +219,6 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Trava de choque de horário do mesmo aluno
         const choqueAluno = (await sql`
       SELECT
         a.id,
@@ -315,6 +318,21 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        const unidadeRows = (await sql`
+      SELECT nome, COALESCE(clin_care_id, '') AS clin_care_id
+      FROM unidades
+      WHERE id = ${unidadeId}
+      LIMIT 1
+    `) as { nome: string; clin_care_id: string }[];
+
+        const nomeUnidade = unidadeRows[0]?.nome || 'Unidade';
+        const clinCareUnidadeId = unidadeRows[0]?.clin_care_id || '';
+        const unidadeTemClinCare =
+            clinCareUnidadeId.length > 0 && !clinCareUnidadeId.startsWith('id-');
+        const statusInicialReserva = unidadeTemClinCare
+            ? 'pendente'
+            : 'nao_aplicavel';
+
         const inserido = (await sql`
       INSERT INTO agendamentos (
         unidade_id,
@@ -332,7 +350,8 @@ export async function POST(req: NextRequest) {
         observacoes,
         status,
         notificado_whatsapp,
-        lancado_clincare
+        lancado_clincare,
+        clincare_reserva_status
       )
       VALUES (
         ${unidadeId},
@@ -350,17 +369,18 @@ export async function POST(req: NextRequest) {
         ${observacoes || null},
         'confirmado',
         false,
-        false
+        false,
+        ${statusInicialReserva}
       )
       RETURNING id
     `) as { id: number }[];
 
         const agendamentoId = inserido[0]?.id;
 
-        const unidadeRows = (await sql`
-      SELECT nome FROM unidades WHERE id = ${unidadeId} LIMIT 1
-    `) as { nome: string }[];
-        const nomeUnidade = unidadeRows[0]?.nome || 'Unidade';
+        // Dispara imediatamente o robô no GitHub Actions para reservar como RESERVADO APP
+        if (unidadeTemClinCare && agendamentoId) {
+            await dispararRoboReservaClinCare();
+        }
 
         const notif = await notificarGrupoNovoAgendamento({
             id: agendamentoId,

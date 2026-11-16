@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
-import { BrowserContext, chromium, Page } from 'playwright';
+import { BrowserContext, chromium, Locator, Page } from 'playwright';
 import { neon, NeonQueryFunction } from '@neondatabase/serverless';
 
 interface UnidadeRow {
@@ -29,10 +29,30 @@ interface BloqueioGrade {
     motivo: string;
 }
 
-type ModoSync = 'hoje' | 'semana' | 'mes';
+interface ReservaFilaRow {
+    id: number;
+    data: string;
+    hora_inicio: string;
+    materia: string;
+    nome_aluno: string;
+    nome_responsavel: string;
+    whatsapp_responsavel: string;
+    status: string;
+    clincare_reserva_status: string;
+    professor_id: number;
+    professor_nome: string;
+    professor_clin_care_id: string | null;
+    unidade_id: number;
+    unidade_nome: string;
+    unidade_clin_care_id: string;
+}
+
+type ModoSync = 'hoje' | 'semana' | 'mes' | 'reservas';
 
 const HORA_INICIO_PADRAO = '14:10';
 const HORA_FIM_PADRAO = '20:50';
+const PACIENTE_RESERVADO_ID = 'a2bb7dbc-b80c-4f99-afe4-f39f7c728db7';
+const PACIENTE_RESERVADO_NOME = 'RESERVADO APP';
 
 function obterConfiguracaoModo(): {
     modo: ModoSync;
@@ -46,10 +66,18 @@ function obterConfiguracaoModo(): {
         .trim()
         .toLowerCase();
 
+    if (bruto === 'reservas' || bruto === 'reserva') {
+        return {
+            modo: 'reservas',
+            dias: 0,
+            descricao: 'Fila de Reservas Automáticas (RESERVADO APP)',
+        };
+    }
+
     if (bruto === 'hoje' || bruto === 'dia') {
         return {
             modo: 'hoje',
-            dias: 1, // Hoje + amanhã (garante bloqueios imediatos e do próximo dia)
+            dias: 1,
             descricao: 'Hoje e Amanhã (2 dias)',
         };
     }
@@ -118,6 +146,11 @@ function limparNomeMateria(servicoBruto: string): string {
         .trim();
 }
 
+function formatarDataBR(dataISO: string): string {
+    const [ano, mes, dia] = dataISO.split('-');
+    return `${dia}/${mes}/${ano}`;
+}
+
 function gerarProximosDiasBahia(quantidadeDias: number): string[] {
     const agora = new Date();
     const partes = new Intl.DateTimeFormat('en-CA', {
@@ -154,6 +187,10 @@ async function ajustarBancoSemSobrescreverTurnos(
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
+
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reserva_status TEXT DEFAULT 'pendente'`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reserva_erro TEXT`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reservado_em TIMESTAMPTZ`;
 
     await sql`
     DELETE FROM bloqueios_clincare
@@ -243,6 +280,395 @@ async function realizarLogin(
     }
 
     console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
+}
+
+async function selecionarOpcaoDropdown(
+    page: Page,
+    modal: Locator,
+    preferencias: string[]
+): Promise<boolean> {
+    await page.waitForTimeout(650);
+
+    const candidatos = page.locator(
+        '[role="option"], [role="listbox"] li, [role="listbox"] button, [role="listbox"] div[class*="cursor"], ul li[class*="cursor"], div[class*="dropdown"] button, div[class*="menu"] div[class*="cursor"]'
+    );
+
+    const total = await candidatos.count();
+    if (total === 0) return false;
+
+    for (const pref of preferencias) {
+        const alvo = normalizarTexto(pref);
+        if (!alvo) continue;
+        for (let i = 0; i < total; i++) {
+            const item = candidatos.nth(i);
+            if (!(await item.isVisible().catch(() => false))) continue;
+            const txt = normalizarTexto((await item.innerText().catch(() => '')) || '');
+            if (txt && txt.includes(alvo)) {
+                await item.click({ force: true });
+                await page.waitForTimeout(350);
+                return true;
+            }
+        }
+    }
+
+    // Fallback: seleciona a primeira opção visível válida do menu aberto
+    for (let i = 0; i < total; i++) {
+        const item = candidatos.nth(i);
+        if (!(await item.isVisible().catch(() => false))) continue;
+        const txt = ((await item.innerText().catch(() => '')) || '').trim();
+        if (
+            txt.length >= 2 &&
+            !/^(selecione|nenhum|buscar|carregando|\+)$/i.test(txt)
+        ) {
+            await item.click({ force: true });
+            await page.waitForTimeout(350);
+            return true;
+        }
+    }
+
+    // Último recurso via teclado caso seja um combobox customizado
+    await modal.press('ArrowDown').catch(() => null);
+    await modal.press('Enter').catch(() => null);
+    await page.waitForTimeout(300);
+    return true;
+}
+
+async function criarReservaNoClinCare(
+    page: Page,
+    baseUrl: string,
+    ag: ReservaFilaRow
+): Promise<void> {
+    const servicoPadrao = (process.env.CLINCARE_SERVICO_PADRAO || '').trim();
+    const salaPadrao = (process.env.CLINCARE_SALA_PADRAO || '').trim();
+
+    const urlMapa = `${baseUrl}/painel/mapa-agenda?date=${ag.data}&unitId=${ag.unidade_clin_care_id}`;
+    console.log(
+        `[RESERVA #${ag.id}] Abrindo ${urlMapa} para ${ag.professor_nome} às ${ag.hora_inicio}...`
+    );
+
+    await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page
+        .locator('text="08:00", text="14:00", text="14:10"')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10000 })
+        .catch(() => null);
+    await page.waitForTimeout(1000);
+
+    // Abre o modal "+ Novo Agendamento"
+    const botaoNovo = page
+        .locator(
+            'button:has-text("Novo Agendamento"), button:has-text("Novo agendamento"), button:has-text("Agendar"), a:has-text("Novo Agendamento")'
+        )
+        .first();
+
+    if (await botaoNovo.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await botaoNovo.click();
+    } else {
+        // Fallback: botão "+" flutuante ou no topo da agenda
+        const botaoMais = page
+            .locator('main button:has-text("+"), header button:has-text("+")')
+            .first();
+        if (await botaoMais.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await botaoMais.click();
+        } else {
+            throw new Error(
+                'Botão "+ Novo Agendamento" não encontrado na tela do mapa-agenda.'
+            );
+        }
+    }
+
+    const tituloModal = page.locator('text="Novo Agendamento"').first();
+    await tituloModal.waitFor({ state: 'visible', timeout: 8000 });
+
+    const modal = page
+        .locator('[role="dialog"], div:has(> div:has-text("Novo Agendamento"))')
+        .last();
+
+    // 1. PROFISSIONAL (primeiro bloco do modal)
+    const limparProfBtn = modal
+        .locator('button:has-text("×"), span:has-text("×"), svg')
+        .first();
+    const textoPrimeiroCampo = await modal
+        .locator('div, input')
+        .nth(1)
+        .innerText()
+        .catch(() => '');
+
+    if (
+        textoPrimeiroCampo &&
+        !nomesCorrespondem(ag.professor_nome, textoPrimeiroCampo)
+    ) {
+        await limparProfBtn.click({ force: true }).catch(() => null);
+        await page.waitForTimeout(300);
+    }
+
+    const inputProf = modal
+        .locator(
+            'input[placeholder*="profissional" i], input[placeholder*="selecione" i]'
+        )
+        .first();
+    if (await inputProf.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await inputProf.click();
+        await inputProf.fill(ag.professor_nome);
+        await selecionarOpcaoDropdown(page, modal, [
+            ag.professor_nome,
+            ag.professor_nome.split(' ')[0],
+        ]);
+    }
+
+    // 2. PACIENTE -> RESERVADO APP (a2bb7dbc-b80c-4f99-afe4-f39f7c728db7)
+    const campoPaciente = modal
+        .locator('input[placeholder*="paciente" i], :text("Selecione o paciente")')
+        .first();
+    await campoPaciente.click({ force: true });
+    await page.waitForTimeout(300);
+
+    const inputPacienteAtivo = modal
+        .locator('input[placeholder*="paciente" i], input:focus')
+        .first();
+    await inputPacienteAtivo.fill(PACIENTE_RESERVADO_NOME);
+    const selecionouPaciente = await selecionarOpcaoDropdown(page, modal, [
+        PACIENTE_RESERVADO_NOME,
+        'RESERVADO',
+        PACIENTE_RESERVADO_ID,
+    ]);
+    if (!selecionouPaciente) {
+        throw new Error(
+            `Não foi possível selecionar o paciente "${PACIENTE_RESERVADO_NOME}".`
+        );
+    }
+
+    // 3. SERVIÇO
+    const campoServico = modal
+        .locator('input[placeholder*="servi" i], :text("Selecione o serviço")')
+        .first();
+    await campoServico.click({ force: true });
+    const selecionouServico = await selecionarOpcaoDropdown(page, modal, [
+        servicoPadrao,
+        ag.materia,
+        'Reforço',
+        'Aula',
+    ]);
+    if (!selecionouServico) {
+        throw new Error('Não foi possível selecionar um serviço obrigatório.');
+    }
+
+    // 4. SALA
+    const campoSala = modal
+        .locator('input[placeholder*="sala" i], :text("Selecione a sala")')
+        .first();
+    await campoSala.click({ force: true });
+    const selecionouSala = await selecionarOpcaoDropdown(page, modal, [
+        salaPadrao,
+        'Sala',
+    ]);
+    if (!selecionouSala) {
+        throw new Error('Não foi possível selecionar uma sala obrigatória.');
+    }
+
+    // 5. DATA DE INÍCIO (DD/MM/YYYY)
+    const inputData = modal
+        .locator('input[placeholder*="/" i], input[value*="/202"]')
+        .first();
+    if (await inputData.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await inputData.fill(formatarDataBR(ag.data));
+    }
+
+    // 6. HORÁRIO DE INÍCIO E DURAÇÃO (1h 40min = 100 minutos)
+    const [hhRaw, mmRaw] = ag.hora_inicio.slice(0, 5).split(':');
+    const hh = hhRaw.padStart(2, '0');
+    const mm = mmRaw.padStart(2, '0');
+
+    const selects = modal.locator('select');
+    const totalSelects = await selects.count();
+    if (totalSelects >= 4) {
+        await selects.nth(0).selectOption(hh).catch(() => null);
+        await selects.nth(1).selectOption(mm).catch(() => null);
+        await selects
+            .nth(2)
+            .selectOption('1')
+            .catch(() => selects.nth(2).selectOption('01').catch(() => null));
+        await selects.nth(3).selectOption('40').catch(() => null);
+    }
+
+    // 7. OBSERVAÇÃO (se houver campo no modal)
+    const campoObs = modal.locator('textarea, input[placeholder*="observ" i]').first();
+    if (await campoObs.isVisible({ timeout: 800 }).catch(() => false)) {
+        await campoObs.fill(
+            `SITE R4 #${ag.id} | Aluno: ${ag.nome_aluno} | ${ag.materia} | Resp: ${ag.nome_responsavel} (${ag.whatsapp_responsavel})`
+        );
+    }
+
+    // 8. SALVAR ("CRIAR ATENDIMENTO")
+    const btnCriar = modal
+        .locator('button:has-text("CRIAR ATENDIMENTO"), button:has-text("Criar atendimento")')
+        .first();
+    await btnCriar.click();
+    await page.waitForTimeout(2200);
+
+    // Verifica se o modal fechou (sucesso) ou exibiu erro de validação
+    const aindaAberto = await tituloModal.isVisible().catch(() => false);
+    if (aindaAberto) {
+        const textoModal = await modal.innerText().catch(() => '');
+        throw new Error(
+            `Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO. Verifique campos obrigatórios. Trecho: ${textoModal
+                .replace(/\s+/g, ' ')
+                .slice(0, 140)}`
+        );
+    }
+}
+
+async function cancelarReservaNoClinCare(
+    page: Page,
+    baseUrl: string,
+    ag: ReservaFilaRow
+): Promise<void> {
+    const urlMapa = `${baseUrl}/painel/mapa-agenda?date=${ag.data}&unitId=${ag.unidade_clin_care_id}`;
+    console.log(
+        `[CANCELAR RESERVA #${ag.id}] Buscando bloco RESERVADO APP em ${urlMapa}...`
+    );
+
+    await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page
+        .locator('text="08:00", text="14:00", text="14:10"')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10000 })
+        .catch(() => null);
+    await page.waitForTimeout(1000);
+
+    const hhmm = ag.hora_inicio.slice(0, 5);
+
+    for (let passo = 0; passo < 4; passo++) {
+        const blocoReservado = page
+            .locator(`div:has-text("${hhmm}"):has-text("RESERVADO")`)
+            .last();
+
+        if (await blocoReservado.isVisible({ timeout: 1200 }).catch(() => false)) {
+            await blocoReservado.click({ force: true });
+            await page.waitForTimeout(1000);
+
+            const btnExcluir = page
+                .locator(
+                    'button:has-text("Cancelar"), button:has-text("Excluir"), button:has-text("Desmarcar"), button:has-text("Remover")'
+                )
+                .first();
+
+            if (await btnExcluir.isVisible({ timeout: 3000 }).catch(() => false)) {
+                await btnExcluir.click();
+                await page.waitForTimeout(800);
+
+                const btnConfirmar = page
+                    .locator(
+                        'button:has-text("Confirmar"), button:has-text("Sim"), button:has-text("Excluir")'
+                    )
+                    .last();
+                if (await btnConfirmar.isVisible({ timeout: 2000 }).catch(() => false)) {
+                    await btnConfirmar.click();
+                    await page.waitForTimeout(1500);
+                }
+            }
+            return;
+        }
+
+        await page.evaluate(() => {
+            const scrollables = Array.from(document.querySelectorAll('*')).filter(
+                (el) => el.scrollWidth > el.clientWidth + 50
+            );
+            for (const el of scrollables) {
+                el.scrollLeft += 1800;
+            }
+        });
+        await page.waitForTimeout(500);
+    }
+}
+
+async function processarFilaReservas(
+    sql: NeonQueryFunction<false, false>,
+    page: Page,
+    baseUrl: string
+) {
+    const pendentes = (await sql`
+    SELECT
+      a.id,
+      to_char(a.data, 'YYYY-MM-DD') AS data,
+      to_char(a.hora_inicio, 'HH24:MI') AS hora_inicio,
+      a.materia,
+      a.nome_aluno,
+      COALESCE(a.nome_responsavel, '') AS nome_responsavel,
+      COALESCE(a.whatsapp_responsavel, '') AS whatsapp_responsavel,
+      a.status,
+      COALESCE(a.clincare_reserva_status, 'pendente') AS clincare_reserva_status,
+      p.id AS professor_id,
+      p.nome AS professor_nome,
+      p.clin_care_id AS professor_clin_care_id,
+      u.id AS unidade_id,
+      u.nome AS unidade_nome,
+      u.clin_care_id AS unidade_clin_care_id
+    FROM agendamentos a
+    JOIN professores p ON p.id = a.professor_id
+    JOIN unidades u ON u.id = a.unidade_id
+    WHERE u.clin_care_id NOT LIKE 'id-%'
+      AND (
+        (a.status = 'confirmado' AND COALESCE(a.clincare_reserva_status, 'pendente') IN ('pendente', 'reservando'))
+        OR (a.status = 'cancelado' AND a.clincare_reserva_status = 'cancelar_pendente')
+      )
+    ORDER BY a.id ASC
+  `) as ReservaFilaRow[];
+
+    if (pendentes.length === 0) {
+        console.log('[RESERVAS] Nenhuma reserva ou cancelamento pendente na fila.');
+        return;
+    }
+
+    console.log(`[RESERVAS] ${pendentes.length} item(ns) na fila para processar...`);
+
+    for (const item of pendentes) {
+        if (item.status === 'cancelado') {
+            try {
+                await cancelarReservaNoClinCare(page, baseUrl, item);
+                await sql`
+          UPDATE agendamentos
+          SET clincare_reserva_status = 'cancelado_clincare',
+              clincare_reserva_erro = NULL
+          WHERE id = ${item.id}
+        `;
+                console.log(`[RESERVA #${item.id}] Bloco RESERVADO removido no clin.care.`);
+            } catch (err) {
+                console.error(`[RESERVA #${item.id}] Falha ao cancelar no clin.care:`, err);
+            }
+            continue;
+        }
+
+        await sql`
+      UPDATE agendamentos
+      SET clincare_reserva_status = 'reservando',
+          clincare_reserva_erro = NULL
+      WHERE id = ${item.id}
+    `;
+
+        try {
+            await criarReservaNoClinCare(page, baseUrl, item);
+            await sql`
+        UPDATE agendamentos
+        SET clincare_reserva_status = 'reservado',
+            clincare_reserva_erro = NULL,
+            clincare_reservado_em = now()
+        WHERE id = ${item.id}
+      `;
+            console.log(
+                `[RESERVA #${item.id}] Sucesso! Reservado como "${PACIENTE_RESERVADO_NOME}" no clin.care.`
+            );
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+            console.error(`[RESERVA #${item.id}] Erro:`, msg);
+            await sql`
+        UPDATE agendamentos
+        SET clincare_reserva_status = 'erro',
+            clincare_reserva_erro = ${msg.slice(0, 300)}
+        WHERE id = ${item.id}
+      `;
+        }
+    }
 }
 
 function extrairParesIdNomeDeTexto(texto: string): Map<string, string> {
@@ -911,8 +1337,6 @@ async function main() {
         return;
     }
 
-    const datasAlvo = gerarProximosDiasBahia(configModo.dias);
-
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
         viewport: { width: 4200, height: 2200 },
@@ -925,6 +1349,16 @@ async function main() {
 
     try {
         await realizarLogin(page, clinCareBaseUrl, clinCareEmail, clinCarePassword);
+
+        // Sempre processa primeiro a fila de reservas/cancelamentos (RESERVADO APP)
+        await processarFilaReservas(sql, page, clinCareBaseUrl);
+
+        // Se o workflow foi disparado exclusivamente para reservar horários, encerra aqui
+        if (configModo.modo === 'reservas') {
+            return;
+        }
+
+        const datasAlvo = gerarProximosDiasBahia(configModo.dias);
 
         await importarProfessoresPendentes(
             sql,
@@ -1004,6 +1438,9 @@ async function main() {
 
                 let gravados = 0;
                 for (const bl of blocosColetados) {
+                    // Ignora blocos criados pelo próprio robô ("RESERVADO APP") para não duplicar com agendamentos
+                    if (/reservado\s*app/i.test(bl.motivo)) continue;
+
                     const profMatch =
                         professoresBanco.find(
                             (p) =>

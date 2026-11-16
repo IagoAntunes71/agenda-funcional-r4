@@ -5,6 +5,7 @@ import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
 import { CONFIG_SYNC_MODOS } from '@/app/api/admin/sincronizar/route';
 import { garantirColunasSegurancaAlunos } from '@/lib/cliente-auth';
+import { garantirColunasFilaReserva } from '@/lib/clincare-fila';
 
 export async function GET() {
     const autenticado = await verificarAdminAutenticado();
@@ -17,6 +18,7 @@ export async function GET() {
         const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
 
         await garantirColunasSegurancaAlunos();
+        await garantirColunasFilaReserva();
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
@@ -149,6 +151,8 @@ export async function GET() {
           a.observacoes,
           COALESCE(a.status, 'confirmado') AS status,
           COALESCE(a.lancado_clincare, a.sincronizado_clincare, false) AS sincronizado_clincare,
+          COALESCE(a.clincare_reserva_status, 'pendente') AS clincare_reserva_status,
+          a.clincare_reserva_erro,
           to_char(a.criado_em AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS criado_em_formatado
         FROM agendamentos a
         LEFT JOIN unidades u ON u.id = a.unidade_id

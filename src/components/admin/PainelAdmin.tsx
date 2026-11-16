@@ -121,6 +121,8 @@ interface AgendamentoAdmin {
     status: 'confirmado' | 'cancelado' | 'concluido';
     sincronizado_clincare: boolean;
     criado_em_formatado: string;
+    clincare_reserva_status?: string;
+    clincare_reserva_erro?: string | null;
 }
 
 interface BloqueioAdmin {
@@ -2259,16 +2261,25 @@ export default function PainelAdmin({
 
                                                             {ag.status !== 'cancelado' && (
                                                                 <span
+                                                                    title={ag.clincare_reserva_erro || undefined}
                                                                     className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                                                                         ag.sincronizado_clincare
                                                                             ? 'bg-[#0E7C86]/15 text-[#25A4AF] border-[#0E7C86]/35'
-                                                                            : 'bg-[#C24124]/15 text-amber-400 border-[#C24124]/35'
+                                                                            : ag.clincare_reserva_status === 'reservado'
+                                                                                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                                                                                : ag.clincare_reserva_status === 'erro'
+                                                                                    ? 'bg-[#BE1E23]/20 text-rose-400 border-[#BE1E23]/40'
+                                                                                    : 'bg-[#C24124]/15 text-amber-400 border-[#C24124]/35'
                                                                     }`}
                                                                 >
-                                  {ag.sincronizado_clincare
-                                      ? 'Lançado Clin Care'
-                                      : 'Pendente Clin Care'}
-                                </span>
+    {ag.sincronizado_clincare
+        ? 'Confirmado (Aluno Vinculado)'
+        : ag.clincare_reserva_status === 'reservado'
+            ? 'RESERVADO APP (Trocar p/ Aluno)'
+            : ag.clincare_reserva_status === 'erro'
+                ? 'Erro Robô Clin Care'
+                : 'Robô Reservando...'}
+  </span>
                                                             )}
                                                         </div>
                                                     </div>
