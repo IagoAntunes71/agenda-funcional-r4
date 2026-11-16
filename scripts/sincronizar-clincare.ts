@@ -282,19 +282,74 @@ async function realizarLogin(
     console.log(`[LOGIN] Autenticado com sucesso: ${page.url()}`);
 }
 
-async function selecionarOpcaoDropdown(
+async function selecionarValorSelect(
+    select: Locator,
+    valoresPreferidos: string[]
+): Promise<boolean> {
+    const opcoes = await select
+        .locator('option')
+        .evaluateAll((els) =>
+            els.map((o) => ({
+                value: (o as HTMLOptionElement).value,
+                text: (o.textContent || '').trim(),
+            }))
+        )
+        .catch(() => []);
+
+    for (const pref of valoresPreferidos) {
+        const encontrado = opcoes.find(
+            (o) =>
+                o.value === pref ||
+                o.text === pref ||
+                Number(o.value) === Number(pref)
+        );
+        if (encontrado) {
+            await select.selectOption(encontrado.value).catch(() => null);
+            return true;
+        }
+    }
+    return false;
+}
+
+async function preencherCampoDropdownModal(
     page: Page,
     modal: Locator,
-    preferencias: string[]
+    textoPlaceholder: string,
+    preferencias: string[],
+    textoBusca?: string
 ): Promise<boolean> {
-    await page.waitForTimeout(650);
+    const gatilho = modal
+        .locator(
+            `input[placeholder*="${textoPlaceholder}" i], :text("${textoPlaceholder}")`
+        )
+        .first();
+
+    if (!(await gatilho.isVisible({ timeout: 2500 }).catch(() => false))) {
+        return false;
+    }
+
+    await gatilho.click({ force: true });
+    await page.waitForTimeout(350);
+
+    if (textoBusca) {
+        const inputBusca = modal
+            .locator(`input[placeholder*="${textoPlaceholder}" i], input:focus`)
+            .first();
+
+        if (await inputBusca.isVisible({ timeout: 1000 }).catch(() => false)) {
+            await inputBusca.fill('');
+            await inputBusca.pressSequentially(textoBusca, { delay: 45 });
+            await page.waitForTimeout(1200);
+        }
+    } else {
+        await page.waitForTimeout(550);
+    }
 
     const candidatos = page.locator(
-        '[role="option"], [role="listbox"] li, [role="listbox"] button, [role="listbox"] div[class*="cursor"], ul li[class*="cursor"], div[class*="dropdown"] button, div[class*="menu"] div[class*="cursor"]'
+        '[role="option"], [role="listbox"] li, [role="listbox"] button, [role="listbox"] div[class*="cursor"], ul li[class*="cursor"], div[class*="dropdown"] div[class*="cursor"], div[class*="menu"] div[class*="cursor"]'
     );
 
     const total = await candidatos.count();
-    if (total === 0) return false;
 
     for (const pref of preferencias) {
         const alvo = normalizarTexto(pref);
@@ -302,7 +357,9 @@ async function selecionarOpcaoDropdown(
         for (let i = 0; i < total; i++) {
             const item = candidatos.nth(i);
             if (!(await item.isVisible().catch(() => false))) continue;
-            const txt = normalizarTexto((await item.innerText().catch(() => '')) || '');
+            const txt = normalizarTexto(
+                (await item.innerText().catch(() => '')) || ''
+            );
             if (txt && txt.includes(alvo)) {
                 await item.click({ force: true });
                 await page.waitForTimeout(350);
@@ -311,14 +368,14 @@ async function selecionarOpcaoDropdown(
         }
     }
 
-    // Fallback: seleciona a primeira opção visível válida do menu aberto
+    // Fallback: seleciona a primeira opção válida aberta no menu
     for (let i = 0; i < total; i++) {
         const item = candidatos.nth(i);
         if (!(await item.isVisible().catch(() => false))) continue;
         const txt = ((await item.innerText().catch(() => '')) || '').trim();
         if (
             txt.length >= 2 &&
-            !/^(selecione|nenhum|buscar|carregando|\+)$/i.test(txt)
+            !/^(selecione|nenhum|buscar|carregando|\+|novo)$/i.test(txt)
         ) {
             await item.click({ force: true });
             await page.waitForTimeout(350);
@@ -326,11 +383,86 @@ async function selecionarOpcaoDropdown(
         }
     }
 
-    // Último recurso via teclado caso seja um combobox customizado
-    await modal.press('ArrowDown').catch(() => null);
-    await modal.press('Enter').catch(() => null);
-    await page.waitForTimeout(300);
+    // Último recurso via teclado
+    await page.keyboard.press('ArrowDown').catch(() => null);
+    await page.keyboard.press('Enter').catch(() => null);
+    await page.waitForTimeout(350);
     return true;
+}
+
+async function localizarColunaProfessor(
+    page: Page,
+    nomeProfessor: string
+): Promise<{ left: number; width: number } | null> {
+    return page.evaluate((alvo) => {
+        function norm(t: string) {
+            return t
+                .replace(/^(\d+\s*\.\s*)+/, '')
+                .replace(/\./g, ' ')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+        }
+
+        function bate(aBruto: string, bBruto: string) {
+            const a = norm(aBruto);
+            const b = norm(bBruto);
+            if (!a || !b) return false;
+            if (a === b) return true;
+            const pa = a.split(' ');
+            const pb = b.split(' ');
+            if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0]) {
+                const ua = pa[pa.length - 1];
+                const ub = pb[pb.length - 1];
+                if (
+                    (ua.length === 1 && ub.startsWith(ua)) ||
+                    (ub.length === 1 && ua.startsWith(ub))
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        const nos = Array.from(document.querySelectorAll('*'));
+        for (const el of nos) {
+            if (el.children.length > 0) continue;
+            const txt = (el.textContent || '').trim();
+            if (!txt || txt.length > 65) continue;
+
+            if (bate(alvo, txt)) {
+                let box: HTMLElement | null = el.parentElement;
+                for (let i = 0; i < 4 && box; i++) {
+                    const r = box.getBoundingClientRect();
+                    if (
+                        r.width >= 100 &&
+                        r.width <= 520 &&
+                        r.height >= 25 &&
+                        r.height <= 260
+                    ) {
+                        if (
+                            r.left >= 40 &&
+                            r.left + r.width / 2 <= window.innerWidth - 20
+                        ) {
+                            return { left: r.left, width: r.width };
+                        }
+                    }
+                    box = box.parentElement;
+                }
+                const rEl = el.getBoundingClientRect();
+                if (
+                    rEl.width >= 40 &&
+                    rEl.left >= 40 &&
+                    rEl.left <= window.innerWidth - 20
+                ) {
+                    return { left: rEl.left - 30, width: Math.max(rEl.width + 60, 160) };
+                }
+            }
+        }
+        return null;
+    }, nomeProfessor);
 }
 
 async function criarReservaNoClinCare(
@@ -348,170 +480,173 @@ async function criarReservaNoClinCare(
 
     await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page
-        .locator('text="08:00", text="14:00", text="14:10"')
+        .locator('text="08:00", text="09:00", text="14:00"')
         .first()
         .waitFor({ state: 'visible', timeout: 10000 })
         .catch(() => null);
     await page.waitForTimeout(1000);
 
-    // Abre o modal "+ Novo Agendamento"
-    const botaoNovo = page
-        .locator(
-            'button:has-text("Novo Agendamento"), button:has-text("Novo agendamento"), button:has-text("Agendar"), a:has-text("Novo Agendamento")'
-        )
-        .first();
+    // 1. Localiza a coluna do professor (rolando horizontalmente se necessário)
+    let coluna = await localizarColunaProfessor(page, ag.professor_nome);
 
-    if (await botaoNovo.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await botaoNovo.click();
-    } else {
-        // Fallback: botão "+" flutuante ou no topo da agenda
-        const botaoMais = page
-            .locator('main button:has-text("+"), header button:has-text("+")')
-            .first();
-        if (await botaoMais.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await botaoMais.click();
-        } else {
-            throw new Error(
-                'Botão "+ Novo Agendamento" não encontrado na tela do mapa-agenda.'
+    for (let passo = 0; passo < 6 && !coluna; passo++) {
+        const rolou = await page.evaluate(() => {
+            const scrollables = Array.from(document.querySelectorAll('*')).filter(
+                (el) => el.scrollWidth > el.clientWidth + 50
             );
+            let moveu = false;
+            for (const el of scrollables) {
+                const antes = el.scrollLeft;
+                el.scrollLeft += 1400;
+                if (el.scrollLeft !== antes) moveu = true;
+            }
+            return moveu;
+        });
+        if (!rolou) break;
+        await page.waitForTimeout(450);
+        coluna = await localizarColunaProfessor(page, ag.professor_nome);
+    }
+
+    if (!coluna) {
+        throw new Error(
+            `Coluna do professor "${ag.professor_nome}" não encontrada na grade desta unidade.`
+        );
+    }
+
+    // 2. Localiza a linha vertical do horário (ex.: "19:00" para "19:10")
+    const [hhRaw, mmRaw] = ag.hora_inicio.slice(0, 5).split(':');
+    const hh = hhRaw.padStart(2, '0');
+    const mm = mmRaw.padStart(2, '0');
+    const labelHoraAlvo = `${hh}:00`;
+    const labelHoraSeguinte = `${String(Number(hh) + 1).padStart(2, '0')}:00`;
+
+    const elHora = page.locator(`text="${labelHoraAlvo}"`).first();
+    if (await elHora.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await elHora.scrollIntoViewIfNeeded().catch(() => null);
+        await page.waitForTimeout(300);
+    }
+
+    // Revalida coordenadas após eventual rolagem vertical
+    coluna = (await localizarColunaProfessor(page, ag.professor_nome)) || coluna;
+    const boxHora = await elHora.boundingBox().catch(() => null);
+    const boxHoraSeguinte = await page
+        .locator(`text="${labelHoraSeguinte}"`)
+        .first()
+        .boundingBox()
+        .catch(() => null);
+
+    if (!boxHora) {
+        throw new Error(
+            `Linha do horário "${labelHoraAlvo}" não localizada na grade.`
+        );
+    }
+
+    const alturaHora =
+        boxHoraSeguinte && boxHoraSeguinte.y > boxHora.y + 20
+            ? boxHoraSeguinte.y - boxHora.y
+            : 88;
+
+    const clickX = Math.round(coluna.left + coluna.width / 2);
+    const baseY = Math.round(boxHora.y + (Number(mm) / 60) * alturaHora);
+
+    const tituloModal = page.locator('text="Novo Agendamento"').first();
+
+    // Clica na barrinha branca do horário dentro da coluna do professor
+    for (const offsetY of [6, 18, 42]) {
+        await page.mouse.click(clickX, baseY + offsetY);
+        if (await tituloModal.isVisible({ timeout: 1400 }).catch(() => false)) {
+            break;
         }
     }
 
-    const tituloModal = page.locator('text="Novo Agendamento"').first();
-    await tituloModal.waitFor({ state: 'visible', timeout: 8000 });
+    if (!(await tituloModal.isVisible({ timeout: 1500 }).catch(() => false))) {
+        throw new Error(
+            `Não foi possível abrir o modal de Novo Agendamento clicando em ${ag.professor_nome} às ${ag.hora_inicio} (possível choque de horário já ocupado no clin.care).`
+        );
+    }
 
     const modal = page
         .locator('[role="dialog"], div:has(> div:has-text("Novo Agendamento"))')
         .last();
 
-    // 1. PROFISSIONAL (primeiro bloco do modal)
-    const limparProfBtn = modal
-        .locator('button:has-text("×"), span:has-text("×"), svg')
-        .first();
-    const textoPrimeiroCampo = await modal
-        .locator('div, input')
-        .nth(1)
-        .innerText()
-        .catch(() => '');
-
-    if (
-        textoPrimeiroCampo &&
-        !nomesCorrespondem(ag.professor_nome, textoPrimeiroCampo)
-    ) {
-        await limparProfBtn.click({ force: true }).catch(() => null);
-        await page.waitForTimeout(300);
-    }
-
-    const inputProf = modal
-        .locator(
-            'input[placeholder*="profissional" i], input[placeholder*="selecione" i]'
-        )
-        .first();
-    if (await inputProf.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await inputProf.click();
-        await inputProf.fill(ag.professor_nome);
-        await selecionarOpcaoDropdown(page, modal, [
-            ag.professor_nome,
-            ag.professor_nome.split(' ')[0],
-        ]);
-    }
-
-    // 2. PACIENTE -> RESERVADO APP (a2bb7dbc-b80c-4f99-afe4-f39f7c728db7)
-    const campoPaciente = modal
-        .locator('input[placeholder*="paciente" i], :text("Selecione o paciente")')
-        .first();
-    await campoPaciente.click({ force: true });
-    await page.waitForTimeout(300);
-
-    const inputPacienteAtivo = modal
-        .locator('input[placeholder*="paciente" i], input:focus')
-        .first();
-    await inputPacienteAtivo.fill(PACIENTE_RESERVADO_NOME);
-    const selecionouPaciente = await selecionarOpcaoDropdown(page, modal, [
-        PACIENTE_RESERVADO_NOME,
-        'RESERVADO',
-        PACIENTE_RESERVADO_ID,
-    ]);
+    // 3. Paciente -> RESERVADO APP
+    const selecionouPaciente = await preencherCampoDropdownModal(
+        page,
+        modal,
+        'Selecione o paciente',
+        [PACIENTE_RESERVADO_NOME, 'RESERVADO', PACIENTE_RESERVADO_ID],
+        PACIENTE_RESERVADO_NOME
+    );
     if (!selecionouPaciente) {
         throw new Error(
             `Não foi possível selecionar o paciente "${PACIENTE_RESERVADO_NOME}".`
         );
     }
 
-    // 3. SERVIÇO
-    const campoServico = modal
-        .locator('input[placeholder*="servi" i], :text("Selecione o serviço")')
-        .first();
-    await campoServico.click({ force: true });
-    const selecionouServico = await selecionarOpcaoDropdown(page, modal, [
-        servicoPadrao,
-        ag.materia,
-        'Reforço',
-        'Aula',
-    ]);
+    // 4. Serviço
+    const selecionouServico = await preencherCampoDropdownModal(
+        page,
+        modal,
+        'Selecione o serviço',
+        [servicoPadrao, ag.materia, 'Reforço', 'Aula']
+    );
     if (!selecionouServico) {
         throw new Error('Não foi possível selecionar um serviço obrigatório.');
     }
 
-    // 4. SALA
-    const campoSala = modal
-        .locator('input[placeholder*="sala" i], :text("Selecione a sala")')
-        .first();
-    await campoSala.click({ force: true });
-    const selecionouSala = await selecionarOpcaoDropdown(page, modal, [
-        salaPadrao,
-        'Sala',
-    ]);
+    // 5. Sala
+    const selecionouSala = await preencherCampoDropdownModal(
+        page,
+        modal,
+        'Selecione a sala',
+        [salaPadrao, 'Sala']
+    );
     if (!selecionouSala) {
         throw new Error('Não foi possível selecionar uma sala obrigatória.');
     }
 
-    // 5. DATA DE INÍCIO (DD/MM/YYYY)
+    // 6. Data (DD/MM/YYYY)
     const inputData = modal
         .locator('input[placeholder*="/" i], input[value*="/202"]')
         .first();
-    if (await inputData.isVisible({ timeout: 1500 }).catch(() => false)) {
+    if (await inputData.isVisible({ timeout: 1200 }).catch(() => false)) {
         await inputData.fill(formatarDataBR(ag.data));
     }
 
-    // 6. HORÁRIO DE INÍCIO E DURAÇÃO (1h 40min = 100 minutos)
-    const [hhRaw, mmRaw] = ag.hora_inicio.slice(0, 5).split(':');
-    const hh = hhRaw.padStart(2, '0');
-    const mm = mmRaw.padStart(2, '0');
-
+    // 7. Horário de início e Duração (1 hr 40 min = 100 min)
     const selects = modal.locator('select');
     const totalSelects = await selects.count();
     if (totalSelects >= 4) {
-        await selects.nth(0).selectOption(hh).catch(() => null);
-        await selects.nth(1).selectOption(mm).catch(() => null);
-        await selects
-            .nth(2)
-            .selectOption('1')
-            .catch(() => selects.nth(2).selectOption('01').catch(() => null));
-        await selects.nth(3).selectOption('40').catch(() => null);
+        await selecionarValorSelect(selects.nth(0), [hh, String(Number(hh))]);
+        await selecionarValorSelect(selects.nth(1), [mm, String(Number(mm))]);
+        await selecionarValorSelect(selects.nth(2), ['1', '01']);
+        await selecionarValorSelect(selects.nth(3), ['40']);
     }
 
-    // 7. OBSERVAÇÃO (se houver campo no modal)
-    const campoObs = modal.locator('textarea, input[placeholder*="observ" i]').first();
+    // 8. Observação (se visível no modal)
+    const campoObs = modal
+        .locator('textarea, input[placeholder*="observ" i]')
+        .first();
     if (await campoObs.isVisible({ timeout: 800 }).catch(() => false)) {
         await campoObs.fill(
             `SITE R4 #${ag.id} | Aluno: ${ag.nome_aluno} | ${ag.materia} | Resp: ${ag.nome_responsavel} (${ag.whatsapp_responsavel})`
         );
     }
 
-    // 8. SALVAR ("CRIAR ATENDIMENTO")
+    // 9. Salvar ("CRIAR ATENDIMENTO")
     const btnCriar = modal
-        .locator('button:has-text("CRIAR ATENDIMENTO"), button:has-text("Criar atendimento")')
+        .locator(
+            'button:has-text("CRIAR ATENDIMENTO"), button:has-text("Criar atendimento")'
+        )
         .first();
     await btnCriar.click();
     await page.waitForTimeout(2200);
 
-    // Verifica se o modal fechou (sucesso) ou exibiu erro de validação
     const aindaAberto = await tituloModal.isVisible().catch(() => false);
     if (aindaAberto) {
         const textoModal = await modal.innerText().catch(() => '');
         throw new Error(
-            `Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO. Verifique campos obrigatórios. Trecho: ${textoModal
+            `Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO: ${textoModal
                 .replace(/\s+/g, ' ')
                 .slice(0, 140)}`
         );
