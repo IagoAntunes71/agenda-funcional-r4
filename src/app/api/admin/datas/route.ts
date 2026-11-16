@@ -9,8 +9,12 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const { data, descricao } = await req.json();
-        if (!data || !descricao?.trim()) {
+        const body = await req.json();
+        const data = String(body?.data || '').trim();
+        const descricao = String(body?.descricao || '').trim();
+        const ativo = body?.ativo === undefined ? true : Boolean(body.ativo);
+
+        if (!data || !descricao) {
             return NextResponse.json(
                 { error: 'Informe a data e a descrição.' },
                 { status: 400 }
@@ -19,15 +23,18 @@ export async function POST(req: NextRequest) {
 
         await sql`
       INSERT INTO datas_liberadas (data, descricao, ativo)
-      VALUES (${data}::date, ${descricao.trim()}, true)
+      VALUES (${data}::date, ${descricao}, ${ativo})
       ON CONFLICT (data)
-      DO UPDATE SET descricao = EXCLUDED.descricao, ativo = true
+      DO UPDATE SET descricao = EXCLUDED.descricao, ativo = EXCLUDED.ativo
     `;
 
         return NextResponse.json({ ok: true });
     } catch (error) {
         console.error('Erro ao salvar data:', error);
-        return NextResponse.json({ error: 'Falha ao cadastrar data.' }, { status: 500 });
+        return NextResponse.json(
+            { error: 'Falha ao salvar regra de data.' },
+            { status: 500 }
+        );
     }
 }
 
@@ -46,7 +53,10 @@ export async function PATCH(req: NextRequest) {
     `;
         return NextResponse.json({ ok: true });
     } catch {
-        return NextResponse.json({ error: 'Falha ao atualizar data.' }, { status: 500 });
+        return NextResponse.json(
+            { error: 'Falha ao atualizar data.' },
+            { status: 500 }
+        );
     }
 }
 

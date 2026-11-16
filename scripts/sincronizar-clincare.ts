@@ -10,10 +10,6 @@ interface UnidadeRow {
     clin_care_id: string;
 }
 
-interface DataRow {
-    data: string;
-}
-
 interface ProfessorRow {
     id: number;
     nome: string;
@@ -35,6 +31,7 @@ interface BloqueioGrade {
 
 const HORA_INICIO_PADRAO = '14:10';
 const HORA_FIM_PADRAO = '20:50';
+const DIAS_VARREDURA_MENSAL = 30;
 
 function normalizarTexto(texto: string): string {
     return texto
@@ -85,11 +82,42 @@ function limparNomeMateria(servicoBruto: string): string {
         .trim();
 }
 
-async function ajustarBancoEHorariosPadrao(sql: NeonQueryFunction<false, false>) {
+function gerarProximosDiasBahia(quantidadeDias: number): string[] {
+    const agora = new Date();
+    const partes = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Bahia',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(agora);
+
+    const ano = Number(partes.find((p) => p.type === 'year')?.value || 2026);
+    const mes = Number(partes.find((p) => p.type === 'month')?.value || 1);
+    const dia = Number(partes.find((p) => p.type === 'day')?.value || 1);
+
+    const lista: string[] = [];
+    for (let i = 0; i <= quantidadeDias; i++) {
+        const dt = new Date(ano, mes - 1, dia + i);
+        const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(
+            2,
+            '0'
+        )}-${String(dt.getDate()).padStart(2, '0')}`;
+        lista.push(iso);
+    }
+    return lista;
+}
+
+async function ajustarBancoSemSobrescreverTurnos(
+    sql: NeonQueryFunction<false, false>
+) {
     await sql`
     ALTER TABLE professores
     DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
   `;
+
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
 
     await sql`
     DELETE FROM bloqueios_clincare
@@ -121,14 +149,6 @@ async function ajustarBancoEHorariosPadrao(sql: NeonQueryFunction<false, false>)
     CREATE UNIQUE INDEX IF NOT EXISTS idx_professores_clincare_unidade
     ON professores (clin_care_id, unidade_id)
     WHERE clin_care_id IS NOT NULL
-  `;
-
-    await sql`
-    UPDATE professores
-    SET hora_inicio = ${HORA_INICIO_PADRAO}::time,
-        hora_fim = ${HORA_FIM_PADRAO}::time
-    WHERE hora_inicio IS DISTINCT FROM ${HORA_INICIO_PADRAO}::time
-       OR hora_fim IS DISTINCT FROM ${HORA_FIM_PADRAO}::time
   `;
 }
 
@@ -249,7 +269,9 @@ async function descobrirTodosProfissionais(
     };
 
     page.on('response', listener);
-    await page.goto(urlLista, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => null);
+    await page
+        .goto(urlLista, { waitUntil: 'domcontentloaded', timeout: 45000 })
+        .catch(() => null);
     await page.waitForTimeout(2500);
 
     const selectPagina = page
@@ -257,7 +279,9 @@ async function descobrirTodosProfissionais(
         .first();
     if (await selectPagina.isVisible({ timeout: 1500 }).catch(() => false)) {
         const tem100 = await selectPagina.locator('option[value="100"]').count();
-        await selectPagina.selectOption(tem100 > 0 ? '100' : '50').catch(() => null);
+        await selectPagina
+            .selectOption(tem100 > 0 ? '100' : '50')
+            .catch(() => null);
         await page.waitForTimeout(2000);
     }
 
@@ -272,12 +296,16 @@ async function descobrirTodosProfissionais(
 
         const dadosVisiveisMain = await page.evaluate(() => {
             const main = document.querySelector('main') || document.body;
-            const linksProf = Array.from(main.querySelectorAll('a[href*="/profissionais/"]'))
+            const linksProf = Array.from(
+                main.querySelectorAll('a[href*="/profissionais/"]')
+            )
                 .map((a) => a.getAttribute('href') || '')
                 .filter(Boolean);
 
             const textosLinhas = Array.from(
-                main.querySelectorAll('tr, [role="row"], tbody td, li, h2, h3, span, p')
+                main.querySelectorAll(
+                    'tr, [role="row"], tbody td, li, h2, h3, span, p'
+                )
             )
                 .map((el) => (el as HTMLElement).innerText?.trim() || '')
                 .filter((t) => t.length >= 3 && t.length <= 90);
@@ -392,7 +420,9 @@ async function lerMateriasDeServicosEValoresNaMesmaAba(
             .goto(hrefServicos, { waitUntil: 'domcontentloaded', timeout: 25000 })
             .catch(() => null);
     } else {
-        const textoCard = workerPage.locator('main :text("Serviços e Valores")').first();
+        const textoCard = workerPage
+            .locator('main :text("Serviços e Valores")')
+            .first();
         if (!(await textoCard.isVisible({ timeout: 2000 }).catch(() => false))) {
             return [];
         }
@@ -406,7 +436,9 @@ async function lerMateriasDeServicosEValoresNaMesmaAba(
         .catch(() => null);
 
     await workerPage.waitForTimeout(450);
-    await workerPage.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await workerPage.evaluate(() =>
+        window.scrollTo(0, document.body.scrollHeight)
+    );
     await workerPage.waitForTimeout(250);
 
     const servicosAtivosBrutos = await workerPage.evaluate(() => {
@@ -534,14 +566,14 @@ async function processarUmProfessor(
         UPDATE professores
         SET nome = ${nomeLimpo},
             clin_care_id = ${item.clin_care_id},
-            materias = ${materiasFinais}::text[],
-            hora_inicio = ${HORA_INICIO_PADRAO}::time,
-            hora_fim = ${HORA_FIM_PADRAO}::time
+            materias = ${materiasFinais}::text[]
         WHERE clin_care_id = ${item.clin_care_id}
            OR lower(trim(nome)) = lower(trim(${nomeLimpo}))
       `;
 
-            const idsUnidades = Array.from(new Set(existentes.map((e) => e.unidade_id)));
+            const idsUnidades = Array.from(
+                new Set(existentes.map((e) => e.unidade_id))
+            );
             nomesUnidadesAtuais = unidades
                 .filter((u) => idsUnidades.includes(u.id))
                 .map((u) => u.nome);
@@ -572,7 +604,9 @@ async function processarUmProfessor(
         await sql`
       UPDATE importacao_profissionais_clincare
       SET nome_detectado = ${nomeLimpo},
-          unidades_detectadas = ${nomesUnidadesAtuais.join(', ') || unidadePadrao.nome},
+          unidades_detectadas = ${
+            nomesUnidadesAtuais.join(', ') || unidadePadrao.nome
+        },
           materias_detectadas = ${materiasFinais.join(', ')},
           status = 'importado',
           mensagem = 'Cadastrado/atualizado com sucesso',
@@ -659,10 +693,15 @@ async function importarProfessoresPendentes(
     await Promise.all(workers);
 }
 
-async function abrirMapaAgenda(context: BrowserContext, page: Page): Promise<Page> {
+async function abrirMapaAgenda(
+    context: BrowserContext,
+    page: Page
+): Promise<Page> {
     const cardMapa = page.locator('a[aria-label="Mapa de agenda"]').first();
     if (await cardMapa.isVisible({ timeout: 8000 }).catch(() => false)) {
-        const popupPromise = context.waitForEvent('page', { timeout: 6000 }).catch(() => null);
+        const popupPromise = context
+            .waitForEvent('page', { timeout: 6000 })
+            .catch(() => null);
         await cardMapa.click();
         const novaAba = await popupPromise;
         const agendaPage = novaAba ?? page;
@@ -684,7 +723,10 @@ async function extrairGradeVisivel(agendaPage: Page): Promise<{
             if (el.children.length > 0) continue;
             const textoFolha = (el.textContent || '').trim();
 
-            if (textoFolha === 'Aulas' || /^\d+\s*\.\s*[A-Za-zÀ-ÿ]/.test(textoFolha)) {
+            if (
+                textoFolha === 'Aulas' ||
+                /^\d+\s*\.\s*[A-Za-zÀ-ÿ]/.test(textoFolha)
+            ) {
                 let container: HTMLElement | null = el.parentElement;
                 for (let nivel = 0; nivel < 5 && container; nivel++) {
                     const rect = container.getBoundingClientRect();
@@ -755,7 +797,6 @@ async function extrairGradeVisivel(agendaPage: Page): Promise<{
             if (!match) continue;
 
             const rect = no.getBoundingClientRect();
-            // Sem limite máximo de altura para permitir bloqueios de dia inteiro (ex: 08:00 - 20:00)
             if (rect.width < 55 || rect.width > 500 || rect.height < 14) {
                 continue;
             }
@@ -830,7 +871,7 @@ async function main() {
     }
 
     const sql = neon(databaseUrl);
-    await ajustarBancoEHorariosPadrao(sql);
+    await ajustarBancoSemSobrescreverTurnos(sql);
 
     const unidades = (await sql`
     SELECT id, nome, clin_care_id
@@ -840,18 +881,12 @@ async function main() {
     ORDER BY id ASC
   `) as UnidadeRow[];
 
-    const datas = (await sql`
-    SELECT to_char(data, 'YYYY-MM-DD') AS data
-    FROM datas_liberadas
-    WHERE ativo = true
-      AND data >= (now() AT TIME ZONE 'America/Bahia')::date
-    ORDER BY data ASC
-  `) as DataRow[];
-
     if (unidades.length === 0) {
         console.log('Nenhuma unidade com UUID real configurada.');
         return;
     }
+
+    const datasMes = gerarProximosDiasBahia(DIAS_VARREDURA_MENSAL);
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
@@ -866,12 +901,13 @@ async function main() {
     try {
         await realizarLogin(page, clinCareBaseUrl, clinCareEmail, clinCarePassword);
 
-        await importarProfessoresPendentes(sql, context, page, clinCareBaseUrl, unidades);
-
-        if (datas.length === 0) {
-            console.log('Nenhuma data futura liberada para sincronizar horários.');
-            return;
-        }
+        await importarProfessoresPendentes(
+            sql,
+            context,
+            page,
+            clinCareBaseUrl,
+            unidades
+        );
 
         const professoresBanco = (await sql`
       SELECT id, nome, clin_care_id, unidade_id
@@ -886,9 +922,9 @@ async function main() {
         const agendaPage = await abrirMapaAgenda(context, page);
 
         for (const unidade of unidades) {
-            for (const itemData of datas) {
-                const urlMapa = `${clinCareBaseUrl}/painel/mapa-agenda?date=${itemData.data}&unitId=${unidade.clin_care_id}`;
-                console.log(`[SYNC] Abrindo ${unidade.nome} | ${itemData.data}...`);
+            for (const dataISO of datasMes) {
+                const urlMapa = `${clinCareBaseUrl}/painel/mapa-agenda?date=${dataISO}&unitId=${unidade.clin_care_id}`;
+                console.log(`[SYNC] Abrindo ${unidade.nome} | ${dataISO}...`);
 
                 await agendaPage
                     .goto(urlMapa, { waitUntil: 'networkidle', timeout: 60000 })
@@ -900,12 +936,11 @@ async function main() {
                     .waitFor({ state: 'visible', timeout: 15000 })
                     .catch(() => null);
 
-                await agendaPage.waitForTimeout(2000);
+                await agendaPage.waitForTimeout(1600);
 
                 const colunasTodas = new Set<string>();
                 const blocosMapa = new Map<string, BloqueioGrade>();
 
-                // Faz 4 passos de rolagem horizontal caso existam muitos professores na unidade
                 for (let passo = 0; passo < 4; passo++) {
                     const parcial = await extrairGradeVisivel(agendaPage);
                     for (const nomeCol of parcial.colunasNomes) {
@@ -919,9 +954,9 @@ async function main() {
                     }
 
                     const rolou = await agendaPage.evaluate(() => {
-                        const scrollables = Array.from(document.querySelectorAll('*')).filter(
-                            (el) => el.scrollWidth > el.clientWidth + 50
-                        );
+                        const scrollables = Array.from(
+                            document.querySelectorAll('*')
+                        ).filter((el) => el.scrollWidth > el.clientWidth + 50);
                         let moveu = false;
                         for (const el of scrollables) {
                             const antes = el.scrollLeft;
@@ -932,12 +967,12 @@ async function main() {
                     });
 
                     if (!rolou) break;
-                    await agendaPage.waitForTimeout(800);
+                    await agendaPage.waitForTimeout(700);
                 }
 
                 const blocosColetados = Array.from(blocosMapa.values());
                 console.log(
-                    `[SYNC] Colunas na grade (${unidade.nome} | ${itemData.data}): ${
+                    `[SYNC] Colunas na grade (${unidade.nome} | ${dataISO}): ${
                         Array.from(colunasTodas).join(', ') || 'nenhuma'
                     }`
                 );
@@ -945,12 +980,11 @@ async function main() {
                 await sql`
           DELETE FROM bloqueios_clincare
           WHERE unidade_id = ${unidade.id}
-            AND data = ${itemData.data}::date
+            AND data = ${dataISO}::date
         `;
 
                 let gravados = 0;
                 for (const bl of blocosColetados) {
-                    // Prioriza professor vinculado à unidade, mas faz fallback pelo nome em qualquer unidade
                     const profMatch =
                         professoresBanco.find(
                             (p) =>
@@ -981,7 +1015,7 @@ async function main() {
             VALUES (
               ${profMatch.id},
               ${unidade.id},
-              ${itemData.data}::date,
+              ${dataISO}::date,
               ${bl.horaInicio}::time,
               ${bl.horaFim}::time,
               ${bl.motivo},
@@ -992,7 +1026,7 @@ async function main() {
                 }
 
                 console.log(
-                    `Concluído ${unidade.nome} (${itemData.data}): ${blocosColetados.length} bloco(s)/aula(s) lido(s), ${gravados} gravado(s) no Neon.`
+                    `Concluído ${unidade.nome} (${dataISO}): ${blocosColetados.length} bloco(s)/aula(s) lido(s), ${gravados} gravado(s) no Neon.`
                 );
             }
         }

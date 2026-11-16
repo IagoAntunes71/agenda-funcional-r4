@@ -12,6 +12,12 @@ function normalizarMaterias(raw: unknown): string[] {
         .filter(Boolean);
 }
 
+async function garantirColunasManha() {
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
+}
+
 export async function POST(req: NextRequest) {
     const autenticado = await verificarAdminAutenticado();
     if (!autenticado) {
@@ -19,12 +25,16 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+        await garantirColunasManha();
         const body = await req.json();
         const nome = String(body?.nome || '').trim();
         const clinCareId = String(body?.clin_care_id || '').trim() || null;
         const unidadeId = Number(body?.unidade_id || 0);
         const materias = normalizarMaterias(body?.materias);
-        const horaInicio = String(body?.hora_inicio || '08:00').trim();
+        const manhaAtivo = Boolean(body?.manha_ativo);
+        const manhaInicio = String(body?.manha_inicio || '08:00').trim();
+        const manhaFim = String(body?.manha_fim || '11:20').trim();
+        const horaInicio = String(body?.hora_inicio || '14:10').trim();
         const horaFim = String(body?.hora_fim || '20:50').trim();
 
         if (!nome || !unidadeId || materias.length === 0) {
@@ -40,6 +50,9 @@ export async function POST(req: NextRequest) {
         clin_care_id,
         unidade_id,
         materias,
+        manha_ativo,
+        manha_inicio,
+        manha_fim,
         hora_inicio,
         hora_fim,
         ativo
@@ -49,6 +62,9 @@ export async function POST(req: NextRequest) {
         ${clinCareId},
         ${unidadeId},
         ${materias},
+        ${manhaAtivo},
+        ${manhaAtivo ? manhaInicio : null}::time,
+        ${manhaAtivo ? manhaFim : null}::time,
         ${horaInicio}::time,
         ${horaFim}::time,
         true
@@ -72,6 +88,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     try {
+        await garantirColunasManha();
         const body = await req.json();
         const id = Number(body?.id || 0);
 
@@ -82,7 +99,6 @@ export async function PATCH(req: NextRequest) {
             );
         }
 
-        // Alternar apenas status ativo/pausado
         if (
             typeof body?.ativo === 'boolean' &&
             body?.nome === undefined &&
@@ -96,12 +112,14 @@ export async function PATCH(req: NextRequest) {
             return NextResponse.json({ sucesso: true });
         }
 
-        // Edição completa do professor
         const nome = String(body?.nome || '').trim();
         const clinCareId = String(body?.clin_care_id || '').trim() || null;
         const unidadeId = Number(body?.unidade_id || 0);
         const materias = normalizarMaterias(body?.materias);
-        const horaInicio = String(body?.hora_inicio || '08:00').trim();
+        const manhaAtivo = Boolean(body?.manha_ativo);
+        const manhaInicio = String(body?.manha_inicio || '08:00').trim();
+        const manhaFim = String(body?.manha_fim || '11:20').trim();
+        const horaInicio = String(body?.hora_inicio || '14:10').trim();
         const horaFim = String(body?.hora_fim || '20:50').trim();
 
         if (!nome || !unidadeId || materias.length === 0) {
@@ -118,6 +136,9 @@ export async function PATCH(req: NextRequest) {
         clin_care_id = ${clinCareId},
         unidade_id = ${unidadeId},
         materias = ${materias},
+        manha_ativo = ${manhaAtivo},
+        manha_inicio = ${manhaAtivo ? manhaInicio : null}::time,
+        manha_fim = ${manhaAtivo ? manhaFim : null}::time,
         hora_inicio = ${horaInicio}::time,
         hora_fim = ${horaFim}::time
       WHERE id = ${id}

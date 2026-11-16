@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
+import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
 
 export async function GET() {
     const autenticado = await verificarAdminAutenticado();
@@ -9,14 +11,13 @@ export async function GET() {
     }
 
     try {
+        const modoChaveMestra = await obterModoChaveMestra();
+        const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
+
+        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
+        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
+        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
         await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_nome TEXT`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_telefone TEXT`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS colegio_nome TEXT`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS serie TEXT`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`;
 
@@ -31,7 +32,7 @@ export async function GET() {
             sql`
         SELECT id, nome, clin_care_id, ativa
         FROM unidades
-        ORDER BY nome ASC
+        ORDER BY id ASC
       `,
             sql`
         SELECT
@@ -41,8 +42,11 @@ export async function GET() {
           p.unidade_id,
           u.nome AS unidade_nome,
           p.materias,
-          to_char(p.hora_inicio, 'HH24:MI') AS hora_inicio,
-          to_char(p.hora_fim, 'HH24:MI') AS hora_fim,
+          COALESCE(p.manha_ativo, false) AS manha_ativo,
+          COALESCE(to_char(p.manha_inicio, 'HH24:MI'), '08:00') AS manha_inicio,
+          COALESCE(to_char(p.manha_fim, 'HH24:MI'), '11:20') AS manha_fim,
+          COALESCE(to_char(p.hora_inicio, 'HH24:MI'), '14:10') AS hora_inicio,
+          COALESCE(to_char(p.hora_fim, 'HH24:MI'), '20:50') AS hora_fim,
           p.ativo
         FROM professores p
         JOIN unidades u ON u.id = p.unidade_id
@@ -56,7 +60,7 @@ export async function GET() {
           ativo
         FROM datas_liberadas
         ORDER BY data DESC
-        LIMIT 60
+        LIMIT 90
       `,
             sql`
         SELECT
@@ -147,6 +151,10 @@ export async function GET() {
         ]);
 
         return NextResponse.json({
+            chaveMestra: {
+                modo: modoChaveMestra,
+                aberto: statusChaveMestra.aberto,
+            },
             unidades,
             professores,
             datasLiberadas,

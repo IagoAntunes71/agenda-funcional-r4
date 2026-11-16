@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
     IntervaloOcupado,
-    SLOTS_FIXOS_100_MIN,
+    avaliarStatusChaveMestra,
+    gerarDatasDisponiveisSemana,
+    gerarTodosSlotsProfessor,
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
 import { normalizarTelefone } from '@/lib/cliente-helpers';
 import { notificarGrupoNovoAgendamento } from '@/lib/whatsapp-notificacao';
+import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 
 async function garantirTabelaAgendamentos() {
     await sql`
@@ -50,31 +53,27 @@ async function garantirTabelaAgendamentos() {
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ DEFAULT now()`;
 
-    await sql`
-    DO $$
-    DECLARE
-      col record;
-    BEGIN
-      FOR col IN
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'agendamentos'
-          AND is_nullable = 'NO'
-          AND column_name NOT IN (
-            'id', 'unidade_id', 'professor_id', 'materia', 'data',
-            'hora_inicio', 'hora_fim', 'aluno_nome', 'aluno_telefone', 'status'
-          )
-      LOOP
-        EXECUTE format('ALTER TABLE agendamentos ALTER COLUMN %I DROP NOT NULL', col.column_name);
-      END LOOP;
-    END $$;
-  `;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
 }
 
 export async function POST(req: NextRequest) {
     try {
         await garantirTabelaAgendamentos();
+
+        const modoChaveMestra = await obterModoChaveMestra();
+        const statusSistema = avaliarStatusChaveMestra(modoChaveMestra);
+        if (!statusSistema.aberto) {
+            return NextResponse.json(
+                {
+                    error:
+                        statusSistema.motivoFechado ||
+                        'O agendamento online está fechado no momento.',
+                },
+                { status: 403 }
+            );
+        }
 
         const body = await req.json();
         const unidadeId = Number(body?.unidadeId || 0);
@@ -105,55 +104,81 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        let responsavelFinal = responsavelNome;
-        if (!responsavelFinal && alunoTelefone) {
-            const respRows = (await sql`
-        SELECT responsavel_nome
-        FROM alunos
-        WHERE telefone = ${alunoTelefone}
-          AND NULLIF(trim(responsavel_nome), '') IS NOT NULL
-        ORDER BY id DESC
-        LIMIT 1
-      `) as { responsavel_nome: string }[];
-            responsavelFinal = respRows[0]?.responsavel_nome?.trim() || '';
-        } else if (responsavelFinal && alunoTelefone) {
-            await sql`
-        UPDATE alunos
-        SET responsavel_nome = ${responsavelFinal}
-        WHERE telefone = ${alunoTelefone}
-          AND COALESCE(trim(responsavel_nome), '') = ''
-      `;
-        }
-
-        const slotEscolhido = SLOTS_FIXOS_100_MIN.find(
-            (s) => s.inicio === horaInicio
+        // Valida se a data está dentro da janela semanal permitida e não foi bloqueada pelo admin
+        const overridesRaw = await sql`
+      SELECT
+        to_char(data, 'YYYY-MM-DD') AS data,
+        ativo
+      FROM datas_liberadas
+      WHERE data >= (now() AT TIME ZONE 'America/Bahia')::date
+    `;
+        const datasPermitidas = gerarDatasDisponiveisSemana(
+            modoChaveMestra,
+            overridesRaw as { data: string; ativo: boolean }[]
         );
-        if (!slotEscolhido) {
+
+        if (!datasPermitidas.some((d) => d.data === data)) {
             return NextResponse.json(
                 {
                     error:
-                        'Horário inválido. As aulas seguem turnos fixos de 100 minutos entre 14:10 e 20:50.',
+                        'Esta data não está disponível para agendamento online. Aulas para a próxima semana devem ser marcadas com o atendimento humano (segunda a sexta, das 08:00 às 18:00).',
                 },
                 { status: 400 }
             );
         }
 
-        const dataValida = (await sql`
-      SELECT data
-      FROM datas_liberadas
-      WHERE data = ${data}::date
+        const profRows = (await sql`
+      SELECT
+        id,
+        nome,
+        clin_care_id,
+        unidade_id,
+        COALESCE(manha_ativo, false) AS manha_ativo,
+        to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
+        to_char(manha_fim, 'HH24:MI') AS manha_fim,
+        COALESCE(to_char(hora_inicio, 'HH24:MI'), '14:10') AS hora_inicio,
+        COALESCE(to_char(hora_fim, 'HH24:MI'), '20:50') AS hora_fim
+      FROM professores
+      WHERE id = ${professorId}
+        AND unidade_id = ${unidadeId}
         AND ativo = true
       LIMIT 1
-    `) as { data: string }[];
+    `) as {
+            id: number;
+            nome: string;
+            clin_care_id: string | null;
+            unidade_id: number;
+            manha_ativo: boolean;
+            manha_inicio: string | null;
+            manha_fim: string | null;
+            hora_inicio: string;
+            hora_fim: string;
+        }[];
 
-        if (dataValida.length === 0) {
+        if (profRows.length === 0) {
             return NextResponse.json(
-                { error: 'A data selecionada não está liberada para agendamento.' },
+                { error: 'Professor não encontrado ou inativo nesta unidade.' },
+                { status: 404 }
+            );
+        }
+
+        const prof = profRows[0];
+        const slotsConfiguradosProf = gerarTodosSlotsProfessor(prof);
+        const slotEscolhido = slotsConfiguradosProf.find(
+            (s) => s.inicio === horaInicio
+        );
+
+        if (!slotEscolhido) {
+            return NextResponse.json(
+                {
+                    error:
+                        'Horário inválido para a grade de 100 minutos deste professor.',
+                },
                 { status: 400 }
             );
         }
 
-        // TRAVA DE CHOQUE DE HORÁRIO DO MESMO ALUNO
+        // Trava de choque de horário do mesmo aluno
         const choqueAluno = (await sql`
       SELECT
         a.id,
@@ -183,28 +208,25 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const profRows = (await sql`
-      SELECT id, nome, clin_care_id, unidade_id
-      FROM professores
-      WHERE id = ${professorId}
-        AND unidade_id = ${unidadeId}
-        AND ativo = true
-      LIMIT 1
-    `) as {
-            id: number;
-            nome: string;
-            clin_care_id: string | null;
-            unidade_id: number;
-        }[];
-
-        if (profRows.length === 0) {
-            return NextResponse.json(
-                { error: 'Professor não encontrado ou inativo nesta unidade.' },
-                { status: 404 }
-            );
+        let responsavelFinal = responsavelNome;
+        if (!responsavelFinal && alunoTelefone) {
+            const respRows = (await sql`
+        SELECT responsavel_nome
+        FROM alunos
+        WHERE telefone = ${alunoTelefone}
+          AND NULLIF(trim(responsavel_nome), '') IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 1
+      `) as { responsavel_nome: string }[];
+            responsavelFinal = respRows[0]?.responsavel_nome?.trim() || '';
+        } else if (responsavelFinal && alunoTelefone) {
+            await sql`
+        UPDATE alunos
+        SET responsavel_nome = ${responsavelFinal}
+        WHERE telefone = ${alunoTelefone}
+          AND COALESCE(trim(responsavel_nome), '') = ''
+      `;
         }
-
-        const prof = profRows[0];
 
         const bloqueiosProf = (await sql`
       SELECT
@@ -236,12 +258,13 @@ export async function POST(req: NextRequest) {
         )
     `) as IntervaloOcupado[];
 
-        const slotsLivres = obterSlotsDisponiveisProfessor(
+        const { slotsDisponiveis } = obterSlotsDisponiveisProfessor(
             bloqueiosProf,
-            agendamentosProf
+            agendamentosProf,
+            prof
         );
 
-        const continuaLivre = slotsLivres.some(
+        const continuaLivre = slotsDisponiveis.some(
             (s) => s.inicio === slotEscolhido.inicio
         );
 

@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
     IntervaloOcupado,
+    avaliarStatusChaveMestra,
+    gerarDatasDisponiveisSemana,
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
+import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 
 interface ProfessorRow {
     id: number;
@@ -11,6 +14,11 @@ interface ProfessorRow {
     clin_care_id: string | null;
     unidade_id: number;
     materias: string[] | null;
+    manha_ativo: boolean | null;
+    manha_inicio: string | null;
+    manha_fim: string | null;
+    hora_inicio: string | null;
+    hora_fim: string | null;
 }
 
 interface BloqueioRow extends IntervaloOcupado {
@@ -32,41 +40,16 @@ async function garantirEstruturaBanco() {
     )
   `;
 
-    await sql`
-    CREATE TABLE IF NOT EXISTS agendamentos (
-      id SERIAL PRIMARY KEY,
-      unidade_id INT,
-      professor_id INT,
-      materia TEXT,
-      data DATE,
-      hora_inicio TIME,
-      hora_fim TIME,
-      aluno_nome TEXT,
-      aluno_telefone TEXT,
-      responsavel_nome TEXT,
-      observacoes TEXT,
-      status TEXT NOT NULL DEFAULT 'confirmado',
-      criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS unidade_id INT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS professor_id INT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS materia TEXT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS data DATE`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_nome TEXT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_telefone TEXT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS observacoes TEXT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'confirmado'`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ DEFAULT now()`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
 }
 
 export async function GET(req: NextRequest) {
     try {
         await garantirEstruturaBanco();
+        const modoChaveMestra = await obterModoChaveMestra();
+        const statusSistema = avaliarStatusChaveMestra(modoChaveMestra);
 
         const { searchParams } = new URL(req.url);
         const unidadeIdParam = Number(searchParams.get('unidadeId') || 0);
@@ -80,22 +63,44 @@ export async function GET(req: NextRequest) {
       ORDER BY id ASC
     `) as { id: number; nome: string }[];
 
-        const datas = (await sql`
+        const overridesRaw = await sql`
       SELECT
         to_char(data, 'YYYY-MM-DD') AS data,
-        to_char(data, 'DD/MM/YYYY') AS data_formatada
+        ativo
       FROM datas_liberadas
-      WHERE ativo = true
-        AND data >= (now() AT TIME ZONE 'America/Bahia')::date
-      ORDER BY data ASC
-    `) as { data: string; data_formatada: string }[];
+      WHERE data >= (now() AT TIME ZONE 'America/Bahia')::date
+    `;
+        const overrides = overridesRaw as { data: string; ativo: boolean }[];
+
+        const datas = gerarDatasDisponiveisSemana(modoChaveMestra, overrides);
+
+        if (!statusSistema.aberto) {
+            return NextResponse.json(
+                {
+                    sistemaAberto: false,
+                    modoChaveMestra,
+                    motivoFechado: statusSistema.motivoFechado,
+                    unidadeIdSelecionada: unidades[0]?.id || 0,
+                    dataSelecionada: '',
+                    unidades,
+                    datas: [],
+                    materias: [],
+                    professores: [],
+                },
+                { headers: { 'Cache-Control': 'no-store' } }
+            );
+        }
 
         const unidadeIdAtiva = unidadeIdParam || unidades[0]?.id || 0;
-        const dataAtiva = dataParam || datas[0]?.data || '';
+        const dataValidaNaLista = datas.some((d) => d.data === dataParam);
+        const dataAtiva = dataValidaNaLista ? dataParam : datas[0]?.data || '';
 
         if (!unidadeIdAtiva || !dataAtiva) {
             return NextResponse.json(
                 {
+                    sistemaAberto: true,
+                    modoChaveMestra,
+                    motivoFechado: null,
                     unidadeIdSelecionada: unidadeIdAtiva,
                     dataSelecionada: dataAtiva,
                     unidades,
@@ -113,7 +118,12 @@ export async function GET(req: NextRequest) {
         nome,
         clin_care_id,
         unidade_id,
-        materias
+        materias,
+        COALESCE(manha_ativo, false) AS manha_ativo,
+        to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
+        to_char(manha_fim, 'HH24:MI') AS manha_fim,
+        COALESCE(to_char(hora_inicio, 'HH24:MI'), '14:10') AS hora_inicio,
+        COALESCE(to_char(hora_fim, 'HH24:MI'), '20:50') AS hora_fim
       FROM professores
       WHERE ativo = true
         AND unidade_id = ${unidadeIdAtiva}
@@ -182,9 +192,16 @@ export async function GET(req: NextRequest) {
                     (prof.clin_care_id && a.clin_care_id === prof.clin_care_id)
             );
 
-            const slotsDisponiveis = obterSlotsDisponiveisProfessor(
+            const { todosSlots, slotsDisponiveis } = obterSlotsDisponiveisProfessor(
                 bloqueiosDoProf,
-                agendamentosDoProf
+                agendamentosDoProf,
+                {
+                    manha_ativo: prof.manha_ativo,
+                    manha_inicio: prof.manha_inicio,
+                    manha_fim: prof.manha_fim,
+                    hora_inicio: prof.hora_inicio,
+                    hora_fim: prof.hora_fim,
+                }
             );
 
             return {
@@ -192,17 +209,16 @@ export async function GET(req: NextRequest) {
                 nome: prof.nome,
                 unidade_id: prof.unidade_id,
                 materias: Array.isArray(prof.materias) ? prof.materias : [],
+                todosSlots,
                 slotsDisponiveis,
-                bloqueios: bloqueiosDoProf.map((b) => ({
-                    hora_inicio: b.hora_inicio,
-                    hora_fim: b.hora_fim,
-                    motivo: b.motivo || 'Ocupado',
-                })),
             };
         });
 
         return NextResponse.json(
             {
+                sistemaAberto: true,
+                modoChaveMestra,
+                motivoFechado: null,
                 unidadeIdSelecionada: unidadeIdAtiva,
                 dataSelecionada: dataAtiva,
                 unidades,

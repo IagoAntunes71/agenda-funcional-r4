@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { SLOTS_FIXOS_100_MIN, SlotAula } from '@/lib/horarios-reforco';
+import { SlotAula } from '@/lib/horarios-reforco';
 import {
   SERIES_ESCOLARES,
   formatarTelefone,
@@ -23,6 +23,7 @@ interface ProfessorDisponivel {
   nome: string;
   unidade_id: number;
   materias: string[];
+  todosSlots: SlotAula[];
   slotsDisponiveis: SlotAula[];
 }
 
@@ -82,6 +83,9 @@ function formatarDiaSemana(isoDate: string): string {
 }
 
 export default function PaginaAgendamentoReforco() {
+  const [sistemaAberto, setSistemaAberto] = useState<boolean>(true);
+  const [motivoFechado, setMotivoFechado] = useState<string | null>(null);
+
   const [responsavelInput, setResponsavelInput] = useState<string>('');
   const [responsavelConfirmado, setResponsavelConfirmado] = useState<string>('');
   const [telefoneInput, setTelefoneInput] = useState<string>('');
@@ -213,6 +217,8 @@ export default function PaginaAgendamentoReforco() {
         }
 
         if (resDisp.ok) {
+          setSistemaAberto(jsonDisp.sistemaAberto !== false);
+          setMotivoFechado(jsonDisp.motivoFechado || null);
           setUnidades(jsonDisp.unidades || []);
           setDatas(jsonDisp.datas || []);
           setMaterias(jsonDisp.materias || []);
@@ -282,7 +288,7 @@ export default function PaginaAgendamentoReforco() {
           }
         }
       } catch {
-        // Ignora falha silenciosa no autopreenchimento
+        // Ignora falha silenciosa
       }
     }
   }
@@ -471,7 +477,13 @@ export default function PaginaAgendamentoReforco() {
             'Aula cancelada com sucesso! O horário já voltou a ficar disponível na agenda.',
       });
 
-      await atualizarDisponibilidade(unidadeId, dataSelecionada, materiaFiltro);
+      if (sistemaAberto && dataSelecionada) {
+        await atualizarDisponibilidade(
+            unidadeId,
+            dataSelecionada,
+            materiaFiltro
+        );
+      }
     } catch {
       setAvisoProximasAulas({
         tipo: 'erro',
@@ -506,10 +518,15 @@ export default function PaginaAgendamentoReforco() {
         return;
       }
 
+      setSistemaAberto(json.sistemaAberto !== false);
+      setMotivoFechado(json.motivoFechado || null);
       setUnidades(json.unidades || []);
       setDatas(json.datas || []);
       setMaterias(json.materias || []);
       setProfessores(json.professores || []);
+      if (json.dataSelecionada) {
+        setDataSelecionada(json.dataSelecionada);
+      }
     } catch {
       setErroGeral('Erro de conexão ao consultar horários disponíveis.');
     } finally {
@@ -605,16 +622,31 @@ export default function PaginaAgendamentoReforco() {
   return (
       <main className="min-h-screen bg-slate-950 text-slate-100">
         <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-          <header className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <span className="inline-block text-xs font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full">
-            R4 Ensina • Reforço Escolar
-          </span>
-            <h1 className="text-2xl font-bold text-white mt-2">
+          <header className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-block text-xs font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+              R4 Ensina • Reforço Escolar
+            </span>
+              <span className="text-xs text-slate-400">
+              Atendimento Humano: Seg a Sex, das 08:00 às 18:00
+            </span>
+            </div>
+
+            <h1 className="text-2xl font-bold text-white">
               Agendamento de Aulas (100 min)
             </h1>
-            <p className="text-sm text-slate-400 mt-1">
-              Turnos fixos de 1h40 (14:10 às 20:50) sincronizados em tempo real com a agenda dos professores.
+            <p className="text-sm text-slate-400">
+              Agendamento online disponível de segunda a sexta, das{' '}
+              <strong className="text-slate-200">18:00 às 22:00</strong>, para
+              aulas a partir do próximo dia até domingo desta semana.
             </p>
+
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-3.5 py-2.5 text-xs text-amber-200">
+              <strong>Atenção:</strong> Aulas para a{' '}
+              <strong>próxima semana</strong> devem ser agendadas exclusivamente
+              com o nosso atendimento humano (segunda a sexta, das 08:00 às
+              18:00).
+            </div>
           </header>
 
           {comprovante && (
@@ -663,13 +695,14 @@ export default function PaginaAgendamentoReforco() {
               <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg mx-auto space-y-4">
                 <div>
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                Passo 1 de 3
+                Identificação
               </span>
                   <h2 className="text-xl font-bold text-white mt-1">
-                    Identificação do Responsável
+                    Informe seus dados
                   </h2>
                   <p className="text-sm text-slate-400 mt-1">
-                    Informe seu nome e WhatsApp com DDD para cadastrar ou selecionar seus filhos.
+                    Digite seu nome e WhatsApp com DDD para visualizar próximas
+                    aulas ou realizar novos agendamentos.
                   </p>
                 </div>
 
@@ -721,7 +754,7 @@ export default function PaginaAgendamentoReforco() {
               </section>
           ) : (
               <>
-                {/* PASSO 2: SELEÇÃO / CADASTRO DE ALUNOS (MÚLTIPLOS FILHOS) */}
+                {/* CABEÇALHO DO RESPONSÁVEL + ALUNOS */}
                 <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
                     <div>
@@ -737,7 +770,7 @@ export default function PaginaAgendamentoReforco() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {alunos.length > 0 && !exibirFormNovoAluno && (
+                      {sistemaAberto && alunos.length > 0 && !exibirFormNovoAluno && (
                           <button
                               type="button"
                               onClick={() => {
@@ -761,7 +794,7 @@ export default function PaginaAgendamentoReforco() {
                     </div>
                   </div>
 
-                  {alunos.length > 0 && (
+                  {sistemaAberto && alunos.length > 0 && (
                       <div className="space-y-2.5">
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
                           Selecione o(a) Aluno(a) para esta aula
@@ -816,7 +849,7 @@ export default function PaginaAgendamentoReforco() {
                       </div>
                   )}
 
-                  {exibirFormNovoAluno && (
+                  {sistemaAberto && exibirFormNovoAluno && (
                       <form
                           onSubmit={handleCadastrarAluno}
                           className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4"
@@ -937,7 +970,7 @@ export default function PaginaAgendamentoReforco() {
                   )}
                 </section>
 
-                {/* SEÇÃO PRÓXIMAS AULAS AGENDADAS (AUTONOMIA DOS PAIS) */}
+                {/* SEÇÃO PRÓXIMAS AULAS AGENDADAS (SEMPRE VISÍVEL MESMO COM LINK FECHADO) */}
                 {(proximasAulas.length > 0 || avisoProximasAulas) && (
                     <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -950,7 +983,8 @@ export default function PaginaAgendamentoReforco() {
                           </h2>
                         </div>
                         <p className="text-xs text-slate-400">
-                          Cancelamentos pelo site são permitidos até 2h antes do início da aula.
+                          Cancelamentos pelo site são permitidos até 2h antes do
+                          início da aula.
                         </p>
                       </div>
 
@@ -1048,7 +1082,8 @@ export default function PaginaAgendamentoReforco() {
                                           )
                                       ) : (
                                           <span className="text-[11px] text-amber-300/90">
-                                Menos de 2h para a aula — para alterar, contate a secretaria.
+                                Menos de 2h para a aula — para alterar, contate
+                                a secretaria.
                               </span>
                                       )}
                                     </div>
@@ -1060,168 +1095,209 @@ export default function PaginaAgendamentoReforco() {
                     </section>
                 )}
 
-                {/* PASSO 3: ESCOLHA DE UNIDADE, DATA, MATÉRIA E HORÁRIO (100 MIN) */}
-                {alunoAtivo && (
-                    <>
-                      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-                        <div>
-                          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
-                            1. Escolha a Unidade
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {unidades.map((u) => {
-                              const ativa = u.id === unidadeId;
-                              return (
-                                  <button
-                                      key={u.id}
-                                      type="button"
-                                      onClick={() => handleTrocarUnidade(u.id)}
-                                      className={`px-4 py-2 rounded-xl text-sm font-medium border transition cursor-pointer ${
-                                          ativa
-                                              ? 'bg-emerald-600 border-emerald-500 text-white'
-                                              : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
-                                      }`}
-                                  >
-                                    {u.nome}
-                                  </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
-                            2. Escolha a Data
-                          </label>
-                          {datas.length === 0 && !carregandoHorarios ? (
-                              <p className="text-sm text-amber-400">
-                                Nenhuma data liberada no momento.
-                              </p>
-                          ) : (
+                {/* AVISO DE AGENDAMENTO PAUSADO / FORA DA JANELA ONLINE */}
+                {!sistemaAberto ? (
+                    <section className="bg-slate-900 border border-amber-500/40 rounded-2xl p-6 text-center space-y-3">
+                <span className="inline-block text-xs font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 px-3 py-1 rounded-full">
+                  Agendamento Online Fechado
+                </span>
+                      <h2 className="text-lg font-bold text-white">
+                        No momento o agendamento pelo site não está ativo
+                      </h2>
+                      <p className="text-sm text-slate-300 max-w-xl mx-auto">
+                        {motivoFechado ||
+                            'O agendamento online funciona de segunda a sexta, das 18:00 às 22:00. Para marcar aulas agora ou para a próxima semana, fale com nosso atendimento humano (segunda a sexta, das 08:00 às 18:00).'}
+                      </p>
+                    </section>
+                ) : (
+                    alunoAtivo && (
+                        <>
+                          {/* PASSO 3: UNIDADE (INCLUINDO ONLINE), DATA, MATÉRIA E HORÁRIO */}
+                          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+                            <div>
+                              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
+                                1. Escolha a Unidade (Presencial ou Online)
+                              </label>
                               <div className="flex flex-wrap gap-2">
-                                {datas.map((d) => {
-                                  const ativa = d.data === dataSelecionada;
+                                {unidades.map((u) => {
+                                  const ativa = u.id === unidadeId;
                                   return (
                                       <button
-                                          key={d.data}
+                                          key={u.id}
                                           type="button"
-                                          onClick={() => handleTrocarData(d.data)}
-                                          className={`px-3.5 py-2 rounded-xl text-left border transition cursor-pointer ${
+                                          onClick={() => handleTrocarUnidade(u.id)}
+                                          className={`px-4 py-2 rounded-xl text-sm font-medium border transition cursor-pointer ${
                                               ativa
-                                                  ? 'bg-sky-600 border-sky-400 text-white'
+                                                  ? 'bg-emerald-600 border-emerald-500 text-white'
                                                   : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
                                           }`}
                                       >
-                              <span className="block text-[10px] font-bold opacity-80">
-                                {formatarDiaSemana(d.data)}
-                              </span>
-                                        <span className="text-sm font-semibold">
-                                {d.data_formatada}
-                              </span>
+                                        {u.nome}
                                       </button>
                                   );
                                 })}
                               </div>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
-                          <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                              3. Filtrar por Matéria
-                            </label>
-                            <select
-                                value={materiaFiltro}
-                                onChange={(e) => handleTrocarMateria(e.target.value)}
-                                className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                            >
-                              <option value="todas">Todas as Matérias</option>
-                              {materias.map((m) => (
-                                  <option key={m} value={m}>
-                                    {m}
-                                  </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                              4. Buscar Professor(a)
-                            </label>
-                            <input
-                                type="text"
-                                value={buscaProfessor}
-                                onChange={(e) => setBuscaProfessor(e.target.value)}
-                                placeholder="Digite o nome do professor..."
-                                className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                            />
-                          </div>
-                        </div>
-                      </section>
-
-                      {/* LISTA DE PROFESSORES E HORÁRIOS */}
-                      <section className="space-y-4">
-                        {erroGeral && (
-                            <div className="rounded-2xl border border-rose-500/40 bg-rose-950/50 p-4 text-sm text-rose-200">
-                              {erroGeral}
                             </div>
-                        )}
 
-                        {carregandoHorarios ? (
-                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
-                              Consultando horários disponíveis na agenda...
-                            </div>
-                        ) : professoresExibidos.length === 0 ? (
-                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
-                              Nenhum professor disponível encontrado para este filtro.
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {professoresExibidos.map((prof) => (
-                                  <div
-                                      key={prof.id}
-                                      className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4"
-                                  >
-                                    <div>
-                                      <h3 className="text-base font-bold text-white">
-                                        {prof.nome}
-                                      </h3>
-                                      <p className="text-xs text-slate-400 mt-0.5">
-                                        {prof.materias.join(' • ')}
-                                      </p>
-                                    </div>
+                            <div>
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                                  2. Escolha a Data (Até Domingo desta Semana)
+                                </label>
+                                <span className="text-[11px] text-slate-400">
+                          Próxima semana: apenas via atendimento humano
+                        </span>
+                              </div>
 
-                                    <div className="grid grid-cols-2 gap-2">
-                                      {SLOTS_FIXOS_100_MIN.map((slot) => {
-                                        const livre = prof.slotsDisponiveis.some(
-                                            (s) => s.inicio === slot.inicio
-                                        );
-
-                                        return (
-                                            <button
-                                                key={slot.inicio}
-                                                type="button"
-                                                disabled={!livre}
-                                                onClick={() =>
-                                                    abrirModalAgendamento(prof, slot)
-                                                }
-                                                className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition text-center ${
-                                                    livre
-                                                        ? 'bg-emerald-950/60 hover:bg-emerald-600 border-emerald-600/60 text-emerald-200 hover:text-white cursor-pointer'
-                                                        : 'bg-slate-950/60 border-slate-800/80 text-slate-600 cursor-not-allowed line-through'
-                                                }`}
-                                            >
-                                              {slot.label}
-                                            </button>
-                                        );
-                                      })}
-                                    </div>
+                              {datas.length === 0 && !carregandoHorarios ? (
+                                  <p className="text-sm text-amber-400">
+                                    Nenhuma data disponível nesta janela. Para aulas na
+                                    próxima semana, entre em contato com o atendimento
+                                    humano (segunda a sexta, das 08:00 às 18:00).
+                                  </p>
+                              ) : (
+                                  <div className="flex flex-wrap gap-2">
+                                    {datas.map((d) => {
+                                      const ativa = d.data === dataSelecionada;
+                                      return (
+                                          <button
+                                              key={d.data}
+                                              type="button"
+                                              onClick={() => handleTrocarData(d.data)}
+                                              className={`px-3.5 py-2 rounded-xl text-left border transition cursor-pointer ${
+                                                  ativa
+                                                      ? 'bg-sky-600 border-sky-400 text-white'
+                                                      : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                                              }`}
+                                          >
+                                <span className="block text-[10px] font-bold opacity-80">
+                                  {formatarDiaSemana(d.data)}
+                                </span>
+                                            <span className="text-sm font-semibold">
+                                  {d.data_formatada}
+                                </span>
+                                          </button>
+                                      );
+                                    })}
                                   </div>
-                              ))}
+                              )}
                             </div>
-                        )}
-                      </section>
-                    </>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
+                              <div>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                                  3. Filtrar por Matéria
+                                </label>
+                                <select
+                                    value={materiaFiltro}
+                                    onChange={(e) => handleTrocarMateria(e.target.value)}
+                                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                                >
+                                  <option value="todas">Todas as Matérias</option>
+                                  {materias.map((m) => (
+                                      <option key={m} value={m}>
+                                        {m}
+                                      </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                                  4. Buscar Professor(a)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={buscaProfessor}
+                                    onChange={(e) => setBuscaProfessor(e.target.value)}
+                                    placeholder="Digite o nome do professor..."
+                                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                                />
+                              </div>
+                            </div>
+                          </section>
+
+                          {/* LISTA DE PROFESSORES E TURNOS DINÂMICOS DE 100 MIN */}
+                          <section className="space-y-4">
+                            {erroGeral && (
+                                <div className="rounded-2xl border border-rose-500/40 bg-rose-950/50 p-4 text-sm text-rose-200">
+                                  {erroGeral}
+                                </div>
+                            )}
+
+                            {carregandoHorarios ? (
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
+                                  Consultando horários disponíveis na agenda...
+                                </div>
+                            ) : professoresExibidos.length === 0 ? (
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
+                                  Nenhum professor disponível encontrado para este filtro.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {professoresExibidos.map((prof) => {
+                                    const listaSlots = prof.todosSlots || [];
+
+                                    return (
+                                        <div
+                                            key={prof.id}
+                                            className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4"
+                                        >
+                                          <div>
+                                            <h3 className="text-base font-bold text-white">
+                                              {prof.nome}
+                                            </h3>
+                                            <p className="text-xs text-slate-400 mt-0.5">
+                                              {prof.materias.join(' • ')}
+                                            </p>
+                                          </div>
+
+                                          {listaSlots.length === 0 ? (
+                                              <p className="text-xs text-slate-500">
+                                                Sem turnos configurados para este professor.
+                                              </p>
+                                          ) : (
+                                              <div className="grid grid-cols-2 gap-2">
+                                                {listaSlots.map((slot) => {
+                                                  const livre = prof.slotsDisponiveis.some(
+                                                      (s) => s.inicio === slot.inicio
+                                                  );
+
+                                                  return (
+                                                      <button
+                                                          key={slot.inicio}
+                                                          type="button"
+                                                          disabled={!livre}
+                                                          onClick={() =>
+                                                              abrirModalAgendamento(prof, slot)
+                                                          }
+                                                          className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition text-center ${
+                                                              livre
+                                                                  ? slot.periodo === 'manha'
+                                                                      ? 'bg-amber-950/40 hover:bg-amber-600 border-amber-500/60 text-amber-200 hover:text-white cursor-pointer'
+                                                                      : 'bg-emerald-950/60 hover:bg-emerald-600 border-emerald-600/60 text-emerald-200 hover:text-white cursor-pointer'
+                                                                  : 'bg-slate-950/60 border-slate-800/80 text-slate-600 cursor-not-allowed line-through'
+                                                          }`}
+                                                      >
+                                        <span className="block text-[10px] uppercase opacity-75">
+                                          {slot.periodo === 'manha'
+                                              ? 'Manhã (100m)'
+                                              : 'Tarde/Noite'}
+                                        </span>
+                                                        {slot.label}
+                                                      </button>
+                                                  );
+                                                })}
+                                              </div>
+                                          )}
+                                        </div>
+                                    );
+                                  })}
+                                </div>
+                            )}
+                          </section>
+                        </>
+                    )
                 )}
               </>
           )}
@@ -1232,7 +1308,7 @@ export default function PaginaAgendamentoReforco() {
                 <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
                   <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  Confirmar Aula
+                  Confirmar Aula (100 min)
                 </span>
                     <h3 className="text-lg font-bold text-white mt-0.5">
                       {selecaoSlot.professor.nome}

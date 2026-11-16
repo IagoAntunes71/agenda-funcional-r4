@@ -10,19 +10,26 @@ import {
     CheckCircle2,
     ClipboardCheck,
     Clock,
+    Download,
     Edit3,
     Lock,
     LogOut,
     MessageCircle,
     Plus,
+    Power,
     RefreshCw,
     Save,
+    Sun,
     Trash2,
     UserPlus,
     X,
     XCircle,
 } from 'lucide-react';
-import { SLOTS_FIXOS_100_MIN } from '@/lib/horarios-reforco';
+import {
+    ModoChaveMestra,
+    gerarTodosSlotsProfessor,
+    horaParaMinutos,
+} from '@/lib/horarios-reforco';
 
 interface UnidadeAdmin {
     id: number;
@@ -38,6 +45,9 @@ interface ProfessorAdmin {
     unidade_id: number;
     unidade_nome: string;
     materias: string[];
+    manha_ativo: boolean;
+    manha_inicio: string;
+    manha_fim: string;
     hora_inicio: string;
     hora_fim: string;
     ativo: boolean;
@@ -88,9 +98,11 @@ function formatarDataBR(dataISO: string): string {
     return `${dia}/${mes}/${ano}`;
 }
 
-function horaParaMinutos(hhmm: string): number {
-    const [h, m] = (hhmm || '00:00').slice(0, 5).split(':').map(Number);
-    return (h || 0) * 60 + (m || 0);
+function escaparCelulaCSV(
+    valor: string | number | boolean | null | undefined
+): string {
+    const texto = String(valor ?? '').replace(/\r?\n|\r/g, ' ').trim();
+    return `"${texto.replace(/"/g, '""')}"`;
 }
 
 export default function PainelAdmin({
@@ -111,14 +123,24 @@ export default function PainelAdmin({
         null
     );
 
+    // Chave Mestra
+    const [modoChaveMestra, setModoChaveMestra] =
+        useState<ModoChaveMestra>('auto');
+    const [sistemaAbertoAgora, setSistemaAbertoAgora] = useState<boolean>(false);
+    const [salvandoChaveMestra, setSalvandoChaveMestra] =
+        useState<boolean>(false);
+
     const [unidades, setUnidades] = useState<UnidadeAdmin[]>([]);
     const [professores, setProfessores] = useState<ProfessorAdmin[]>([]);
     const [datasLiberadas, setDatasLiberadas] = useState<DataAdmin[]>([]);
     const [agendamentos, setAgendamentos] = useState<AgendamentoAdmin[]>([]);
     const [bloqueios, setBloqueios] = useState<BloqueioAdmin[]>([]);
 
-    // Filtros Agendamentos
+    // Filtros Agendamentos e Relatório
+    const [filtroMes, setFiltroMes] = useState<string>('');
     const [filtroUnidade, setFiltroUnidade] = useState<string>('todas');
+    const [filtroProfessor, setFiltroProfessor] = useState<string>('todos');
+    const [filtroColegio, setFiltroColegio] = useState<string>('todos');
     const [filtroStatus, setFiltroStatus] = useState<string>('confirmado');
     const [filtroClinCare, setFiltroClinCare] = useState<string>('todos');
 
@@ -127,16 +149,22 @@ export default function PainelAdmin({
     const [mapaData, setMapaData] = useState<string>('');
     const [mapaBuscaProf, setMapaBuscaProf] = useState<string>('');
 
-    // Datas
+    // Datas (Bloquear ou Liberar)
     const [novaData, setNovaData] = useState('');
     const [novaDescricao, setNovaDescricao] = useState('');
+    const [novoTipoData, setNovoTipoData] = useState<'bloquear' | 'liberar'>(
+        'bloquear'
+    );
 
     // Novo Professor
     const [profNome, setProfNome] = useState('');
     const [profClinCareId, setProfClinCareId] = useState('');
     const [profUnidadeId, setProfUnidadeId] = useState<number>(1);
     const [profMaterias, setProfMaterias] = useState('');
-    const [profInicio, setProfInicio] = useState('08:00');
+    const [profManhaAtivo, setProfManhaAtivo] = useState(false);
+    const [profManhaInicio, setProfManhaInicio] = useState('08:00');
+    const [profManhaFim, setProfManhaFim] = useState('11:20');
+    const [profInicio, setProfInicio] = useState('14:10');
     const [profFim, setProfFim] = useState('20:50');
 
     // Edição Rápida de Professor
@@ -145,7 +173,10 @@ export default function PainelAdmin({
     const [editProfClinCareId, setEditProfClinCareId] = useState('');
     const [editProfUnidadeId, setEditProfUnidadeId] = useState<number>(1);
     const [editProfMaterias, setEditProfMaterias] = useState('');
-    const [editProfInicio, setEditProfInicio] = useState('08:00');
+    const [editProfManhaAtivo, setEditProfManhaAtivo] = useState(false);
+    const [editProfManhaInicio, setEditProfManhaInicio] = useState('08:00');
+    const [editProfManhaFim, setEditProfManhaFim] = useState('11:20');
+    const [editProfInicio, setEditProfInicio] = useState('14:10');
     const [editProfFim, setEditProfFim] = useState('20:50');
     const [salvandoProf, setSalvandoProf] = useState(false);
 
@@ -166,6 +197,11 @@ export default function PainelAdmin({
             const listaUnidades: UnidadeAdmin[] = json.unidades || [];
             const listaDatas: DataAdmin[] = json.datasLiberadas || [];
 
+            if (json.chaveMestra) {
+                setModoChaveMestra(json.chaveMestra.modo || 'auto');
+                setSistemaAbertoAgora(Boolean(json.chaveMestra.aberto));
+            }
+
             setUnidades(listaUnidades);
             setProfessores(json.professores || []);
             setDatasLiberadas(listaDatas);
@@ -184,13 +220,12 @@ export default function PainelAdmin({
                 setMapaUnidadeId((atual) => atual || listaUnidades[0].id);
             }
 
-            if (listaDatas.length > 0) {
-                const ativas = listaDatas
-                    .filter((d) => d.ativo)
-                    .sort((a, b) => a.data.localeCompare(b.data));
-                const proxima = ativas[0]?.data || listaDatas[0].data;
-                setMapaData((atual) => atual || proxima);
-            }
+            const amanha = new Date();
+            amanha.setDate(amanha.getDate() + 1);
+            const amanhaISO = `${amanha.getFullYear()}-${String(
+                amanha.getMonth() + 1
+            ).padStart(2, '0')}-${String(amanha.getDate()).padStart(2, '0')}`;
+            setMapaData((atual) => atual || amanhaISO);
         } finally {
             setCarregandoDados(false);
         }
@@ -203,6 +238,24 @@ export default function PainelAdmin({
         }, 0);
         return () => window.clearTimeout(timer);
     }, [autenticado, carregarDados]);
+
+    async function alterarChaveMestra(novoModo: ModoChaveMestra) {
+        setSalvandoChaveMestra(true);
+        try {
+            const res = await fetch('/api/admin/configuracoes', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ modo: novoModo }),
+            });
+            if (res.ok) {
+                const json = await res.json();
+                setModoChaveMestra(json.modo);
+                setSistemaAbertoAgora(Boolean(json.aberto));
+            }
+        } finally {
+            setSalvandoChaveMestra(false);
+        }
+    }
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -258,7 +311,11 @@ export default function PainelAdmin({
         await fetch('/api/admin/datas', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: novaData, descricao: novaDescricao }),
+            body: JSON.stringify({
+                data: novaData,
+                descricao: novaDescricao,
+                ativo: novoTipoData === 'liberar',
+            }),
         });
         setNovaData('');
         setNovaDescricao('');
@@ -290,6 +347,9 @@ export default function PainelAdmin({
                 clin_care_id: profClinCareId,
                 unidade_id: profUnidadeId,
                 materias: profMaterias,
+                manha_ativo: profManhaAtivo,
+                manha_inicio: profManhaInicio,
+                manha_fim: profManhaFim,
                 hora_inicio: profInicio,
                 hora_fim: profFim,
             }),
@@ -297,6 +357,7 @@ export default function PainelAdmin({
         setProfNome('');
         setProfClinCareId('');
         setProfMaterias('');
+        setProfManhaAtivo(false);
         await carregarDados();
     }
 
@@ -306,7 +367,10 @@ export default function PainelAdmin({
         setEditProfClinCareId(p.clin_care_id || '');
         setEditProfUnidadeId(p.unidade_id);
         setEditProfMaterias((p.materias || []).join(', '));
-        setEditProfInicio(p.hora_inicio || '08:00');
+        setEditProfManhaAtivo(Boolean(p.manha_ativo));
+        setEditProfManhaInicio(p.manha_inicio || '08:00');
+        setEditProfManhaFim(p.manha_fim || '11:20');
+        setEditProfInicio(p.hora_inicio || '14:10');
         setEditProfFim(p.hora_fim || '20:50');
     }
 
@@ -324,6 +388,9 @@ export default function PainelAdmin({
                     clin_care_id: editProfClinCareId,
                     unidade_id: editProfUnidadeId,
                     materias: editProfMaterias,
+                    manha_ativo: editProfManhaAtivo,
+                    manha_inicio: editProfManhaInicio,
+                    manha_fim: editProfManhaFim,
                     hora_inicio: editProfInicio,
                     hora_fim: editProfFim,
                 }),
@@ -424,14 +491,96 @@ export default function PainelAdmin({
         (a) => a.status !== 'cancelado' && !a.sincronizado_clincare
     ).length;
 
+    const colegiosUnicos = Array.from(
+        new Set(
+            agendamentos
+                .map((a) => (a.colegio_aluno || '').trim())
+                .filter(Boolean)
+        )
+    ).sort((a, b) => a.localeCompare(b));
+
     const agendamentosFiltrados = agendamentos.filter((a) => {
+        if (filtroMes && !a.data.startsWith(filtroMes)) return false;
         if (filtroUnidade !== 'todas' && String(a.unidade_id) !== filtroUnidade)
+            return false;
+        if (
+            filtroProfessor !== 'todos' &&
+            String(a.professor_id) !== filtroProfessor
+        )
+            return false;
+        if (
+            filtroColegio !== 'todos' &&
+            (a.colegio_aluno || '').trim() !== filtroColegio
+        )
             return false;
         if (filtroStatus !== 'todos' && a.status !== filtroStatus) return false;
         if (filtroClinCare === 'pendentes' && a.sincronizado_clincare) return false;
         if (filtroClinCare === 'lancados' && !a.sincronizado_clincare) return false;
         return true;
     });
+
+    const demandaPorMateria = Object.entries(
+        agendamentosFiltrados.reduce<Record<string, number>>((acc, ag) => {
+            const mat = (ag.materia || 'Outros').trim();
+            acc[mat] = (acc[mat] || 0) + 1;
+            return acc;
+        }, {})
+    ).sort((a, b) => b[1] - a[1]);
+
+    function exportarRelatorioCSV() {
+        if (agendamentosFiltrados.length === 0) return;
+
+        const cabecalho = [
+            'Data',
+            'Horário',
+            'Unidade',
+            'Professor(a)',
+            'Matéria',
+            'Aluno(a)',
+            'Colégio',
+            'Série',
+            'Responsável',
+            'WhatsApp',
+            'Status',
+            'Lançado clin.care',
+            'Assunto / Observações',
+        ];
+
+        const linhas = agendamentosFiltrados.map((ag) => [
+            formatarDataBR(ag.data),
+            ag.horario || ag.hora_inicio,
+            ag.unidade_nome,
+            ag.professor_nome,
+            ag.materia,
+            ag.nome_aluno,
+            ag.colegio_aluno,
+            ag.serie_aluno,
+            ag.nome_responsavel,
+            ag.whatsapp_responsavel,
+            ag.status.toUpperCase(),
+            ag.sincronizado_clincare ? 'Sim' : 'Pendente',
+            ag.observacoes || '',
+        ]);
+
+        const conteudoCsv =
+            '\uFEFF' +
+            [cabecalho, ...linhas]
+                .map((linha) => linha.map((cel) => escaparCelulaCSV(cel)).join(';'))
+                .join('\r\n');
+
+        const blob = new Blob([conteudoCsv], {
+            type: 'text/csv;charset=utf-8;',
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const sufixoMes = filtroMes || 'completo';
+        link.href = url;
+        link.setAttribute('download', `relatorio-aulas-${sufixoMes}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
 
     // Dados calculados para a aba Mapa do Dia
     const professoresMapa = professores.filter((p) => {
@@ -449,19 +598,107 @@ export default function PainelAdmin({
         return true;
     });
 
-    const datasOrdenadasMapa = [...datasLiberadas].sort((a, b) =>
-        a.data.localeCompare(b.data)
-    );
+    const colunasSlotsMapa = Array.from(
+        new Map(
+            professoresMapa
+                .flatMap((p) => gerarTodosSlotsProfessor(p))
+                .map((s) => [s.inicio, s])
+        ).values()
+    ).sort((a, b) => horaParaMinutos(a.inicio) - horaParaMinutos(b.inicio));
+
+    const previewSlotsNovoProf = gerarTodosSlotsProfessor({
+        manha_ativo: profManhaAtivo,
+        manha_inicio: profManhaInicio,
+        manha_fim: profManhaFim,
+        hora_inicio: profInicio,
+        hora_fim: profFim,
+    });
 
     return (
         <div className="space-y-6 pb-10">
+            {/* CHAVE MESTRA DO LINK DE AGENDAMENTO */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                    <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                            sistemaAbertoAgora
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : 'bg-rose-500/20 text-rose-400'
+                        }`}
+                    >
+                        <Power className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h2 className="text-sm font-bold text-white">
+                                Chave Mestra — Link dos Pais
+                            </h2>
+                            <span
+                                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                                    sistemaAbertoAgora
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                        : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                }`}
+                            >
+                {sistemaAbertoAgora ? 'LINK ABERTO AGORA' : 'LINK FECHADO AGORA'}
+              </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                            Automático: liga de segunda a sexta, das 18:00 às 22:00 (vagas de
+                            amanhã até domingo desta semana).
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        disabled={salvandoChaveMestra}
+                        onClick={() => void alterarChaveMestra('auto')}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                            modoChaveMestra === 'auto'
+                                ? 'bg-sky-600 border-sky-400 text-white'
+                                : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'
+                        }`}
+                    >
+                        Automático (18h–22h)
+                    </button>
+
+                    <button
+                        type="button"
+                        disabled={salvandoChaveMestra}
+                        onClick={() => void alterarChaveMestra('ativo')}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                            modoChaveMestra === 'ativo'
+                                ? 'bg-emerald-600 border-emerald-400 text-white'
+                                : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'
+                        }`}
+                    >
+                        Sempre Ativo
+                    </button>
+
+                    <button
+                        type="button"
+                        disabled={salvandoChaveMestra}
+                        onClick={() => void alterarChaveMestra('inativo')}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                            modoChaveMestra === 'inativo'
+                                ? 'bg-rose-600 border-rose-400 text-white'
+                                : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'
+                        }`}
+                    >
+                        Desativado
+                    </button>
+                </div>
+            </div>
+
             {/* Status da Sincronização clin.care */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/70 border border-slate-800 rounded-2xl px-4 py-3 text-xs">
                 <div className="flex flex-wrap items-center gap-3 text-slate-300">
           <span className="inline-flex items-center gap-2">
             <RefreshCw className="w-4 h-4 text-emerald-400" />
             <span>
-              Última leitura do Mapa de Agenda (clin.care):{' '}
+              Última leitura mensal do clin.care:{' '}
                 <strong className="text-white">
                 {ultimaSincronizacao || 'Aguardando primeira sincronização'}
               </strong>
@@ -529,7 +766,7 @@ export default function PainelAdmin({
                                 : 'bg-slate-950 text-slate-300 hover:text-white border border-slate-800'
                         }`}
                     >
-                        Datas ({datasLiberadas.filter((d) => d.ativo).length})
+                        Bloquear / Liberar Dias ({datasLiberadas.length})
                     </button>
 
                     <button
@@ -578,43 +815,151 @@ export default function PainelAdmin({
                 <p className="text-sm text-slate-400">Carregando registros...</p>
             )}
 
-            {/* ABA 1: AGENDAMENTOS */}
+            {/* ABA 1: AGENDAMENTOS E EXPORTAÇÃO DE RELATÓRIO */}
             {aba === 'agendamentos' && (
                 <section className="space-y-4">
-                    <div className="flex flex-wrap gap-3">
-                        <select
-                            value={filtroUnidade}
-                            onChange={(e) => setFiltroUnidade(e.target.value)}
-                            className="bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white"
-                        >
-                            <option value="todas">Todas as Unidades</option>
-                            {unidades.map((u) => (
-                                <option key={u.id} value={String(u.id)}>
-                                    {u.nome}
-                                </option>
-                            ))}
-                        </select>
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">
+                                    Período (Mês)
+                                </label>
+                                <input
+                                    type="month"
+                                    value={filtroMes}
+                                    onChange={(e) => setFiltroMes(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                />
+                            </div>
 
-                        <select
-                            value={filtroStatus}
-                            onChange={(e) => setFiltroStatus(e.target.value)}
-                            className="bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white"
-                        >
-                            <option value="confirmado">Confirmados</option>
-                            <option value="concluido">Concluídos</option>
-                            <option value="cancelado">Cancelados</option>
-                            <option value="todos">Todos os Status</option>
-                        </select>
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">
+                                    Unidade
+                                </label>
+                                <select
+                                    value={filtroUnidade}
+                                    onChange={(e) => setFiltroUnidade(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                >
+                                    <option value="todas">Todas as Unidades</option>
+                                    {unidades.map((u) => (
+                                        <option key={u.id} value={String(u.id)}>
+                                            {u.nome}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
 
-                        <select
-                            value={filtroClinCare}
-                            onChange={(e) => setFiltroClinCare(e.target.value)}
-                            className="bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white"
-                        >
-                            <option value="todos">clin.care: Todos</option>
-                            <option value="pendentes">Pendentes de lançar</option>
-                            <option value="lancados">Já lançados no clin.care</option>
-                        </select>
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">
+                                    Professor(a)
+                                </label>
+                                <select
+                                    value={filtroProfessor}
+                                    onChange={(e) => setFiltroProfessor(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                >
+                                    <option value="todos">Todos os Professores</option>
+                                    {professores.map((p) => (
+                                        <option key={p.id} value={String(p.id)}>
+                                            {p.nome}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">
+                                    Colégio
+                                </label>
+                                <select
+                                    value={filtroColegio}
+                                    onChange={(e) => setFiltroColegio(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                >
+                                    <option value="todos">Todos os Colégios</option>
+                                    {colegiosUnicos.map((col) => (
+                                        <option key={col} value={col}>
+                                            {col}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">
+                                    Status
+                                </label>
+                                <select
+                                    value={filtroStatus}
+                                    onChange={(e) => setFiltroStatus(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                >
+                                    <option value="confirmado">Confirmados</option>
+                                    <option value="concluido">Concluídos</option>
+                                    <option value="cancelado">Cancelados</option>
+                                    <option value="todos">Todos os Status</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">
+                                    Lançamento clin.care
+                                </label>
+                                <select
+                                    value={filtroClinCare}
+                                    onChange={(e) => setFiltroClinCare(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                >
+                                    <option value="todos">Todos</option>
+                                    <option value="pendentes">Pendentes de lançar</option>
+                                    <option value="lancados">Já lançados</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                <span className="font-semibold text-white">
+                  {agendamentosFiltrados.length} aula(s) no filtro
+                </span>
+                                {demandaPorMateria.slice(0, 5).map(([mat, qtd]) => (
+                                    <span
+                                        key={mat}
+                                        className="px-2 py-0.5 rounded-full bg-slate-950 border border-slate-800 text-[11px] text-slate-300"
+                                    >
+                    {mat}: <strong className="text-emerald-400">{qtd}</strong>
+                  </span>
+                                ))}
+                                {(filtroMes ||
+                                    filtroUnidade !== 'todas' ||
+                                    filtroProfessor !== 'todos' ||
+                                    filtroColegio !== 'todos') && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setFiltroMes('');
+                                            setFiltroUnidade('todas');
+                                            setFiltroProfessor('todos');
+                                            setFiltroColegio('todos');
+                                        }}
+                                        className="text-xs text-sky-400 hover:text-sky-300 underline cursor-pointer"
+                                    >
+                                        Limpar filtros
+                                    </button>
+                                )}
+                            </div>
+
+                            <button
+                                type="button"
+                                disabled={agendamentosFiltrados.length === 0}
+                                onClick={exportarRelatorioCSV}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer transition"
+                            >
+                                <Download className="w-3.5 h-3.5" />
+                                Exportar Relatório (CSV / Excel)
+                            </button>
+                        </div>
                     </div>
 
                     {agendamentosFiltrados.length === 0 ? (
@@ -766,7 +1111,7 @@ export default function PainelAdmin({
                 </section>
             )}
 
-            {/* ABA 2: MAPA DO DIA (GRADE PROFESSORES × TURNOS) */}
+            {/* ABA 2: MAPA DO DIA (GRADE DINÂMICA PROFESSORES × TURNOS 100 MIN) */}
             {aba === 'mapa' && (
                 <section className="space-y-4">
                     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
@@ -830,26 +1175,6 @@ export default function PainelAdmin({
                 </span>
                             </div>
                         </div>
-
-                        {datasOrdenadasMapa.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
-                                <span className="text-xs text-slate-400">Datas liberadas:</span>
-                                {datasOrdenadasMapa.map((d) => (
-                                    <button
-                                        key={d.id}
-                                        type="button"
-                                        onClick={() => setMapaData(d.data)}
-                                        className={`px-3 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                                            mapaData === d.data
-                                                ? 'bg-sky-600 border-sky-400 text-white'
-                                                : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
-                                        }`}
-                                    >
-                                        {formatarDataBR(d.data)}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
                     </div>
 
                     {professoresMapa.length === 0 ? (
@@ -864,7 +1189,7 @@ export default function PainelAdmin({
                                     <th className="py-3.5 px-4 font-semibold w-60">
                                         Professor(a)
                                     </th>
-                                    {SLOTS_FIXOS_100_MIN.map((slot) => (
+                                    {colunasSlotsMapa.map((slot) => (
                                         <th key={slot.inicio} className="py-3.5 px-3 font-semibold">
                         <span className="inline-flex items-center gap-1.5 text-slate-200">
                           <Clock className="w-3.5 h-3.5 text-emerald-400" />
@@ -875,114 +1200,135 @@ export default function PainelAdmin({
                                 </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/80 text-xs">
-                                {professoresMapa.map((prof) => (
-                                    <tr
-                                        key={prof.id}
-                                        className="hover:bg-slate-950/40 transition"
-                                    >
-                                        <td className="py-3.5 px-4 align-top">
-                                            <p className="font-bold text-sm text-white">
-                                                {prof.nome}
-                                            </p>
-                                            <p className="text-slate-400 mt-0.5">
-                                                {prof.materias.join(' • ')}
-                                            </p>
-                                        </td>
+                                {professoresMapa.map((prof) => {
+                                    const slotsProf = gerarTodosSlotsProfessor(prof);
 
-                                        {SLOTS_FIXOS_100_MIN.map((slot) => {
-                                            const slotInicioMin = horaParaMinutos(slot.inicio);
-                                            const slotFimMin = horaParaMinutos(slot.fim);
+                                    return (
+                                        <tr
+                                            key={prof.id}
+                                            className="hover:bg-slate-950/40 transition"
+                                        >
+                                            <td className="py-3.5 px-4 align-top">
+                                                <p className="font-bold text-sm text-white">
+                                                    {prof.nome}
+                                                </p>
+                                                <p className="text-slate-400 mt-0.5">
+                                                    {prof.materias.join(' • ')}
+                                                </p>
+                                            </td>
 
-                                            const aulaNoSlot = agendamentos.find(
-                                                (ag) =>
-                                                    ag.data === mapaData &&
-                                                    ag.status !== 'cancelado' &&
-                                                    (ag.professor_id === prof.id ||
-                                                        (prof.clin_care_id &&
-                                                            ag.professor_clin_care_id ===
-                                                            prof.clin_care_id)) &&
-                                                    (ag.hora_inicio === slot.inicio ||
-                                                        ag.horario.startsWith(slot.inicio))
-                                            );
+                                            {colunasSlotsMapa.map((slot) => {
+                                                const atendeNesteSlot = slotsProf.some(
+                                                    (s) => s.inicio === slot.inicio
+                                                );
 
-                                            const bloqueioNoSlot = bloqueios.find((b) => {
-                                                if (b.data !== mapaData) return false;
-                                                const mesmoProf =
-                                                    b.professor_id === prof.id ||
-                                                    (prof.clin_care_id &&
-                                                        b.professor_clin_care_id === prof.clin_care_id);
-                                                if (!mesmoProf) return false;
-                                                const bIni = horaParaMinutos(b.hora_inicio);
-                                                const bFim = horaParaMinutos(b.hora_fim);
-                                                return slotInicioMin < bFim && bIni < slotFimMin;
-                                            });
-
-                                            if (aulaNoSlot) {
-                                                return (
-                                                    <td
-                                                        key={slot.inicio}
-                                                        className="py-2.5 px-3 align-top"
-                                                    >
-                                                        <div className="bg-sky-950/70 border border-sky-700/60 rounded-xl p-2.5 space-y-1">
-                                                            <div className="flex items-center justify-between gap-1">
-                                  <span className="font-bold text-white truncate">
-                                    {aulaNoSlot.nome_aluno}
-                                  </span>
-                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">
-                                    {aulaNoSlot.materia}
-                                  </span>
+                                                if (!atendeNesteSlot) {
+                                                    return (
+                                                        <td
+                                                            key={slot.inicio}
+                                                            className="py-2.5 px-3 align-top"
+                                                        >
+                                                            <div className="bg-slate-950/40 border border-slate-800/40 rounded-xl p-2.5 text-center text-slate-600">
+                                                                —
                                                             </div>
-                                                            {(aulaNoSlot.colegio_aluno ||
-                                                                aulaNoSlot.serie_aluno) && (
-                                                                <p className="text-[11px] text-slate-300 truncate">
-                                                                    {[
-                                                                        aulaNoSlot.colegio_aluno,
-                                                                        aulaNoSlot.serie_aluno,
-                                                                    ]
-                                                                        .filter(Boolean)
-                                                                        .join(' • ')}
-                                                                </p>
-                                                            )}
-                                                            <p className="text-[10px] text-slate-400">
-                                                                Resp.:{' '}
-                                                                {aulaNoSlot.nome_responsavel || 'Não inf.'}
-                                                            </p>
-                                                        </div>
-                                                    </td>
-                                                );
-                                            }
+                                                        </td>
+                                                    );
+                                                }
 
-                                            if (bloqueioNoSlot) {
+                                                const slotInicioMin = horaParaMinutos(slot.inicio);
+                                                const slotFimMin = horaParaMinutos(slot.fim);
+
+                                                const aulaNoSlot = agendamentos.find(
+                                                    (ag) =>
+                                                        ag.data === mapaData &&
+                                                        ag.status !== 'cancelado' &&
+                                                        (ag.professor_id === prof.id ||
+                                                            (prof.clin_care_id &&
+                                                                ag.professor_clin_care_id ===
+                                                                prof.clin_care_id)) &&
+                                                        (ag.hora_inicio === slot.inicio ||
+                                                            ag.horario.startsWith(slot.inicio))
+                                                );
+
+                                                const bloqueioNoSlot = bloqueios.find((b) => {
+                                                    if (b.data !== mapaData) return false;
+                                                    const mesmoProf =
+                                                        b.professor_id === prof.id ||
+                                                        (prof.clin_care_id &&
+                                                            b.professor_clin_care_id === prof.clin_care_id);
+                                                    if (!mesmoProf) return false;
+                                                    const bIni = horaParaMinutos(b.hora_inicio);
+                                                    const bFim = horaParaMinutos(b.hora_fim);
+                                                    return slotInicioMin < bFim && bIni < slotFimMin;
+                                                });
+
+                                                if (aulaNoSlot) {
+                                                    return (
+                                                        <td
+                                                            key={slot.inicio}
+                                                            className="py-2.5 px-3 align-top"
+                                                        >
+                                                            <div className="bg-sky-950/70 border border-sky-700/60 rounded-xl p-2.5 space-y-1">
+                                                                <div className="flex items-center justify-between gap-1">
+                                    <span className="font-bold text-white truncate">
+                                      {aulaNoSlot.nome_aluno}
+                                    </span>
+                                                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">
+                                      {aulaNoSlot.materia}
+                                    </span>
+                                                                </div>
+                                                                {(aulaNoSlot.colegio_aluno ||
+                                                                    aulaNoSlot.serie_aluno) && (
+                                                                    <p className="text-[11px] text-slate-300 truncate">
+                                                                        {[
+                                                                            aulaNoSlot.colegio_aluno,
+                                                                            aulaNoSlot.serie_aluno,
+                                                                        ]
+                                                                            .filter(Boolean)
+                                                                            .join(' • ')}
+                                                                    </p>
+                                                                )}
+                                                                <p className="text-[10px] text-slate-400">
+                                                                    Resp.:{' '}
+                                                                    {aulaNoSlot.nome_responsavel || 'Não inf.'}
+                                                                </p>
+                                                            </div>
+                                                        </td>
+                                                    );
+                                                }
+
+                                                if (bloqueioNoSlot) {
+                                                    return (
+                                                        <td
+                                                            key={slot.inicio}
+                                                            className="py-2.5 px-3 align-top"
+                                                        >
+                                                            <div className="bg-amber-950/50 border border-amber-700/50 rounded-xl p-2.5 text-amber-200">
+                                                                <p className="font-semibold">
+                                                                    Bloqueio clin.care
+                                                                </p>
+                                                                <p className="text-[11px] text-amber-300/80 truncate mt-0.5">
+                                                                    {bloqueioNoSlot.motivo}
+                                                                </p>
+                                                            </div>
+                                                        </td>
+                                                    );
+                                                }
+
                                                 return (
                                                     <td
                                                         key={slot.inicio}
                                                         className="py-2.5 px-3 align-top"
                                                     >
-                                                        <div className="bg-amber-950/50 border border-amber-700/50 rounded-xl p-2.5 text-amber-200">
-                                                            <p className="font-semibold">
-                                                                Bloqueio clin.care
-                                                            </p>
-                                                            <p className="text-[11px] text-amber-300/80 truncate mt-0.5">
-                                                                {bloqueioNoSlot.motivo}
-                                                            </p>
+                                                        <div className="bg-emerald-950/30 border border-emerald-800/40 rounded-xl p-2.5 text-center text-emerald-400 font-semibold">
+                                                            Livre
                                                         </div>
                                                     </td>
                                                 );
-                                            }
-
-                                            return (
-                                                <td
-                                                    key={slot.inicio}
-                                                    className="py-2.5 px-3 align-top"
-                                                >
-                                                    <div className="bg-emerald-950/30 border border-emerald-800/40 rounded-xl p-2.5 text-center text-emerald-400 font-semibold">
-                                                        Livre
-                                                    </div>
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                ))}
+                                            })}
+                                        </tr>
+                                    );
+                                })}
                                 </tbody>
                             </table>
                         </div>
@@ -990,7 +1336,7 @@ export default function PainelAdmin({
                 </section>
             )}
 
-            {/* ABA 3: DATAS LIBERADAS */}
+            {/* ABA 3: BLOQUEAR / LIBERAR DIAS ESPECÍFICOS */}
             {aba === 'datas' && (
                 <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     <form
@@ -999,8 +1345,43 @@ export default function PainelAdmin({
                     >
                         <h3 className="text-sm font-bold text-white flex items-center gap-2">
                             <CalendarPlus className="w-4 h-4 text-emerald-400" />
-                            Liberar Data para Agendamento
+                            Exceção de Calendário (Bloquear ou Liberar Dia)
                         </h3>
+                        <p className="text-xs text-slate-400">
+                            Por padrão, o sistema já libera automaticamente de amanhã até
+                            domingo da semana corrente. Use esta tela para bloquear feriados
+                            ou liberar datas extras.
+                        </p>
+
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">
+                                Ação para a Data *
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setNovoTipoData('bloquear')}
+                                    className={`py-2.5 px-3 rounded-xl text-xs font-semibold border cursor-pointer ${
+                                        novoTipoData === 'bloquear'
+                                            ? 'bg-rose-600/20 border-rose-500 text-rose-200'
+                                            : 'bg-slate-950 border-slate-800 text-slate-400'
+                                    }`}
+                                >
+                                    Bloquear Dia (Feriado)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setNovoTipoData('liberar')}
+                                    className={`py-2.5 px-3 rounded-xl text-xs font-semibold border cursor-pointer ${
+                                        novoTipoData === 'liberar'
+                                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-200'
+                                            : 'bg-slate-950 border-slate-800 text-slate-400'
+                                    }`}
+                                >
+                                    Liberar Dia Extra
+                                </button>
+                            </div>
+                        </div>
 
                         <div>
                             <label className="block text-xs text-slate-400 mb-1">
@@ -1017,12 +1398,16 @@ export default function PainelAdmin({
 
                         <div>
                             <label className="block text-xs text-slate-400 mb-1">
-                                Descrição *
+                                Motivo / Descrição *
                             </label>
                             <input
                                 type="text"
                                 required
-                                placeholder="Ex: Plantão de Revisão - Provas"
+                                placeholder={
+                                    novoTipoData === 'bloquear'
+                                        ? 'Ex: Feriado Nacional - Sem atendimento'
+                                        : 'Ex: Plantão Especial Semana de Provas'
+                                }
                                 value={novaDescricao}
                                 onChange={(e) => setNovaDescricao(e.target.value)}
                                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white"
@@ -1031,57 +1416,73 @@ export default function PainelAdmin({
 
                         <button
                             type="submit"
-                            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
+                            className={`w-full py-3 px-4 font-semibold rounded-xl text-sm inline-flex items-center justify-center gap-2 cursor-pointer text-white ${
+                                novoTipoData === 'bloquear'
+                                    ? 'bg-rose-600 hover:bg-rose-500'
+                                    : 'bg-emerald-600 hover:bg-emerald-500'
+                            }`}
                         >
-                            <Plus className="w-4 h-4" /> Liberar Data
+                            <Plus className="w-4 h-4" />
+                            {novoTipoData === 'bloquear'
+                                ? 'Salvar Bloqueio de Data'
+                                : 'Salvar Liberação Extra'}
                         </button>
                     </form>
 
                     <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-                        <h3 className="text-sm font-bold text-white">Datas Cadastradas</h3>
+                        <h3 className="text-sm font-bold text-white">
+                            Regras de Datas Configuradas
+                        </h3>
 
-                        <div className="space-y-2.5">
-                            {datasLiberadas.map((d) => (
-                                <div
-                                    key={d.id}
-                                    className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-xl p-3.5"
-                                >
-                                    <div>
-                                        <p className="font-bold text-sm text-white">
-                                            {formatarDataBR(d.data)}
-                                        </p>
-                                        <p className="text-xs text-slate-400">{d.descricao}</p>
-                                    </div>
+                        {datasLiberadas.length === 0 ? (
+                            <p className="text-xs text-slate-400">
+                                Nenhuma exceção cadastrada. A grade semanal automática está
+                                funcionando normalmente.
+                            </p>
+                        ) : (
+                            <div className="space-y-2.5">
+                                {datasLiberadas.map((d) => (
+                                    <div
+                                        key={d.id}
+                                        className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-xl p-3.5"
+                                    >
+                                        <div>
+                                            <p className="font-bold text-sm text-white">
+                                                {formatarDataBR(d.data)}
+                                            </p>
+                                            <p className="text-xs text-slate-400">{d.descricao}</p>
+                                        </div>
 
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => void alternarData(d.id, !d.ativo)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
-                                                d.ativo
-                                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-600/40'
-                                                    : 'bg-slate-800 text-slate-400'
-                                            }`}
-                                        >
-                                            {d.ativo ? 'Ativa' : 'Pausada'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => void excluirData(d.id)}
-                                            title="Excluir data"
-                                            className="p-2 rounded-lg bg-slate-900 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-800 cursor-pointer"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => void alternarData(d.id, !d.ativo)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
+                                                    d.ativo
+                                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-600/40'
+                                                        : 'bg-rose-500/20 text-rose-300 border border-rose-600/40'
+                                                }`}
+                                            >
+                                                {d.ativo ? 'Liberado' : 'Bloqueado'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => void excluirData(d.id)}
+                                                title="Remover regra (volta ao padrão semanal)"
+                                                className="p-2 rounded-lg bg-slate-900 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-800 cursor-pointer"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </section>
             )}
 
-            {/* ABA 4: PROFESSORES (CADASTRO + EDIÇÃO RÁPIDA) */}
+            {/* ABA 4: PROFESSORES (MANHÃ FLEXÍVEL 100 MIN + TARDE + EDIÇÃO RÁPIDA) */}
             {aba === 'professores' && (
                 <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     <form
@@ -1153,10 +1554,52 @@ export default function PainelAdmin({
                             />
                         </div>
 
+                        {/* Disponibilidade Manhã (100 min flexível) */}
+                        <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                            <label className="flex items-center gap-2.5 text-xs font-semibold text-amber-300 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={profManhaAtivo}
+                                    onChange={(e) => setProfManhaAtivo(e.target.checked)}
+                                    className="rounded border-slate-600"
+                                />
+                                <Sun className="w-4 h-4" />
+                                Liberar aulas pela manhã (turnos de 100 min)
+                            </label>
+
+                            {profManhaAtivo && (
+                                <div className="grid grid-cols-2 gap-3 pt-1">
+                                    <div>
+                                        <label className="block text-[11px] text-slate-400 mb-1">
+                                            Início Manhã
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={profManhaInicio}
+                                            onChange={(e) => setProfManhaInicio(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] text-slate-400 mb-1">
+                                            Fim Manhã
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={profManhaFim}
+                                            onChange={(e) => setProfManhaFim(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Disponibilidade Tarde / Noite */}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs text-slate-400 mb-1">
-                                    Início
+                                    Início Tarde/Noite
                                 </label>
                                 <input
                                     type="time"
@@ -1166,7 +1609,9 @@ export default function PainelAdmin({
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-slate-400 mb-1">Fim</label>
+                                <label className="block text-xs text-slate-400 mb-1">
+                                    Fim Tarde/Noite
+                                </label>
                                 <input
                                     type="time"
                                     value={profFim}
@@ -1175,6 +1620,15 @@ export default function PainelAdmin({
                                 />
                             </div>
                         </div>
+
+                        {previewSlotsNovoProf.length > 0 && (
+                            <div className="text-[11px] text-slate-400 bg-slate-950/70 border border-slate-800 rounded-xl p-2.5">
+                                <strong className="text-emerald-400">
+                                    Turnos de 100 min gerados ({previewSlotsNovoProf.length}):
+                                </strong>{' '}
+                                {previewSlotsNovoProf.map((s) => s.label).join(' • ')}
+                            </div>
+                        )}
 
                         <button
                             type="submit"
@@ -1189,11 +1643,20 @@ export default function PainelAdmin({
                             Professores Cadastrados ({professores.length})
                         </h3>
 
-                        <div className="space-y-2.5 max-h-[650px] overflow-y-auto pr-1">
+                        <div className="space-y-2.5 max-h-[680px] overflow-y-auto pr-1">
                             {professores.map((p) => {
                                 const editandoEste = editProfId === p.id;
+                                const slotsProf = gerarTodosSlotsProfessor(p);
 
                                 if (editandoEste) {
+                                    const previewEdit = gerarTodosSlotsProfessor({
+                                        manha_ativo: editProfManhaAtivo,
+                                        manha_inicio: editProfManhaInicio,
+                                        manha_fim: editProfManhaFim,
+                                        hora_inicio: editProfInicio,
+                                        hora_fim: editProfFim,
+                                    });
+
                                     return (
                                         <form
                                             key={p.id}
@@ -1260,6 +1723,51 @@ export default function PainelAdmin({
                                                 />
                                             </div>
 
+                                            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-2.5 space-y-2">
+                                                <label className="flex items-center gap-2 text-xs font-semibold text-amber-300 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={editProfManhaAtivo}
+                                                        onChange={(e) =>
+                                                            setEditProfManhaAtivo(e.target.checked)
+                                                        }
+                                                    />
+                                                    <Sun className="w-3.5 h-3.5" />
+                                                    Liberar aulas pela manhã (100 min)
+                                                </label>
+
+                                                {editProfManhaAtivo && (
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="block text-[10px] text-slate-400 mb-0.5">
+                                                                Início Manhã
+                                                            </label>
+                                                            <input
+                                                                type="time"
+                                                                value={editProfManhaInicio}
+                                                                onChange={(e) =>
+                                                                    setEditProfManhaInicio(e.target.value)
+                                                                }
+                                                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[10px] text-slate-400 mb-0.5">
+                                                                Fim Manhã
+                                                            </label>
+                                                            <input
+                                                                type="time"
+                                                                value={editProfManhaFim}
+                                                                onChange={(e) =>
+                                                                    setEditProfManhaFim(e.target.value)
+                                                                }
+                                                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
                                             <div className="grid grid-cols-3 gap-2">
                                                 <div>
                                                     <label className="block text-[11px] text-slate-400 mb-1">
@@ -1276,7 +1784,7 @@ export default function PainelAdmin({
                                                 </div>
                                                 <div>
                                                     <label className="block text-[11px] text-slate-400 mb-1">
-                                                        Início
+                                                        Início Tarde
                                                     </label>
                                                     <input
                                                         type="time"
@@ -1287,7 +1795,7 @@ export default function PainelAdmin({
                                                 </div>
                                                 <div>
                                                     <label className="block text-[11px] text-slate-400 mb-1">
-                                                        Fim
+                                                        Fim Tarde
                                                     </label>
                                                     <input
                                                         type="time"
@@ -1297,6 +1805,13 @@ export default function PainelAdmin({
                                                     />
                                                 </div>
                                             </div>
+
+                                            {previewEdit.length > 0 && (
+                                                <p className="text-[11px] text-emerald-300">
+                                                    Turnos ({previewEdit.length}):{' '}
+                                                    {previewEdit.map((s) => s.label).join(' • ')}
+                                                </p>
+                                            )}
 
                                             <div className="flex justify-end gap-2 pt-1">
                                                 <button
@@ -1334,11 +1849,14 @@ export default function PainelAdmin({
                                             <p className="text-xs text-slate-400">
                                                 {(p.materias || []).join(', ')}
                                             </p>
-                                            <p className="text-[11px] text-slate-500">
-                                                Turno: {p.hora_inicio} às {p.hora_fim}
-                                                {p.clin_care_id
-                                                    ? ` • ID clin.care: ${p.clin_care_id}`
-                                                    : ''}
+                                            <p className="text-[11px] text-slate-400">
+                                                {p.manha_ativo && (
+                                                    <span className="text-amber-300 font-medium">
+                            Manhã: {p.manha_inicio} às {p.manha_fim} •{' '}
+                          </span>
+                                                )}
+                                                Tarde/Noite: {p.hora_inicio} às {p.hora_fim} (
+                                                {slotsProf.length} turnos de 100 min)
                                             </p>
                                         </div>
 
@@ -1378,6 +1896,11 @@ export default function PainelAdmin({
                         <Building2 className="w-4 h-4 text-emerald-400" />
                         Vínculo de Unidades com o clin.care
                     </h3>
+                    <p className="text-xs text-slate-400">
+                        Para a unidade <strong>Online</strong>, mantenha{' '}
+                        <code className="text-slate-300">id-online</code> (ou informe o
+                        UUID caso ela também exista no clin.care).
+                    </p>
 
                     <div className="space-y-3">
                         {unidades.map((u) => (
@@ -1402,7 +1925,7 @@ export default function PainelAdmin({
                                                 [u.id]: e.target.value,
                                             }))
                                         }
-                                        className="w-32 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white"
+                                        className="w-40 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white"
                                     />
                                     <button
                                         type="button"
