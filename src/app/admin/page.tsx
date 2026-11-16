@@ -1,10 +1,35 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PainelAdmin from '@/components/admin/PainelAdmin';
 import ImportadorProfessoresClinCare from '@/components/admin/ImportadorProfessoresClinCare';
 import AdminColegios from '@/components/AdminColegios';
 import AdminWhatsApp from '@/components/AdminWhatsApp';
+
+class BlocoSeguro extends React.Component<
+    { nome: string; children: React.ReactNode },
+    { erro: string | null }
+> {
+    constructor(props: { nome: string; children: React.ReactNode }) {
+        super(props);
+        this.state = { erro: null };
+    }
+
+    static getDerivedStateFromError(error: Error) {
+        return { erro: error?.message || 'Erro inesperado ao renderizar bloco.' };
+    }
+
+    render() {
+        if (this.state.erro) {
+            return (
+                <div className="bg-rose-950/60 border border-rose-500/40 rounded-2xl p-4 text-xs text-rose-200">
+                    <strong>Erro no módulo {this.props.nome}:</strong> {this.state.erro}
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
 
 export default function AdminPage() {
     const [verificandoSessao, setVerificandoSessao] = useState(true);
@@ -34,10 +59,10 @@ export default function AdminPage() {
 
         void checarSessao();
 
+        if (autenticado) return;
+
         const intervalo = window.setInterval(() => {
-            if (!autenticado) {
-                void checarSessao();
-            }
+            void checarSessao();
         }, 2500);
 
         return () => {
@@ -64,12 +89,23 @@ export default function AdminPage() {
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        <PainelAdmin autenticadoInicial={autenticado} />
+                        <BlocoSeguro nome="Painel Principal">
+                            <PainelAdmin autenticadoInicial={autenticado} />
+                        </BlocoSeguro>
+
                         {autenticado && (
                             <>
-                                <AdminWhatsApp />
-                                <AdminColegios />
-                                <ImportadorProfessoresClinCare />
+                                <BlocoSeguro nome="Notificações WhatsApp">
+                                    <AdminWhatsApp />
+                                </BlocoSeguro>
+
+                                <BlocoSeguro nome="Colégios">
+                                    <AdminColegios />
+                                </BlocoSeguro>
+
+                                <BlocoSeguro nome="Importador clin.care">
+                                    <ImportadorProfessoresClinCare />
+                                </BlocoSeguro>
                             </>
                         )}
                     </div>
