@@ -2310,6 +2310,12 @@ export default function PainelAdmin({
                                                                 <strong>Assunto:</strong> {ag.observacoes}
                                                             </p>
                                                         )}
+
+                                                        {ag.clincare_reserva_erro && !ag.sincronizado_clincare && (
+                                                            <p className="text-[11px] text-rose-400 bg-[#BE1E23]/15 border border-[#BE1E23]/35 rounded-lg px-2.5 py-1.5 mt-1.5">
+                                                                <strong>Robô Clin Care:</strong> {ag.clincare_reserva_erro}
+                                                            </p>
+                                                        )}
                                                     </div>
 
                                                     <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -2346,6 +2352,28 @@ export default function PainelAdmin({
                                                                     : 'Marcar Lançado'}
                                                             </button>
                                                         )}
+
+                                                        {ag.status === 'confirmado' &&
+                                                            !ag.sincronizado_clincare &&
+                                                            ag.clincare_reserva_status !== 'reservado' && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async () => {
+                                                                        await fetch('/api/admin/agendamentos', {
+                                                                            method: 'PATCH',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({
+                                                                                id: ag.id,
+                                                                                reenviar_robo: true,
+                                                                            }),
+                                                                        });
+                                                                        await carregarDados();
+                                                                    }}
+                                                                    className="px-3 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-500/25"
+                                                                >
+                                                                    <RefreshCw className="w-3.5 h-3.5" /> Reenviar Robô
+                                                                </button>
+                                                            )}
 
                                                         {ag.status === 'confirmado' && (
                                                             <>

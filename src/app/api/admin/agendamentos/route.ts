@@ -27,6 +27,23 @@ export async function PATCH(req: NextRequest) {
             );
         }
 
+        if (body?.reenviar_robo === true) {
+            await sql`
+        UPDATE agendamentos
+        SET clincare_reserva_status = 'pendente',
+            clincare_reserva_erro = NULL
+        WHERE id = ${id}
+      `;
+            const disparo = await dispararRoboReservaClinCare(id);
+            if (!disparo.ok) {
+                return NextResponse.json(
+                    { error: disparo.erro || 'Falha ao acionar robô.' },
+                    { status: 500 }
+                );
+            }
+            return NextResponse.json({ sucesso: true });
+        }
+
         if (typeof body?.lancado_clincare === 'boolean') {
             const lancado = body.lancado_clincare;
             await sql`
@@ -61,7 +78,7 @@ export async function PATCH(req: NextRequest) {
         `) as { clincare_reserva_status: string }[];
 
                 if (cancelados[0]?.clincare_reserva_status === 'cancelar_pendente') {
-                    await dispararRoboReservaClinCare();
+                    await dispararRoboReservaClinCare(id);
                 }
             } else {
                 await sql`

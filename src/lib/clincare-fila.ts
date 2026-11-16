@@ -6,17 +6,25 @@ export async function garantirColunasFilaReserva(): Promise<void> {
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reservado_em TIMESTAMPTZ`;
 }
 
-export async function dispararRoboReservaClinCare(): Promise<boolean> {
+export async function dispararRoboReservaClinCare(
+    agendamentoId?: number
+): Promise<{ ok: boolean; erro?: string }> {
     const token = (process.env.GITHUB_TOKEN || '').trim();
-    const owner = (process.env.GITHUB_OWNER || '').trim();
-    const repo = (process.env.GITHUB_REPO || '').trim();
+    const owner = (process.env.GITHUB_OWNER || 'IagoAntunes71').trim();
+    const repo = (process.env.GITHUB_REPO || 'agenda-funcional-r4').trim();
     const branch = (process.env.GITHUB_BRANCH || 'main').trim();
 
-    if (!token || !owner || !repo) {
-        console.warn(
-            'Variáveis GITHUB_TOKEN, GITHUB_OWNER ou GITHUB_REPO ausentes para disparo automático de reserva.'
-        );
-        return false;
+    if (!token) {
+        const msg = 'Variável GITHUB_TOKEN não configurada na Vercel.';
+        if (agendamentoId) {
+            await sql`
+        UPDATE agendamentos
+        SET clincare_reserva_status = 'erro',
+            clincare_reserva_erro = ${msg}
+        WHERE id = ${agendamentoId}
+      `;
+        }
+        return { ok: false, erro: msg };
     }
 
     try {
@@ -24,16 +32,43 @@ export async function dispararRoboReservaClinCare(): Promise<boolean> {
         const res = await fetch(url, {
             method: 'POST',
             headers: {
-                Authorization: `Bearer ${token}`,
                 Accept: 'application/vnd.github+json',
+                Authorization: `Bearer ${token}`,
                 'X-GitHub-Api-Version': '2022-11-28',
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({ ref: branch }),
         });
-        return res.ok;
+
+        if (!res.ok) {
+            const detalhe = await res.text().catch(() => '');
+            const msg = `GitHub Actions HTTP ${res.status}: ${
+                detalhe.slice(0, 140) ||
+                'Verifique se o arquivo reservar-clincare.yml já foi enviado para a branch main.'
+            }`;
+            if (agendamentoId) {
+                await sql`
+          UPDATE agendamentos
+          SET clincare_reserva_status = 'erro',
+              clincare_reserva_erro = ${msg}
+          WHERE id = ${agendamentoId}
+        `;
+            }
+            return { ok: false, erro: msg };
+        }
+
+        return { ok: true };
     } catch (err) {
-        console.error('Erro ao disparar workflow reservar-clincare.yml:', err);
-        return false;
+        const msg =
+            err instanceof Error ? err.message : 'Falha de rede ao acionar GitHub.';
+        if (agendamentoId) {
+            await sql`
+        UPDATE agendamentos
+        SET clincare_reserva_status = 'erro',
+            clincare_reserva_erro = ${msg}
+        WHERE id = ${agendamentoId}
+      `;
+        }
+        return { ok: false, erro: msg };
     }
 }

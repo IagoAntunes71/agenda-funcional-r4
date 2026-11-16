@@ -379,9 +379,8 @@ export async function POST(req: NextRequest) {
 
         // Dispara imediatamente o robô no GitHub Actions para reservar como RESERVADO APP
         if (unidadeTemClinCare && agendamentoId) {
-            await dispararRoboReservaClinCare();
+            await dispararRoboReservaClinCare(agendamentoId);
         }
-
         const notif = await notificarGrupoNovoAgendamento({
             id: agendamentoId,
             unidade: nomeUnidade,
