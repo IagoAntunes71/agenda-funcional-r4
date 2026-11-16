@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
         const acao = String(body?.acao || 'verificar_telefone');
         const telefoneNorm = normalizarTelefone(String(body?.telefone || ''));
 
-        if (telefoneNorm.length < 10) {
+        if (telefoneNorm.length < 10 || telefoneNorm.length > 11) {
             return NextResponse.json(
                 { error: 'Informe um número de WhatsApp válido com DDD.' },
                 { status: 400 }
@@ -39,16 +39,6 @@ export async function POST(req: NextRequest) {
         }
 
         const familia = await buscarFamiliaPorTelefone(telefoneNorm);
-
-        if (familia.alunos.length === 0) {
-            return NextResponse.json(
-                {
-                    error:
-                        'Número não localizado no cadastro da R4 Ensina. Confira o DDD ou fale com a secretaria.',
-                },
-                { status: 404 }
-            );
-        }
 
         // Verifica se o telefone está bloqueado por excesso de tentativas
         if (familia.bloqueadoAte) {
@@ -66,17 +56,31 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        // PASSO 1: Apenas consulta se o número já possui PIN ou precisa criar
+        // PASSO 1: Consulta se o número já tem PIN, precisa criar PIN ou é primeiro cadastro
         if (acao === 'verificar_telefone') {
+            if (familia.alunos.length === 0) {
+                return NextResponse.json({
+                    status: 'novo_cadastro',
+                    telefone: telefoneNorm,
+                });
+            }
+
             return NextResponse.json({
                 status: familia.temPin ? 'exige_pin' : 'criar_pin',
-                responsavelNome: familia.alunos[0].responsavel_nome,
+                telefone: telefoneNorm,
                 alunosCount: familia.alunos.length,
             });
         }
 
-        // PASSO 2: Primeiro acesso — cria o PIN de 4 dígitos
+        // PASSO 2: Primeiro acesso — cria e grava o PIN de 4 dígitos
         if (acao === 'criar_pin') {
+            if (familia.alunos.length === 0) {
+                return NextResponse.json(
+                    { error: 'Finalize o cadastro do aluno antes de definir o PIN.' },
+                    { status: 400 }
+                );
+            }
+
             if (familia.temPin) {
                 return NextResponse.json(
                     {
@@ -195,7 +199,6 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            // PIN correto: zera contador de tentativas e cria sessão de 30 dias
             await sql`
         UPDATE alunos
         SET pin_tentativas = 0,

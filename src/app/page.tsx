@@ -1,6 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import {
+  AlertCircle,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  GraduationCap,
+  KeyRound,
+  Lock,
+  LogOut,
+  MapPin,
+  MessageCircle,
+  Moon,
+  Plus,
+  Search,
+  ShieldCheck,
+  Sun,
+  UserCheck,
+  X,
+} from 'lucide-react';
+import LogoR4 from '@/components/LogoR4';
 import { SlotAula } from '@/lib/horarios-reforco';
 import {
   SERIES_ESCOLARES,
@@ -72,6 +92,12 @@ interface ComprovanteAgendamento {
   linkWaMe?: string | null;
 }
 
+type EtapaLoginCliente =
+    | 'telefone'
+    | 'exige_pin'
+    | 'criar_pin'
+    | 'novo_cadastro';
+
 function formatarDiaSemana(isoDate: string): string {
   const [ano, mes, dia] = isoDate.split('-').map(Number);
   if (!ano || !mes || !dia) return '';
@@ -83,8 +109,18 @@ function formatarDiaSemana(isoDate: string): string {
 }
 
 export default function PaginaAgendamentoReforco() {
+  // Tema Claro / Escuro
+  const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
+
   const [sistemaAberto, setSistemaAberto] = useState<boolean>(true);
   const [motivoFechado, setMotivoFechado] = useState<string | null>(null);
+
+  // Autenticação com WhatsApp + PIN de 4 dígitos + Sessão de 30 dias
+  const [etapaLogin, setEtapaLogin] = useState<EtapaLoginCliente>('telefone');
+  const [telefonePendente, setTelefonePendente] = useState<string>('');
+  const [pinInput, setPinInput] = useState<string>('');
+  const [confirmarPinInput, setConfirmarPinInput] = useState<string>('');
+  const [limiteSimultaneo, setLimiteSimultaneo] = useState<number>(2);
 
   const [responsavelInput, setResponsavelInput] = useState<string>('');
   const [responsavelConfirmado, setResponsavelConfirmado] = useState<string>('');
@@ -96,8 +132,11 @@ export default function PaginaAgendamentoReforco() {
   const [alunos, setAlunos] = useState<AlunoCadastrado[]>([]);
   const [alunoSelecionadoId, setAlunoSelecionadoId] = useState<number>(0);
   const [alunoEditandoId, setAlunoEditandoId] = useState<number | null>(null);
-  const [colegiosOficiais, setColegiosOficiais] = useState<ColegioOficial[]>([]);
-  const [exibirFormNovoAluno, setExibirFormNovoAluno] = useState<boolean>(false);
+  const [colegiosOficiais, setColegiosOficiais] = useState<ColegioOficial[]>(
+      []
+  );
+  const [exibirFormNovoAluno, setExibirFormNovoAluno] =
+      useState<boolean>(false);
 
   const [proximasAulas, setProximasAulas] = useState<ProximaAula[]>([]);
   const [confirmandoCancelamentoId, setConfirmandoCancelamentoId] = useState<
@@ -136,10 +175,65 @@ export default function PaginaAgendamentoReforco() {
 
   const [materiaAula, setMateriaAula] = useState<string>('');
   const [observacoes, setObservacoes] = useState<string>('');
-  const [enviandoAgendamento, setEnviandoAgendamento] = useState<boolean>(false);
+  const [enviandoAgendamento, setEnviandoAgendamento] =
+      useState<boolean>(false);
   const [erroModal, setErroModal] = useState<string | null>(null);
   const [comprovante, setComprovante] =
       useState<ComprovanteAgendamento | null>(null);
+
+  useEffect(() => {
+    const salvo = window.localStorage.getItem('r4_cliente_tema');
+    if (salvo === 'claro' || salvo === 'escuro') {
+      setTema(salvo);
+    }
+  }, []);
+
+  function alternarTema() {
+    setTema((prev) => {
+      const proximo = prev === 'escuro' ? 'claro' : 'escuro';
+      window.localStorage.setItem('r4_cliente_tema', proximo);
+      return proximo;
+    });
+  }
+
+  async function carregarDadosFamiliaAutenticada(telNorm: string) {
+    const resCliente = await fetch(
+        `/api/cliente?telefone=${encodeURIComponent(telNorm)}`,
+        { cache: 'no-store' }
+    );
+    const jsonCliente = await resCliente.json();
+
+    if (!resCliente.ok) {
+      throw new Error(jsonCliente.error || 'Erro ao carregar dados da conta.');
+    }
+
+    const listaColegios: ColegioOficial[] = jsonCliente.colegios || [];
+    setColegiosOficiais(listaColegios);
+    if (!colegioOpcao) {
+      setColegioOpcao(
+          listaColegios.length > 0 ? String(listaColegios[0].id) : 'outros'
+      );
+    }
+
+    const nomeResp = String(
+        jsonCliente.responsavelNome || responsavelInput || 'Responsável'
+    ).trim();
+
+    setTelefoneConfirmado(jsonCliente.telefone || telNorm);
+    setTelefoneInput(formatarTelefone(jsonCliente.telefone || telNorm));
+    setResponsavelConfirmado(nomeResp);
+    setResponsavelInput(nomeResp);
+    setProximasAulas(jsonCliente.proximasAulas || []);
+
+    const listaAlunos: AlunoCadastrado[] = jsonCliente.alunos || [];
+    setAlunos(listaAlunos);
+    if (listaAlunos.length > 0) {
+      setAlunoSelecionadoId(listaAlunos[0].id);
+      setExibirFormNovoAluno(false);
+    } else {
+      setExibirFormNovoAluno(true);
+    }
+  }
 
   useEffect(() => {
     let cancelado = false;
@@ -152,68 +246,38 @@ export default function PaginaAgendamentoReforco() {
           search.get('whatsapp') ||
           search.get('phone') ||
           '';
-      const telSalvo = window.localStorage.getItem('r4_whatsapp_cliente') || '';
-      const respSalvo =
-          window.localStorage.getItem('r4_responsavel_cliente') || '';
-      const telInicial = normalizarTelefone(telUrl || telSalvo);
+      const telInicial = normalizarTelefone(telUrl);
 
       if (telInicial) {
         setTelefoneInput(formatarTelefone(telInicial));
       }
-      if (respSalvo) {
-        setResponsavelInput(respSalvo);
-      }
 
       try {
-        const [resCliente, resDisp] = await Promise.all([
-          fetch(
-              `/api/cliente${
-                  telInicial ? `?telefone=${encodeURIComponent(telInicial)}` : ''
-              }`,
-              { cache: 'no-store' }
-          ),
+        const [resSessao, resDisp, resColegios] = await Promise.all([
+          fetch('/api/cliente/sessao', { cache: 'no-store' }),
           fetch('/api/disponibilidade', { cache: 'no-store' }),
+          fetch('/api/cliente', { cache: 'no-store' }),
         ]);
 
-        const jsonCliente = await resCliente.json();
+        const jsonSessao = await resSessao.json();
         const jsonDisp = await resDisp.json();
+        const jsonColegios = await resColegios.json();
         if (cancelado) return;
 
-        if (resCliente.ok) {
-          const listaColegios: ColegioOficial[] = jsonCliente.colegios || [];
-          setColegiosOficiais(listaColegios);
+        if (resColegios.ok && Array.isArray(jsonColegios.colegios)) {
+          const listaCol: ColegioOficial[] = jsonColegios.colegios;
+          setColegiosOficiais(listaCol);
           setColegioOpcao(
-              listaColegios.length > 0 ? String(listaColegios[0].id) : 'outros'
+              listaCol.length > 0 ? String(listaCol[0].id) : 'outros'
           );
+        }
 
-          if (jsonCliente.telefone) {
-            const nomeResp = String(
-                jsonCliente.responsavelNome || respSalvo || ''
-            ).trim();
-
-            setTelefoneConfirmado(jsonCliente.telefone);
-            window.localStorage.setItem(
-                'r4_whatsapp_cliente',
-                jsonCliente.telefone
-            );
-
-            if (nomeResp) {
-              setResponsavelConfirmado(nomeResp);
-              setResponsavelInput(nomeResp);
-              window.localStorage.setItem('r4_responsavel_cliente', nomeResp);
-            }
-
-            setProximasAulas(jsonCliente.proximasAulas || []);
-
-            const listaAlunos: AlunoCadastrado[] = jsonCliente.alunos || [];
-            setAlunos(listaAlunos);
-            if (listaAlunos.length > 0) {
-              setAlunoSelecionadoId(listaAlunos[0].id);
-              setExibirFormNovoAluno(false);
-            } else {
-              setExibirFormNovoAluno(true);
-            }
+        // Se já possui cookie de sessão de 30 dias válido, restaura automaticamente
+        if (resSessao.ok && jsonSessao.autenticado && jsonSessao.telefone) {
+          if (jsonSessao.limiteSimultaneo) {
+            setLimiteSimultaneo(Number(jsonSessao.limiteSimultaneo));
           }
+          await carregarDadosFamiliaAutenticada(jsonSessao.telefone);
         }
 
         if (resDisp.ok) {
@@ -249,6 +313,7 @@ export default function PaginaAgendamentoReforco() {
     return () => {
       cancelado = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function atualizarProximasAulas(tel: string) {
@@ -267,41 +332,10 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
-  async function handleAlterarTelefoneInput(valor: string) {
-    const formatado = formatarTelefone(valor);
-    setTelefoneInput(formatado);
-
-    const telLimpo = normalizarTelefone(valor);
-    if (
-        (telLimpo.length === 10 || telLimpo.length === 11) &&
-        !responsavelInput.trim()
-    ) {
-      try {
-        const res = await fetch(
-            `/api/cliente?telefone=${encodeURIComponent(telLimpo)}`,
-            { cache: 'no-store' }
-        );
-        if (res.ok) {
-          const json = await res.json();
-          if (json.responsavelNome) {
-            setResponsavelInput(json.responsavelNome);
-          }
-        }
-      } catch {
-        // Ignora falha silenciosa
-      }
-    }
-  }
-
-  async function handleIdentificarTelefone(e: React.FormEvent) {
+  // PASSO 1: Verifica o telefone no endpoint seguro sem expor dados antes do PIN
+  async function handleVerificarTelefone(e: React.FormEvent) {
     e.preventDefault();
-    const nomeResp = responsavelInput.trim();
     const tel = normalizarTelefone(telefoneInput);
-
-    if (nomeResp.length < 2) {
-      setErroCliente('Informe o nome do responsável.');
-      return;
-    }
 
     if (tel.length < 10 || tel.length > 11) {
       setErroCliente('Digite um número de WhatsApp válido com DDD.');
@@ -312,67 +346,220 @@ export default function PaginaAgendamentoReforco() {
     setErroCliente(null);
 
     try {
-      const res = await fetch(
-          `/api/cliente?telefone=${encodeURIComponent(tel)}`,
-          { cache: 'no-store' }
-      );
+      const res = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'verificar_telefone',
+          telefone: tel,
+        }),
+      });
       const json = await res.json();
 
       if (!res.ok) {
-        setErroCliente(json.error || 'Erro ao buscar número.');
+        setErroCliente(json.error || 'Não foi possível verificar o número.');
         return;
       }
 
-      const nomeFinal = nomeResp || String(json.responsavelNome || '').trim();
+      setTelefonePendente(tel);
+      setTelefoneInput(formatarTelefone(tel));
+      setPinInput('');
+      setConfirmarPinInput('');
 
-      setTelefoneConfirmado(json.telefone);
-      setTelefoneInput(formatarTelefone(json.telefone));
-      setResponsavelConfirmado(nomeFinal);
-      setResponsavelInput(nomeFinal);
-      setProximasAulas(json.proximasAulas || []);
-
-      window.localStorage.setItem('r4_whatsapp_cliente', json.telefone);
-      window.localStorage.setItem('r4_responsavel_cliente', nomeFinal);
-
-      const listaColegios: ColegioOficial[] = json.colegios || [];
-      setColegiosOficiais(listaColegios);
-      if (!colegioOpcao) {
-        setColegioOpcao(
-            listaColegios.length > 0 ? String(listaColegios[0].id) : 'outros'
-        );
-      }
-
-      const listaAlunos: AlunoCadastrado[] = json.alunos || [];
-      setAlunos(listaAlunos);
-
-      if (listaAlunos.length > 0) {
-        setAlunoSelecionadoId(listaAlunos[0].id);
-        setExibirFormNovoAluno(false);
-
-        await fetch('/api/cliente', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            acao: 'salvarResponsavel',
-            telefone: json.telefone,
-            responsavelNome: nomeFinal,
-          }),
-        });
+      if (json.status === 'exige_pin') {
+        setEtapaLogin('exige_pin');
+      } else if (json.status === 'criar_pin') {
+        setEtapaLogin('criar_pin');
       } else {
-        setExibirFormNovoAluno(true);
+        setEtapaLogin('novo_cadastro');
       }
     } catch {
-      setErroCliente('Falha de conexão ao verificar seus dados.');
+      setErroCliente('Falha de conexão ao verificar seu WhatsApp.');
     } finally {
       setBuscandoCliente(false);
     }
   }
 
-  function handleTrocarNumero() {
-    window.localStorage.removeItem('r4_whatsapp_cliente');
-    window.localStorage.removeItem('r4_responsavel_cliente');
+  // PASSO 2A: Entra com o PIN de 4 dígitos existente
+  async function handleEntrarComPin(e: React.FormEvent) {
+    e.preventDefault();
+    if (pinInput.length !== 4) {
+      setErroCliente('Digite os 4 números do seu PIN.');
+      return;
+    }
+
+    setBuscandoCliente(true);
+    setErroCliente(null);
+
+    try {
+      const res = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'entrar_pin',
+          telefone: telefonePendente,
+          pin: pinInput,
+        }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setErroCliente(json.error || 'PIN incorreto.');
+        setPinInput('');
+        return;
+      }
+
+      if (json.limiteSimultaneo) {
+        setLimiteSimultaneo(Number(json.limiteSimultaneo));
+      }
+
+      await carregarDadosFamiliaAutenticada(telefonePendente);
+      setPinInput('');
+    } catch {
+      setErroCliente('Erro de conexão ao validar seu PIN.');
+    } finally {
+      setBuscandoCliente(false);
+    }
+  }
+
+  // PASSO 2B: Cria PIN de 4 dígitos para cadastro já existente
+  async function handleCriarPinPrimeiroAcesso(e: React.FormEvent) {
+    e.preventDefault();
+    if (pinInput.length !== 4 || confirmarPinInput.length !== 4) {
+      setErroCliente('O PIN deve ter exatamente 4 números.');
+      return;
+    }
+    if (pinInput !== confirmarPinInput) {
+      setErroCliente('Os dois PINs digitados não são iguais.');
+      return;
+    }
+
+    setBuscandoCliente(true);
+    setErroCliente(null);
+
+    try {
+      const res = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'criar_pin',
+          telefone: telefonePendente,
+          pin: pinInput,
+          confirmarPin: confirmarPinInput,
+        }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setErroCliente(json.error || 'Não foi possível criar o PIN.');
+        return;
+      }
+
+      if (json.limiteSimultaneo) {
+        setLimiteSimultaneo(Number(json.limiteSimultaneo));
+      }
+
+      await carregarDadosFamiliaAutenticada(telefonePendente);
+      setPinInput('');
+      setConfirmarPinInput('');
+    } catch {
+      setErroCliente('Erro de conexão ao salvar seu PIN.');
+    } finally {
+      setBuscandoCliente(false);
+    }
+  }
+
+  // PASSO 2C: Primeiro cadastro completo (Responsável + Aluno + Criação do PIN)
+  async function handleFinalizarNovoCadastro(e: React.FormEvent) {
+    e.preventDefault();
+    const nomeResp = responsavelInput.trim();
+    const nomeAl = novoAlunoNome.trim();
+
+    if (nomeResp.length < 2) {
+      setErroCliente('Informe o nome completo do responsável.');
+      return;
+    }
+    if (nomeAl.length < 2) {
+      setErroCliente('Informe o nome completo do aluno(a).');
+      return;
+    }
+    if (pinInput.length !== 4 || confirmarPinInput.length !== 4) {
+      setErroCliente('Defina e confirme um PIN de 4 números.');
+      return;
+    }
+    if (pinInput !== confirmarPinInput) {
+      setErroCliente('Os dois PINs digitados não conferem.');
+      return;
+    }
+
+    setBuscandoCliente(true);
+    setErroCliente(null);
+
+    try {
+      // 1. Cria o registro do aluno no banco
+      const resCad = await fetch('/api/cliente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'cadastrarAluno',
+          telefone: telefonePendente,
+          responsavelNome: nomeResp,
+          nomeAluno: nomeAl,
+          colegioOpcao,
+          colegioOutroNome,
+          serie: serieAluno,
+        }),
+      });
+      const jsonCad = await resCad.json();
+
+      if (!resCad.ok) {
+        setErroCliente(jsonCad.error || 'Não foi possível salvar o cadastro.');
+        return;
+      }
+
+      // 2. Grava o PIN criptografado e emite o cookie de sessão de 30 dias
+      const resPin = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'criar_pin',
+          telefone: telefonePendente,
+          pin: pinInput,
+          confirmarPin: confirmarPinInput,
+        }),
+      });
+      const jsonPin = await resPin.json();
+
+      if (!resPin.ok) {
+        setErroCliente(jsonPin.error || 'Cadastro salvo, mas falha ao criar PIN.');
+        return;
+      }
+
+      if (jsonPin.limiteSimultaneo) {
+        setLimiteSimultaneo(Number(jsonPin.limiteSimultaneo));
+      }
+
+      setNovoAlunoNome('');
+      setColegioOutroNome('');
+      setPinInput('');
+      setConfirmarPinInput('');
+
+      await carregarDadosFamiliaAutenticada(telefonePendente);
+    } catch {
+      setErroCliente('Erro de rede ao concluir cadastro.');
+    } finally {
+      setBuscandoCliente(false);
+    }
+  }
+
+  async function handleSairConta() {
+    await fetch('/api/cliente/sessao', { method: 'DELETE' });
     setTelefoneConfirmado('');
     setResponsavelConfirmado('');
+    setTelefonePendente('');
+    setEtapaLogin('telefone');
+    setPinInput('');
+    setConfirmarPinInput('');
     setAlunos([]);
     setProximasAulas([]);
     setAlunoSelecionadoId(0);
@@ -593,6 +780,9 @@ export default function PaginaAgendamentoReforco() {
 
       const json = await res.json();
       if (!res.ok) {
+        if (res.status === 401) {
+          await handleSairConta();
+        }
         setErroModal(json.error || 'Não foi possível concluir o agendamento.');
         return;
       }
@@ -611,6 +801,24 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
+  const escuro = tema === 'escuro';
+
+  // Paleta executiva derivada da logo R4 (Azul-Petróleo, Carvão Café, Terracota e Carmesim)
+  const clsBg = escuro
+      ? 'bg-[#0B0E11] text-stone-100'
+      : 'bg-[#F4F6F8] text-stone-900';
+  const clsCard = escuro
+      ? 'bg-[#151A21] border-[#232B35] shadow-lg shadow-black/25'
+      : 'bg-white border-stone-200/90 shadow-xs';
+  const clsSubCard = escuro
+      ? 'bg-[#0E1217] border-[#232B35]'
+      : 'bg-stone-50 border-stone-200/80';
+  const clsInput = escuro
+      ? 'bg-[#0E1217] border-[#2B3440] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
+      : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400 focus:border-[#0E7C86]';
+  const clsTitulo = escuro ? 'text-stone-100' : 'text-stone-900';
+  const clsSubtexto = escuro ? 'text-stone-400' : 'text-stone-500';
+
   const alunoAtivo = alunos.find((a) => a.id === alunoSelecionadoId) || null;
   const unidadeAtual = unidades.find((u) => u.id === unidadeId);
   const professoresExibidos = professores.filter(
@@ -619,48 +827,103 @@ export default function PaginaAgendamentoReforco() {
           p.nome.toLowerCase().includes(buscaProfessor.trim().toLowerCase())
   );
 
+  // Conta aulas futuras ativas do aluno selecionado
+  const aulasAtivasAlunoSelecionado = alunoAtivo
+      ? proximasAulas.filter(
+          (a) =>
+              a.aluno_nome.trim().toLowerCase() ===
+              alunoAtivo.nome_aluno.trim().toLowerCase()
+      ).length
+      : 0;
+
   return (
-      <main className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-          <header className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="inline-block text-xs font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full">
-              R4 Ensina • Reforço Escolar
+      <main className={`min-h-screen transition-colors ${clsBg}`}>
+        {/* TOPBAR INSTITUCIONAL */}
+        <div
+            className={`border-b backdrop-blur-md sticky top-0 z-30 ${
+                escuro
+                    ? 'bg-[#11151A]/90 border-[#1F262E]'
+                    : 'bg-white/90 border-stone-200'
+            }`}
+        >
+          <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
+            <LogoR4 temaEscuro={escuro} subtitulo="Portal do Aluno" />
+
+            <div className="flex items-center gap-2.5">
+            <span
+                className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border ${clsSubCard} ${clsSubtexto}`}
+            >
+              <Clock className="w-3.5 h-3.5 text-[#1496A1]" />
+              Secretaria: Seg a Sex, 08h às 18h
             </span>
-              <span className="text-xs text-slate-400">
-              Atendimento Humano: Seg a Sex, das 08:00 às 18:00
+
+              <button
+                  type="button"
+                  onClick={alternarTema}
+                  className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer ${
+                      escuro
+                          ? 'bg-[#151A21] border-[#232B35] text-amber-300 hover:border-stone-600'
+                          : 'bg-[#231917] border-[#231917] text-white hover:bg-stone-800'
+                  }`}
+              >
+                {escuro ? (
+                    <>
+                      <Sun className="w-3.5 h-3.5" />
+                      <span>Tema Claro</span>
+                    </>
+                ) : (
+                    <>
+                      <Moon className="w-3.5 h-3.5" />
+                      <span>Tema Escuro</span>
+                    </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
+          {/* BANNER INFORMATIVO */}
+          <header className={`border rounded-2xl p-6 space-y-3 ${clsCard}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1] bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-3 py-1 rounded-full">
+              <GraduationCap className="w-3.5 h-3.5" />
+              Agendamento de Reforço Escolar (100 min)
+            </span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
+              <ShieldCheck className="w-4 h-4" /> Acesso protegido por PIN
             </span>
             </div>
 
-            <h1 className="text-2xl font-bold text-white">
-              Agendamento de Aulas (100 min)
+            <h1 className={`text-xl sm:text-2xl font-bold ${clsTitulo}`}>
+              Reserve o horário do seu filho(a)
             </h1>
-            <p className="text-sm text-slate-400">
+            <p className={`text-sm ${clsSubtexto}`}>
               Agendamento online disponível de segunda a sexta, das{' '}
-              <strong className="text-slate-200">18:00 às 22:00</strong>, para
-              aulas a partir do próximo dia até domingo desta semana.
+              <strong className={clsTitulo}>18:00 às 22:00</strong>, para aulas a
+              partir do próximo dia até domingo desta semana.
             </p>
 
-            <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-3.5 py-2.5 text-xs text-amber-200">
+            <div className="rounded-xl bg-[#C24124]/15 border border-[#C24124]/35 px-4 py-2.5 text-xs text-[#E07A5F]">
               <strong>Atenção:</strong> Aulas para a{' '}
               <strong>próxima semana</strong> devem ser agendadas exclusivamente
-              com o nosso atendimento humano (segunda a sexta, das 08:00 às
-              18:00).
+              com nosso atendimento humano (segunda a sexta, das 08:00 às 18:00).
             </div>
           </header>
 
+          {/* COMPROVANTE DE AGENDAMENTO */}
           {comprovante && (
-              <section className="bg-emerald-950/50 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+              <section className="bg-emerald-500/10 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
-                  <p className="text-sm font-semibold text-emerald-300">
-                    Aula agendada com sucesso!
+                  <p className="text-sm font-bold text-emerald-400 inline-flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" /> Aula agendada com sucesso!
                   </p>
-                  <p className="text-xs text-slate-200">
+                  <p className={`text-xs ${clsTitulo}`}>
                     <strong>Aluno(a):</strong> {comprovante.alunoNome}
                     {comprovante.colegioNome ? ` • ${comprovante.colegioNome}` : ''}
                     {comprovante.serie ? ` (${comprovante.serie})` : ''}
                   </p>
-                  <p className="text-xs text-slate-300">
+                  <p className={`text-xs ${clsSubtexto}`}>
                     <strong>Unidade:</strong> {comprovante.unidade} •{' '}
                     <strong>Matéria:</strong> {comprovante.materia} •{' '}
                     <strong>Professor(a):</strong> {comprovante.professor} •{' '}
@@ -674,15 +937,16 @@ export default function PaginaAgendamentoReforco() {
                           href={comprovante.linkWaMe}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-xs font-bold text-slate-950 transition"
+                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white inline-flex items-center gap-1.5 transition"
                       >
-                        Enviar Comprovante no WhatsApp da Secretaria
+                        <MessageCircle className="w-3.5 h-3.5" /> Enviar Comprovante no
+                        WhatsApp
                       </a>
                   )}
                   <button
                       type="button"
                       onClick={() => setComprovante(null)}
-                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white cursor-pointer"
+                      className={`px-3.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${clsCard} ${clsTitulo}`}
                   >
                     Fechar aviso
                   </button>
@@ -690,80 +954,445 @@ export default function PaginaAgendamentoReforco() {
               </section>
           )}
 
-          {/* PASSO 1: IDENTIFICAÇÃO DO RESPONSÁVEL E WHATSAPP */}
+          {/* TELA DE ACESSO SEGURO (WHATSAPP + PIN DE 4 DÍGITOS) */}
           {!telefoneConfirmado ? (
-              <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg mx-auto space-y-4">
-                <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                Identificação
-              </span>
-                  <h2 className="text-xl font-bold text-white mt-1">
-                    Informe seus dados
-                  </h2>
-                  <p className="text-sm text-slate-400 mt-1">
-                    Digite seu nome e WhatsApp com DDD para visualizar próximas
-                    aulas ou realizar novos agendamentos.
-                  </p>
-                </div>
-
-                <form onSubmit={handleIdentificarTelefone} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                      Nome Completo do Responsável *
-                    </label>
-                    <input
-                        type="text"
-                        required
-                        value={responsavelInput}
-                        onChange={(e) => setResponsavelInput(e.target.value)}
-                        placeholder="Ex: Maria Silva"
-                        className="w-full rounded-xl bg-slate-950 border border-slate-700 px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                      Número do WhatsApp *
-                    </label>
-                    <input
-                        type="tel"
-                        required
-                        value={telefoneInput}
-                        onChange={(e) =>
-                            void handleAlterarTelefoneInput(e.target.value)
-                        }
-                        placeholder="(71) 99999-9999"
-                        className="w-full rounded-xl bg-slate-950 border border-slate-700 px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  {erroCliente && (
-                      <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-300">
-                        {erroCliente}
+              <section
+                  className={`border rounded-2xl p-6 sm:p-8 max-w-lg mx-auto space-y-5 ${clsCard}`}
+              >
+                {/* ETAPA 1: INFORMAR WHATSAPP */}
+                {etapaLogin === 'telefone' && (
+                    <>
+                      <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                    <Lock className="w-3.5 h-3.5" /> Acesso Seguro
+                  </span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
+                          Informe seu WhatsApp
+                        </h2>
+                        <p className={`text-sm ${clsSubtexto}`}>
+                          Digite o número cadastrado com DDD. Sua sessão ficará
+                          lembrada neste dispositivo por 30 dias.
+                        </p>
                       </div>
-                  )}
 
-                  <button
-                      type="submit"
-                      disabled={buscandoCliente}
-                      className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
-                  >
-                    {buscandoCliente ? 'Verificando dados...' : 'Continuar'}
-                  </button>
-                </form>
+                      <form onSubmit={handleVerificarTelefone} className="space-y-4">
+                        <div>
+                          <label
+                              className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                          >
+                            Número do WhatsApp com DDD *
+                          </label>
+                          <input
+                              type="tel"
+                              required
+                              value={telefoneInput}
+                              onChange={(e) =>
+                                  setTelefoneInput(formatarTelefone(e.target.value))
+                              }
+                              placeholder="(71) 99999-9999"
+                              className={`w-full rounded-xl border px-4 py-3 text-base focus:outline-none ${clsInput}`}
+                          />
+                        </div>
+
+                        {erroCliente && (
+                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
+                              {erroCliente}
+                            </div>
+                        )}
+
+                        <button
+                            type="submit"
+                            disabled={buscandoCliente}
+                            className="w-full py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                        >
+                          {buscandoCliente ? 'Verificando...' : 'Continuar'}
+                        </button>
+                      </form>
+                    </>
+                )}
+
+                {/* ETAPA 2A: DIGITAR PIN DE 4 DÍGITOS EXISTENTE */}
+                {etapaLogin === 'exige_pin' && (
+                    <>
+                      <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                    <KeyRound className="w-3.5 h-3.5" /> Verificação de Segurança
+                  </span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
+                          Digite seu PIN de 4 dígitos
+                        </h2>
+                        <p className={`text-sm ${clsSubtexto}`}>
+                          Número:{' '}
+                          <strong className={clsTitulo}>
+                            {formatarTelefone(telefonePendente)}
+                          </strong>
+                        </p>
+                      </div>
+
+                      <form onSubmit={handleEntrarComPin} className="space-y-4">
+                        <div>
+                          <label
+                              className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                          >
+                            PIN de Acesso (4 números) *
+                          </label>
+                          <input
+                              type="password"
+                              inputMode="numeric"
+                              pattern="\d{4}"
+                              maxLength={4}
+                              required
+                              autoFocus
+                              value={pinInput}
+                              onChange={(e) =>
+                                  setPinInput(
+                                      e.target.value.replace(/\D/g, '').slice(0, 4)
+                                  )
+                              }
+                              placeholder="••••"
+                              className={`w-full rounded-xl border px-4 py-3.5 text-center text-2xl font-bold tracking-[0.6em] focus:outline-none ${clsInput}`}
+                          />
+                        </div>
+
+                        {erroCliente && (
+                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
+                              {erroCliente}
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-2.5">
+                          <button
+                              type="button"
+                              onClick={() => {
+                                setEtapaLogin('telefone');
+                                setErroCliente(null);
+                                setPinInput('');
+                              }}
+                              className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
+                          >
+                            Voltar
+                          </button>
+                          <button
+                              type="submit"
+                              disabled={buscandoCliente || pinInput.length < 4}
+                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                          >
+                            {buscandoCliente ? 'Validando...' : 'Entrar na Agenda'}
+                          </button>
+                        </div>
+
+                        <p className={`text-[11px] text-center ${clsSubtexto}`}>
+                          Esqueceu seu PIN? Solicite o reset rápido à secretaria da R4
+                          Ensina.
+                        </p>
+                      </form>
+                    </>
+                )}
+
+                {/* ETAPA 2B: CRIAR PIN DE 4 DÍGITOS (CADASTRO JÁ EXISTENTE SEM PIN) */}
+                {etapaLogin === 'criar_pin' && (
+                    <>
+                      <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-500">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Primeiro Acesso
+                    Protegido
+                  </span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
+                          Crie seu PIN de 4 dígitos
+                        </h2>
+                        <p className={`text-sm ${clsSubtexto}`}>
+                          Para proteger os agendamentos de{' '}
+                          <strong className={clsTitulo}>
+                            {formatarTelefone(telefonePendente)}
+                          </strong>
+                          , escolha uma senha numérica de 4 dígitos que você lembre
+                          facilmente.
+                        </p>
+                      </div>
+
+                      <form
+                          onSubmit={handleCriarPinPrimeiroAcesso}
+                          className="space-y-4"
+                      >
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label
+                                className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                            >
+                              Criar PIN (4 dígitos) *
+                            </label>
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                pattern="\d{4}"
+                                maxLength={4}
+                                required
+                                autoFocus
+                                value={pinInput}
+                                onChange={(e) =>
+                                    setPinInput(
+                                        e.target.value.replace(/\D/g, '').slice(0, 4)
+                                    )
+                                }
+                                placeholder="••••"
+                                className={`w-full rounded-xl border px-3 py-3 text-center text-xl font-bold tracking-[0.5em] focus:outline-none ${clsInput}`}
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                                className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                            >
+                              Confirmar PIN *
+                            </label>
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                pattern="\d{4}"
+                                maxLength={4}
+                                required
+                                value={confirmarPinInput}
+                                onChange={(e) =>
+                                    setConfirmarPinInput(
+                                        e.target.value.replace(/\D/g, '').slice(0, 4)
+                                    )
+                                }
+                                placeholder="••••"
+                                className={`w-full rounded-xl border px-3 py-3 text-center text-xl font-bold tracking-[0.5em] focus:outline-none ${clsInput}`}
+                            />
+                          </div>
+                        </div>
+
+                        {erroCliente && (
+                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
+                              {erroCliente}
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-2.5">
+                          <button
+                              type="button"
+                              onClick={() => {
+                                setEtapaLogin('telefone');
+                                setErroCliente(null);
+                              }}
+                              className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
+                          >
+                            Voltar
+                          </button>
+                          <button
+                              type="submit"
+                              disabled={buscandoCliente}
+                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                          >
+                            {buscandoCliente ? 'Salvando...' : 'Salvar PIN e Entrar'}
+                          </button>
+                        </div>
+                      </form>
+                    </>
+                )}
+
+                {/* ETAPA 2C: NOVO CADASTRO COMPLETO + CRIAÇÃO DO PIN */}
+                {etapaLogin === 'novo_cadastro' && (
+                    <>
+                      <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                    <UserCheck className="w-3.5 h-3.5" /> Primeiro Cadastro
+                  </span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
+                          Complete seus dados e crie seu PIN
+                        </h2>
+                        <p className={`text-xs ${clsSubtexto}`}>
+                          WhatsApp:{' '}
+                          <strong className={clsTitulo}>
+                            {formatarTelefone(telefonePendente)}
+                          </strong>
+                        </p>
+                      </div>
+
+                      <form
+                          onSubmit={handleFinalizarNovoCadastro}
+                          className="space-y-3.5"
+                      >
+                        <div>
+                          <label
+                              className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                          >
+                            Nome Completo do Responsável *
+                          </label>
+                          <input
+                              type="text"
+                              required
+                              value={responsavelInput}
+                              onChange={(e) => setResponsavelInput(e.target.value)}
+                              placeholder="Ex: Maria Silva"
+                              className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                              className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                          >
+                            Nome Completo do Aluno(a) *
+                          </label>
+                          <input
+                              type="text"
+                              required
+                              value={novoAlunoNome}
+                              onChange={(e) => setNovoAlunoNome(e.target.value)}
+                              placeholder="Ex: Lucas Andrade"
+                              className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label
+                                className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                            >
+                              Colégio *
+                            </label>
+                            <select
+                                required
+                                value={colegioOpcao}
+                                onChange={(e) => setColegioOpcao(e.target.value)}
+                                className={`w-full rounded-xl border px-3 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                            >
+                              {colegiosOficiais.map((col) => (
+                                  <option key={col.id} value={String(col.id)}>
+                                    {col.nome}
+                                  </option>
+                              ))}
+                              <option value="outros">Outros (digitar)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label
+                                className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                            >
+                              Série / Ano *
+                            </label>
+                            <select
+                                required
+                                value={serieAluno}
+                                onChange={(e) => setSerieAluno(e.target.value)}
+                                className={`w-full rounded-xl border px-3 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                            >
+                              {SERIES_ESCOLARES.map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {colegioOpcao === 'outros' && (
+                            <div>
+                              <label className="block text-xs font-medium text-[#D96B43] mb-1">
+                                Nome do Colégio *
+                              </label>
+                              <input
+                                  type="text"
+                                  required
+                                  value={colegioOutroNome}
+                                  onChange={(e) => setColegioOutroNome(e.target.value)}
+                                  placeholder="Ex: Colégio Antônio Vieira"
+                                  className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                              />
+                            </div>
+                        )}
+
+                        <div
+                            className={`border rounded-xl p-3.5 space-y-2.5 ${clsSubCard}`}
+                        >
+                          <p className="text-xs font-semibold text-[#1496A1]">
+                            Crie um PIN de 4 números para proteger seus próximos
+                            acessos:
+                          </p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                pattern="\d{4}"
+                                maxLength={4}
+                                required
+                                value={pinInput}
+                                onChange={(e) =>
+                                    setPinInput(
+                                        e.target.value.replace(/\D/g, '').slice(0, 4)
+                                    )
+                                }
+                                placeholder="PIN (4 dígitos)"
+                                className={`w-full rounded-xl border px-3 py-2.5 text-center text-base font-bold tracking-widest focus:outline-none ${clsInput}`}
+                            />
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                pattern="\d{4}"
+                                maxLength={4}
+                                required
+                                value={confirmarPinInput}
+                                onChange={(e) =>
+                                    setConfirmarPinInput(
+                                        e.target.value.replace(/\D/g, '').slice(0, 4)
+                                    )
+                                }
+                                placeholder="Confirmar PIN"
+                                className={`w-full rounded-xl border px-3 py-2.5 text-center text-base font-bold tracking-widest focus:outline-none ${clsInput}`}
+                            />
+                          </div>
+                        </div>
+
+                        {erroCliente && (
+                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
+                              {erroCliente}
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-2.5 pt-1">
+                          <button
+                              type="button"
+                              onClick={() => {
+                                setEtapaLogin('telefone');
+                                setErroCliente(null);
+                              }}
+                              className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
+                          >
+                            Voltar
+                          </button>
+                          <button
+                              type="submit"
+                              disabled={buscandoCliente}
+                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                          >
+                            {buscandoCliente
+                                ? 'Finalizando...'
+                                : 'Concluir Cadastro e Acessar'}
+                          </button>
+                        </div>
+                      </form>
+                    </>
+                )}
               </section>
           ) : (
               <>
-                {/* CABEÇALHO DO RESPONSÁVEL + ALUNOS */}
-                <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                {/* ÁREA LOGADA: CABEÇALHO DO RESPONSÁVEL + SELEÇÃO DE ALUNO */}
+                <section className={`border rounded-2xl p-6 space-y-5 ${clsCard}`}>
+                  <div
+                      className={`flex flex-wrap items-center justify-between gap-3 border-b pb-4 ${
+                          escuro ? 'border-[#232B35]' : 'border-stone-200'
+                      }`}
+                  >
                     <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                    Responsável Identificado
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                    Responsável Autenticado
                   </span>
-                      <p className="text-base font-bold text-white">
+                      <p className={`text-base font-bold ${clsTitulo}`}>
                         {responsavelConfirmado} •{' '}
-                        <span className="text-slate-300 font-medium">
+                        <span className={`font-medium ${clsSubtexto}`}>
                       {formatarTelefone(telefoneConfirmado)}
                     </span>
                       </p>
@@ -779,26 +1408,43 @@ export default function PaginaAgendamentoReforco() {
                                 setColegioOutroNome('');
                                 setExibirFormNovoAluno(true);
                               }}
-                              className="px-3.5 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600 border border-sky-500/50 text-sky-200 hover:text-white text-xs font-semibold transition cursor-pointer"
+                              className="px-3.5 py-2 rounded-xl bg-[#0E7C86]/15 hover:bg-[#0E7C86] border border-[#0E7C86]/45 text-[#25A4AF] hover:text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
                           >
-                            + Cadastrar outro filho(a)
+                            <Plus className="w-3.5 h-3.5" /> Cadastrar outro filho(a)
                           </button>
                       )}
                       <button
                           type="button"
-                          onClick={handleTrocarNumero}
-                          className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 cursor-pointer"
+                          onClick={() => void handleSairConta()}
+                          className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer ${clsSubCard} ${clsSubtexto} hover:text-[#BE1E23]`}
                       >
-                        Alterar dados
+                        <LogOut className="w-3.5 h-3.5" /> Sair
                       </button>
                     </div>
                   </div>
 
                   {sistemaAberto && alunos.length > 0 && (
-                      <div className="space-y-2.5">
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
-                          Selecione o(a) Aluno(a) para esta aula
-                        </label>
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label
+                              className={`block text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
+                          >
+                            Selecione o(a) Aluno(a) para esta aula
+                          </label>
+                          {alunoAtivo && (
+                              <span
+                                  className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                                      aulasAtivasAlunoSelecionado >= limiteSimultaneo
+                                          ? 'bg-[#C24124]/15 border-[#C24124]/40 text-[#E07A5F]'
+                                          : `${clsSubCard} ${clsSubtexto}`
+                                  }`}
+                              >
+                        Aulas ativas: {aulasAtivasAlunoSelecionado} de{' '}
+                                {limiteSimultaneo}
+                      </span>
+                          )}
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {alunos.map((al) => {
                             const selecionado = al.id === alunoSelecionadoId;
@@ -812,18 +1458,18 @@ export default function PaginaAgendamentoReforco() {
                                     }}
                                     className={`text-left p-4 rounded-xl border transition cursor-pointer ${
                                         selecionado
-                                            ? 'bg-emerald-600/15 border-emerald-500 text-white'
-                                            : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                                            ? 'bg-[#0E7C86]/15 border-[#0E7C86] shadow-xs'
+                                            : `${clsSubCard} hover:border-stone-500`
                                     }`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                            <span className="font-bold text-sm">
+                            <span className={`font-bold text-sm ${clsTitulo}`}>
                               {al.nome_aluno}
                             </span>
                                     <div className="flex items-center gap-1.5">
                                       {selecionado && (
-                                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">
-                                  Selecionado
+                                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#0E7C86] text-white">
+                                  Ativo
                                 </span>
                                       )}
                                       <button
@@ -832,16 +1478,16 @@ export default function PaginaAgendamentoReforco() {
                                             e.stopPropagation();
                                             iniciarEdicaoAluno(al);
                                           }}
-                                          className="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                                          className={`text-[11px] font-semibold px-2 py-0.5 rounded-lg border cursor-pointer ${clsCard} ${clsSubtexto}`}
                                       >
                                         Editar
                                       </button>
                                     </div>
                                   </div>
-                                  <p className="text-xs text-slate-400 mt-1">
+                                  <p className={`text-xs mt-1 ${clsSubtexto}`}>
                                     {al.colegio_nome}
                                   </p>
-                                  <p className="text-xs text-slate-500">{al.serie}</p>
+                                  <p className={`text-xs ${clsSubtexto}`}>{al.serie}</p>
                                 </div>
                             );
                           })}
@@ -852,10 +1498,10 @@ export default function PaginaAgendamentoReforco() {
                   {sistemaAberto && exibirFormNovoAluno && (
                       <form
                           onSubmit={handleCadastrarAluno}
-                          className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4"
+                          className={`border rounded-xl p-5 space-y-4 ${clsSubCard}`}
                       >
                         <div className="flex items-center justify-between">
-                          <h3 className="text-sm font-bold text-white">
+                          <h3 className={`text-sm font-bold ${clsTitulo}`}>
                             {alunoEditandoId
                                 ? 'Editar Dados do Aluno(a)'
                                 : alunos.length === 0
@@ -869,7 +1515,7 @@ export default function PaginaAgendamentoReforco() {
                                     setExibirFormNovoAluno(false);
                                     setAlunoEditandoId(null);
                                   }}
-                                  className="text-xs text-slate-400 hover:text-white cursor-pointer"
+                                  className={`text-xs hover:underline cursor-pointer ${clsSubtexto}`}
                               >
                                 Cancelar
                               </button>
@@ -878,7 +1524,9 @@ export default function PaginaAgendamentoReforco() {
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-xs font-medium text-slate-300 mb-1">
+                            <label
+                                className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                            >
                               Nome Completo do Aluno(a) *
                             </label>
                             <input
@@ -887,19 +1535,21 @@ export default function PaginaAgendamentoReforco() {
                                 value={novoAlunoNome}
                                 onChange={(e) => setNovoAlunoNome(e.target.value)}
                                 placeholder="Ex: Lucas Andrade"
-                                className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white"
+                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
                             />
                           </div>
 
                           <div>
-                            <label className="block text-xs font-medium text-slate-300 mb-1">
+                            <label
+                                className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                            >
                               Colégio *
                             </label>
                             <select
                                 required
                                 value={colegioOpcao}
                                 onChange={(e) => setColegioOpcao(e.target.value)}
-                                className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white"
+                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
                             >
                               {colegiosOficiais.map((col) => (
                                   <option key={col.id} value={String(col.id)}>
@@ -913,14 +1563,16 @@ export default function PaginaAgendamentoReforco() {
                           </div>
 
                           <div>
-                            <label className="block text-xs font-medium text-slate-300 mb-1">
+                            <label
+                                className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                            >
                               Série / Ano Escolar *
                             </label>
                             <select
                                 required
                                 value={serieAluno}
                                 onChange={(e) => setSerieAluno(e.target.value)}
-                                className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-sm text-white"
+                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
                             >
                               {SERIES_ESCOLARES.map((s) => (
                                   <option key={s} value={s}>
@@ -933,7 +1585,7 @@ export default function PaginaAgendamentoReforco() {
 
                         {colegioOpcao === 'outros' && (
                             <div>
-                              <label className="block text-xs font-medium text-amber-300 mb-1">
+                              <label className="block text-xs font-medium text-[#D96B43] mb-1">
                                 Digite o Nome do Colégio *
                               </label>
                               <input
@@ -942,13 +1594,13 @@ export default function PaginaAgendamentoReforco() {
                                   value={colegioOutroNome}
                                   onChange={(e) => setColegioOutroNome(e.target.value)}
                                   placeholder="Ex: Colégio Antônio Vieira"
-                                  className="w-full rounded-xl bg-slate-900 border border-amber-500/50 px-3.5 py-2.5 text-sm text-white"
+                                  className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
                               />
                             </div>
                         )}
 
                         {erroFormAluno && (
-                            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2 text-xs text-rose-300">
+                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2 text-xs text-rose-400">
                               {erroFormAluno}
                             </div>
                         )}
@@ -957,7 +1609,7 @@ export default function PaginaAgendamentoReforco() {
                           <button
                               type="submit"
                               disabled={salvandoAluno}
-                              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
+                              className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
                           >
                             {salvandoAluno
                                 ? 'Salvando...'
@@ -970,21 +1622,20 @@ export default function PaginaAgendamentoReforco() {
                   )}
                 </section>
 
-                {/* SEÇÃO PRÓXIMAS AULAS AGENDADAS (SEMPRE VISÍVEL MESMO COM LINK FECHADO) */}
+                {/* PRÓXIMAS AULAS AGENDADAS */}
                 {(proximasAulas.length > 0 || avisoProximasAulas) && (
-                    <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                    <section className={`border rounded-2xl p-6 space-y-4 ${clsCard}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                    <span className="text-xs font-bold uppercase tracking-wider text-sky-400">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
                       Agenda Confirmada
                     </span>
-                          <h2 className="text-base font-bold text-white">
+                          <h2 className={`text-base font-bold ${clsTitulo}`}>
                             Próximas Aulas ({proximasAulas.length})
                           </h2>
                         </div>
-                        <p className="text-xs text-slate-400">
-                          Cancelamentos pelo site são permitidos até 2h antes do
-                          início da aula.
+                        <p className={`text-xs ${clsSubtexto}`}>
+                          Cancelamentos pelo site são permitidos até 2h antes da aula.
                         </p>
                       </div>
 
@@ -992,8 +1643,8 @@ export default function PaginaAgendamentoReforco() {
                           <div
                               className={`rounded-xl border px-4 py-3 text-xs ${
                                   avisoProximasAulas.tipo === 'sucesso'
-                                      ? 'border-emerald-500/40 bg-emerald-950/60 text-emerald-200'
-                                      : 'border-rose-500/40 bg-rose-950/60 text-rose-200'
+                                      ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400'
+                                      : 'border-[#BE1E23]/40 bg-[#BE1E23]/15 text-rose-400'
                               }`}
                           >
                             {avisoProximasAulas.texto}
@@ -1010,37 +1661,41 @@ export default function PaginaAgendamentoReforco() {
                               return (
                                   <div
                                       key={aula.id}
-                                      className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3"
+                                      className={`border rounded-xl p-4 flex flex-col justify-between gap-3 ${clsSubCard}`}
                                   >
                                     <div className="space-y-1">
                                       <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-bold text-white">
+                              <span className={`text-sm font-bold ${clsTitulo}`}>
                                 {aula.aluno_nome}
                               </span>
-                                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#0E7C86]/15 text-[#25A4AF] border border-[#0E7C86]/35">
                                 {aula.data_formatada} • {aula.horario}
                               </span>
                                       </div>
 
-                                      <p className="text-xs text-slate-300">
+                                      <p className={`text-xs ${clsTitulo}`}>
                                         <strong>Matéria:</strong> {aula.materia} •{' '}
                                         <strong>Prof.:</strong> {aula.professor_nome}
                                       </p>
-                                      <p className="text-xs text-slate-400">
+                                      <p className={`text-xs ${clsSubtexto}`}>
                                         <strong>Unidade:</strong> {aula.unidade_nome}
                                       </p>
                                       {aula.observacoes && (
-                                          <p className="text-xs text-slate-400">
+                                          <p className={`text-xs ${clsSubtexto}`}>
                                             <strong>Assunto:</strong> {aula.observacoes}
                                           </p>
                                       )}
                                     </div>
 
-                                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                                    <div
+                                        className={`pt-2 border-t flex items-center justify-between gap-2 ${
+                                            escuro ? 'border-[#232B35]' : 'border-stone-200'
+                                        }`}
+                                    >
                                       {aula.pode_cancelar ? (
                                           pedindoConfirmacao ? (
                                               <div className="flex flex-wrap items-center gap-2 w-full justify-between">
-                                  <span className="text-xs text-amber-300 font-medium">
+                                  <span className="text-xs text-[#D96B43] font-medium">
                                     Liberar esta vaga?
                                   </span>
                                                 <div className="flex items-center gap-2">
@@ -1050,7 +1705,7 @@ export default function PaginaAgendamentoReforco() {
                                                       onClick={() =>
                                                           setConfirmandoCancelamentoId(null)
                                                       }
-                                                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 cursor-pointer"
+                                                      className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${clsCard}`}
                                                   >
                                                     Manter
                                                   </button>
@@ -1060,7 +1715,7 @@ export default function PaginaAgendamentoReforco() {
                                                       onClick={() =>
                                                           void handleCancelarProximaAula(aula.id)
                                                       }
-                                                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
+                                                      className="px-3 py-1.5 rounded-lg bg-[#BE1E23] hover:bg-rose-700 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
                                                   >
                                                     {cancelandoEsta
                                                         ? 'Cancelando...'
@@ -1075,15 +1730,15 @@ export default function PaginaAgendamentoReforco() {
                                                     setConfirmandoCancelamentoId(aula.id);
                                                     setAvisoProximasAulas(null);
                                                   }}
-                                                  className="px-3 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-800/80 text-rose-200 text-xs font-semibold cursor-pointer transition"
+                                                  className="px-3 py-1.5 rounded-lg bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-semibold cursor-pointer transition"
                                               >
                                                 Cancelar Aula
                                               </button>
                                           )
                                       ) : (
-                                          <span className="text-[11px] text-amber-300/90">
-                                Menos de 2h para a aula — para alterar, contate
-                                a secretaria.
+                                          <span className="text-[11px] text-[#D96B43]">
+                                Menos de 2h para a aula — para alterar, contate a
+                                secretaria.
                               </span>
                                       )}
                                     </div>
@@ -1095,16 +1750,18 @@ export default function PaginaAgendamentoReforco() {
                     </section>
                 )}
 
-                {/* AVISO DE AGENDAMENTO PAUSADO / FORA DA JANELA ONLINE */}
+                {/* AVISO DE AGENDAMENTO PAUSADO */}
                 {!sistemaAberto ? (
-                    <section className="bg-slate-900 border border-amber-500/40 rounded-2xl p-6 text-center space-y-3">
-                <span className="inline-block text-xs font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 px-3 py-1 rounded-full">
+                    <section
+                        className={`border border-[#C24124]/45 rounded-2xl p-6 text-center space-y-3 ${clsCard}`}
+                    >
+                <span className="inline-block text-xs font-bold uppercase tracking-wider text-[#E07A5F] bg-[#C24124]/15 px-3 py-1 rounded-full">
                   Agendamento Online Fechado
                 </span>
-                      <h2 className="text-lg font-bold text-white">
+                      <h2 className={`text-lg font-bold ${clsTitulo}`}>
                         No momento o agendamento pelo site não está ativo
                       </h2>
-                      <p className="text-sm text-slate-300 max-w-xl mx-auto">
+                      <p className={`text-sm max-w-xl mx-auto ${clsSubtexto}`}>
                         {motivoFechado ||
                             'O agendamento online funciona de segunda a sexta, das 18:00 às 22:00. Para marcar aulas agora ou para a próxima semana, fale com nosso atendimento humano (segunda a sexta, das 08:00 às 18:00).'}
                       </p>
@@ -1112,10 +1769,15 @@ export default function PaginaAgendamentoReforco() {
                 ) : (
                     alunoAtivo && (
                         <>
-                          {/* PASSO 3: UNIDADE (INCLUINDO ONLINE), DATA, MATÉRIA E HORÁRIO */}
-                          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+                          {/* FILTROS: UNIDADE, DATA, MATÉRIA E PROFESSOR */}
+                          <section
+                              className={`border rounded-2xl p-6 space-y-6 ${clsCard}`}
+                          >
                             <div>
-                              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
+                              <label
+                                  className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-2.5 ${clsSubtexto}`}
+                              >
+                                <MapPin className="w-3.5 h-3.5 text-[#1496A1]" />
                                 1. Escolha a Unidade (Presencial ou Online)
                               </label>
                               <div className="flex flex-wrap gap-2">
@@ -1128,8 +1790,8 @@ export default function PaginaAgendamentoReforco() {
                                           onClick={() => handleTrocarUnidade(u.id)}
                                           className={`px-4 py-2 rounded-xl text-sm font-medium border transition cursor-pointer ${
                                               ativa
-                                                  ? 'bg-emerald-600 border-emerald-500 text-white'
-                                                  : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                                                  ? 'bg-[#0E7C86] border-[#1496A1] text-white'
+                                                  : `${clsSubCard} ${clsSubtexto} hover:border-stone-500`
                                           }`}
                                       >
                                         {u.nome}
@@ -1141,16 +1803,19 @@ export default function PaginaAgendamentoReforco() {
 
                             <div>
                               <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                                <label
+                                    className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
+                                >
+                                  <Calendar className="w-3.5 h-3.5 text-[#1496A1]" />
                                   2. Escolha a Data (Até Domingo desta Semana)
                                 </label>
-                                <span className="text-[11px] text-slate-400">
+                                <span className={`text-[11px] ${clsSubtexto}`}>
                           Próxima semana: apenas via atendimento humano
                         </span>
                               </div>
 
                               {datas.length === 0 && !carregandoHorarios ? (
-                                  <p className="text-sm text-amber-400">
+                                  <p className="text-sm text-[#D96B43]">
                                     Nenhuma data disponível nesta janela. Para aulas na
                                     próxima semana, entre em contato com o atendimento
                                     humano (segunda a sexta, das 08:00 às 18:00).
@@ -1166,8 +1831,8 @@ export default function PaginaAgendamentoReforco() {
                                               onClick={() => handleTrocarData(d.data)}
                                               className={`px-3.5 py-2 rounded-xl text-left border transition cursor-pointer ${
                                                   ativa
-                                                      ? 'bg-sky-600 border-sky-400 text-white'
-                                                      : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                                                      ? 'bg-[#0E7C86] border-[#1496A1] text-white'
+                                                      : `${clsSubCard} ${clsSubtexto} hover:border-stone-500`
                                               }`}
                                           >
                                 <span className="block text-[10px] font-bold opacity-80">
@@ -1183,15 +1848,21 @@ export default function PaginaAgendamentoReforco() {
                               )}
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
+                            <div
+                                className={`grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t ${
+                                    escuro ? 'border-[#232B35]' : 'border-stone-200'
+                                }`}
+                            >
                               <div>
-                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                                <label
+                                    className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${clsSubtexto}`}
+                                >
                                   3. Filtrar por Matéria
                                 </label>
                                 <select
                                     value={materiaFiltro}
                                     onChange={(e) => handleTrocarMateria(e.target.value)}
-                                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                                 >
                                   <option value="todas">Todas as Matérias</option>
                                   {materias.map((m) => (
@@ -1203,34 +1874,57 @@ export default function PaginaAgendamentoReforco() {
                               </div>
 
                               <div>
-                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+                                <label
+                                    className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${clsSubtexto}`}
+                                >
                                   4. Buscar Professor(a)
                                 </label>
-                                <input
-                                    type="text"
-                                    value={buscaProfessor}
-                                    onChange={(e) => setBuscaProfessor(e.target.value)}
-                                    placeholder="Digite o nome do professor..."
-                                    className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                                />
+                                <div className="relative">
+                                  <Search
+                                      className={`w-4 h-4 absolute left-3.5 top-3 ${clsSubtexto}`}
+                                  />
+                                  <input
+                                      type="text"
+                                      value={buscaProfessor}
+                                      onChange={(e) => setBuscaProfessor(e.target.value)}
+                                      placeholder="Digite o nome do professor..."
+                                      className={`w-full rounded-xl border pl-10 pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                                  />
+                                </div>
                               </div>
                             </div>
                           </section>
 
-                          {/* LISTA DE PROFESSORES E TURNOS DINÂMICOS DE 100 MIN */}
+                          {/* LISTA DE PROFESSORES E TURNOS DE 100 MIN */}
                           <section className="space-y-4">
+                            {aulasAtivasAlunoSelecionado >= limiteSimultaneo && (
+                                <div className="rounded-2xl border border-[#C24124]/45 bg-[#C24124]/15 p-4 text-xs text-[#E07A5F] flex items-center gap-2.5">
+                                  <AlertCircle className="w-4 h-4 shrink-0" />
+                                  <span>
+                          <strong>{alunoAtivo.nome_aluno}</strong> já atingiu o
+                          limite de <strong>{limiteSimultaneo} aulas</strong>{' '}
+                                    futuras agendadas simultaneamente. Conclua ou cancele
+                          uma aula acima para liberar nova reserva.
+                        </span>
+                                </div>
+                            )}
+
                             {erroGeral && (
-                                <div className="rounded-2xl border border-rose-500/40 bg-rose-950/50 p-4 text-sm text-rose-200">
+                                <div className="rounded-2xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 p-4 text-sm text-rose-400">
                                   {erroGeral}
                                 </div>
                             )}
 
                             {carregandoHorarios ? (
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
+                                <div
+                                    className={`border rounded-2xl p-8 text-center text-sm ${clsCard} ${clsSubtexto}`}
+                                >
                                   Consultando horários disponíveis na agenda...
                                 </div>
                             ) : professoresExibidos.length === 0 ? (
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
+                                <div
+                                    className={`border rounded-2xl p-8 text-center text-sm ${clsCard} ${clsSubtexto}`}
+                                >
                                   Nenhum professor disponível encontrado para este filtro.
                                 </div>
                             ) : (
@@ -1241,19 +1935,19 @@ export default function PaginaAgendamentoReforco() {
                                     return (
                                         <div
                                             key={prof.id}
-                                            className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4"
+                                            className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}
                                         >
                                           <div>
-                                            <h3 className="text-base font-bold text-white">
+                                            <h3 className={`text-base font-bold ${clsTitulo}`}>
                                               {prof.nome}
                                             </h3>
-                                            <p className="text-xs text-slate-400 mt-0.5">
+                                            <p className={`text-xs mt-0.5 ${clsSubtexto}`}>
                                               {prof.materias.join(' • ')}
                                             </p>
                                           </div>
 
                                           {listaSlots.length === 0 ? (
-                                              <p className="text-xs text-slate-500">
+                                              <p className={`text-xs ${clsSubtexto}`}>
                                                 Sem turnos configurados para este professor.
                                               </p>
                                           ) : (
@@ -1262,24 +1956,27 @@ export default function PaginaAgendamentoReforco() {
                                                   const livre = prof.slotsDisponiveis.some(
                                                       (s) => s.inicio === slot.inicio
                                                   );
+                                                  const bloqueadoLimite =
+                                                      aulasAtivasAlunoSelecionado >=
+                                                      limiteSimultaneo;
 
                                                   return (
                                                       <button
                                                           key={slot.inicio}
                                                           type="button"
-                                                          disabled={!livre}
+                                                          disabled={!livre || bloqueadoLimite}
                                                           onClick={() =>
                                                               abrirModalAgendamento(prof, slot)
                                                           }
                                                           className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition text-center ${
-                                                              livre
+                                                              livre && !bloqueadoLimite
                                                                   ? slot.periodo === 'manha'
-                                                                      ? 'bg-amber-950/40 hover:bg-amber-600 border-amber-500/60 text-amber-200 hover:text-white cursor-pointer'
-                                                                      : 'bg-emerald-950/60 hover:bg-emerald-600 border-emerald-600/60 text-emerald-200 hover:text-white cursor-pointer'
-                                                                  : 'bg-slate-950/60 border-slate-800/80 text-slate-600 cursor-not-allowed line-through'
+                                                                      ? 'bg-[#C24124]/15 hover:bg-[#C24124] border-[#C24124]/45 text-[#E07A5F] hover:text-white cursor-pointer'
+                                                                      : 'bg-[#0E7C86]/15 hover:bg-[#0E7C86] border-[#0E7C86]/45 text-[#25A4AF] hover:text-white cursor-pointer'
+                                                                  : `${clsSubCard} ${clsSubtexto} opacity-45 cursor-not-allowed line-through`
                                                           }`}
                                                       >
-                                        <span className="block text-[10px] uppercase opacity-75">
+                                        <span className="block text-[10px] uppercase opacity-80">
                                           {slot.periodo === 'manha'
                                               ? 'Manhã (100m)'
                                               : 'Tarde/Noite'}
@@ -1305,23 +2002,36 @@ export default function PaginaAgendamentoReforco() {
           {/* MODAL DE CONFIRMAÇÃO DO AGENDAMENTO */}
           {selecaoSlot && alunoAtivo && (
               <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-                <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-                  <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  Confirmar Aula (100 min)
-                </span>
-                    <h3 className="text-lg font-bold text-white mt-0.5">
-                      {selecaoSlot.professor.nome}
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      {unidadeAtual?.nome || 'Unidade'} • {dataSelecionada} •{' '}
-                      <strong className="text-emerald-400">
-                        {selecaoSlot.slot.label}
-                      </strong>
-                    </p>
+                <div
+                    className={`border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl ${clsCard}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                    Confirmar Aula (100 min)
+                  </span>
+                      <h3 className={`text-lg font-bold mt-0.5 ${clsTitulo}`}>
+                        {selecaoSlot.professor.nome}
+                      </h3>
+                      <p className={`text-xs ${clsSubtexto}`}>
+                        {unidadeAtual?.nome || 'Unidade'} • {dataSelecionada} •{' '}
+                        <strong className="text-[#1496A1]">
+                          {selecaoSlot.slot.label}
+                        </strong>
+                      </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setSelecaoSlot(null)}
+                        className={`p-1.5 rounded-lg cursor-pointer ${clsSubtexto}`}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
 
-                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-1 text-slate-300">
+                  <div
+                      className={`border rounded-xl p-3.5 text-xs space-y-1 ${clsSubCard}`}
+                  >
                     <p>
                       <strong>Aluno(a):</strong> {alunoAtivo.nome_aluno}
                     </p>
@@ -1337,14 +2047,16 @@ export default function PaginaAgendamentoReforco() {
 
                   <form onSubmit={handleConfirmarAgendamento} className="space-y-4">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                      <label
+                          className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                      >
                         Matéria da Aula *
                       </label>
                       <select
                           required
                           value={materiaAula}
                           onChange={(e) => setMateriaAula(e.target.value)}
-                          className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-white"
+                          className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
                       >
                         {selecaoSlot.professor.materias.map((m) => (
                             <option key={m} value={m}>
@@ -1355,7 +2067,9 @@ export default function PaginaAgendamentoReforco() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                      <label
+                          className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                      >
                         Assunto / Conteúdo da Prova (opcional)
                       </label>
                       <textarea
@@ -1363,12 +2077,12 @@ export default function PaginaAgendamentoReforco() {
                           value={observacoes}
                           onChange={(e) => setObservacoes(e.target.value)}
                           placeholder="Ex: Revisão de funções do 2º grau para prova de terça..."
-                          className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-white"
+                          className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
                       />
                     </div>
 
                     {erroModal && (
-                        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2 text-xs text-rose-300">
+                        <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2 text-xs text-rose-400">
                           {erroModal}
                         </div>
                     )}
@@ -1377,14 +2091,14 @@ export default function PaginaAgendamentoReforco() {
                       <button
                           type="button"
                           onClick={() => setSelecaoSlot(null)}
-                          className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer"
+                          className={`px-4 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
                       >
                         Cancelar
                       </button>
                       <button
                           type="submit"
                           disabled={enviandoAgendamento}
-                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-bold text-white cursor-pointer"
+                          className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-bold text-white cursor-pointer"
                       >
                         {enviandoAgendamento
                             ? 'Confirmando...'
