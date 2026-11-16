@@ -33,15 +33,17 @@ export async function garantirTabelaAdmins(): Promise<void> {
 }
 
 export function hashSenhaAdmin(senha: string): string {
+    const normalizada = senha.normalize('NFC');
     const salt = crypto.randomBytes(16).toString('hex');
-    const derivado = crypto.scryptSync(senha, salt, 64).toString('hex');
+    const derivado = crypto.scryptSync(normalizada, salt, 64).toString('hex');
     return `${salt}:${derivado}`;
 }
 
 export function verificarSenhaAdmin(senha: string, hashSalvo: string): boolean {
+    const normalizada = senha.normalize('NFC');
     const [salt, hashOriginal] = (hashSalvo || '').split(':');
     if (!salt || !hashOriginal) return false;
-    const derivado = crypto.scryptSync(senha, salt, 64).toString('hex');
+    const derivado = crypto.scryptSync(normalizada, salt, 64).toString('hex');
     const bufA = Buffer.from(hashOriginal, 'hex');
     const bufB = Buffer.from(derivado, 'hex');
     if (bufA.length !== bufB.length) return false;
@@ -72,7 +74,6 @@ export async function lerSessaoAdmin(): Promise<SessaoAdmin | null> {
         const valor = cookieStore.get(NOME_COOKIE_ADMIN)?.value;
         if (!valor) return null;
 
-        // Compatibilidade com sessão antiga antes da atualização multi-perfil
         if (valor === 'authenticated' || valor === 'true') {
             return {
                 id: 0,

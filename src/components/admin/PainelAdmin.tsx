@@ -15,6 +15,8 @@ import {
     Download,
     Edit3,
     ExternalLink,
+    Eye,
+    EyeOff,
     FileText,
     GraduationCap,
     KeyRound,
@@ -30,7 +32,6 @@ import {
     RotateCcw,
     Save,
     Search,
-    ShieldCheck,
     Sun,
     Trash2,
     UserCog,
@@ -423,8 +424,10 @@ export default function PainelAdmin({
     autenticadoInicial: boolean;
 }) {
     const [autenticado, setAutenticado] = useState(autenticadoInicial);
+    const [modoLogin, setModoLogin] = useState<'perfil' | 'master'>('perfil');
     const [emailLogin, setEmailLogin] = useState('');
     const [senha, setSenha] = useState('');
+    const [mostrarSenhaLogin, setMostrarSenhaLogin] = useState(false);
     const [erroLogin, setErroLogin] = useState<string | null>(null);
     const [entrando, setEntrando] = useState(false);
 
@@ -450,15 +453,19 @@ export default function PainelAdmin({
     const [editMeuNome, setEditMeuNome] = useState('');
     const [editMeuEmail, setEditMeuEmail] = useState('');
     const [editMinhaNovaSenha, setEditMinhaNovaSenha] = useState('');
+    const [mostrarMinhaNovaSenha, setMostrarMinhaNovaSenha] = useState(false);
     const [editMinhaFoto, setEditMinhaFoto] = useState<string | null>(null);
     const [salvandoMeuPerfil, setSalvandoMeuPerfil] = useState(false);
 
-    // Novo Perfil Admin
+    // Novo Perfil Admin & Redefinição de Senha da Equipe
     const [novoAdminNome, setNovoAdminNome] = useState('');
     const [novoAdminEmail, setNovoAdminEmail] = useState('');
     const [novoAdminSenha, setNovoAdminSenha] = useState('');
+    const [mostrarNovoAdminSenha, setMostrarNovoAdminSenha] = useState(false);
     const [novoAdminFoto, setNovoAdminFoto] = useState<string | null>(null);
     const [criandoNovoAdmin, setCriandoNovoAdmin] = useState(false);
+    const [redefinirSenhaId, setRedefinirSenhaId] = useState<number | null>(null);
+    const [novaSenhaEquipe, setNovaSenhaEquipe] = useState('');
     const [feedbackPerfil, setFeedbackPerfil] = useState<{
         tipo: 'sucesso' | 'erro';
         texto: string;
@@ -709,7 +716,6 @@ export default function PainelAdmin({
         return () => window.clearTimeout(timer);
     }, [autenticado, carregarDados]);
 
-    // Troca rápida de foto ao clicar diretamente no avatar do menu lateral
     async function handleTrocaFotoRapida(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
         e.target.value = '';
@@ -720,7 +726,6 @@ export default function PainelAdmin({
             setEditMinhaFoto(base64);
 
             if (perfilAtual.id === 0) {
-                // Perfil Master precisa definir e-mail e senha para salvar foto no banco
                 setAbaModalPerfil('meu');
                 setModalPerfilAberto(true);
                 setFeedbackPerfil({
@@ -829,6 +834,40 @@ export default function PainelAdmin({
         } finally {
             setCriandoNovoAdmin(false);
         }
+    }
+
+    async function handleRedefinirSenhaEquipe(id: number) {
+        if (novaSenhaEquipe.trim().length < 6) {
+            setFeedbackPerfil({
+                tipo: 'erro',
+                texto: 'A nova senha deve ter no mínimo 6 caracteres.',
+            });
+            return;
+        }
+
+        const res = await fetch('/api/admin/perfis', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id,
+                nova_senha: novaSenhaEquipe.trim(),
+            }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+            setFeedbackPerfil({
+                tipo: 'erro',
+                texto: json.error || 'Falha ao redefinir senha.',
+            });
+            return;
+        }
+
+        setRedefinirSenhaId(null);
+        setNovaSenhaEquipe('');
+        setFeedbackPerfil({
+            tipo: 'sucesso',
+            texto: 'Senha do perfil redefinida com sucesso!',
+        });
     }
 
     async function alternarStatusAdmin(id: number, ativo: boolean) {
@@ -952,7 +991,11 @@ export default function PainelAdmin({
             const res = await fetch('/api/admin/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: emailLogin, senha }),
+                body: JSON.stringify({
+                    modo: modoLogin,
+                    email: modoLogin === 'perfil' ? emailLogin : '',
+                    senha,
+                }),
             });
             const json = await res.json();
             if (!res.ok) {
@@ -1286,46 +1329,102 @@ export default function PainelAdmin({
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>
                             Entrar no Sistema
                         </h2>
-                        <p className={`text-sm ${clsSubtexto}`}>
-                            Entre com seu e-mail e senha cadastrados (ou deixe o e-mail em
-                            branco para acesso com a senha master).
-                        </p>
+                    </div>
+
+                    {/* SELETOR DE MODO DE ACESSO: PERFIL vs CHAVE MESTRA */}
+                    <div className={`grid grid-cols-2 gap-1.5 p-1 rounded-xl border ${clsSubCard}`}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setModoLogin('perfil');
+                                setErroLogin(null);
+                            }}
+                            className={`py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                                modoLogin === 'perfil'
+                                    ? 'bg-[#0E7C86] text-white shadow-xs'
+                                    : `${clsSubtexto} hover:text-[#1496A1]`
+                            }`}
+                        >
+                            Perfil (E-mail e Senha)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setModoLogin('master');
+                                setErroLogin(null);
+                            }}
+                            className={`py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center justify-center gap-1.5 ${
+                                modoLogin === 'master'
+                                    ? 'bg-[#0E7C86] text-white shadow-xs'
+                                    : `${clsSubtexto} hover:text-[#1496A1]`
+                            }`}
+                        >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            Chave Mestra
+                        </button>
                     </div>
 
                     <form onSubmit={handleLogin} className="space-y-4">
-                        <div>
-                            <label
-                                htmlFor="email-admin"
-                                className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                        {modoLogin === 'perfil' ? (
+                            <div>
+                                <label
+                                    htmlFor="email-admin"
+                                    className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                                >
+                                    E-mail do Perfil *
+                                </label>
+                                <input
+                                    id="email-admin"
+                                    type="email"
+                                    required
+                                    value={emailLogin}
+                                    onChange={(e) => setEmailLogin(e.target.value)}
+                                    placeholder="seuemail@r4ensina.com.br"
+                                    className={`w-full border rounded-xl px-4 py-3 text-sm focus:outline-none ${clsInput}`}
+                                />
+                            </div>
+                        ) : (
+                            <div
+                                className={`border rounded-xl p-3 text-xs leading-relaxed ${clsSubCard} ${clsSubtexto}`}
                             >
-                                E-mail do Perfil
-                            </label>
-                            <input
-                                id="email-admin"
-                                type="email"
-                                value={emailLogin}
-                                onChange={(e) => setEmailLogin(e.target.value)}
-                                placeholder="seuemail@r4ensina.com.br"
-                                className={`w-full border rounded-xl px-4 py-3 text-sm focus:outline-none ${clsInput}`}
-                            />
-                        </div>
+                                <strong className="text-[#1496A1]">Modo Chave Mestra:</strong>{' '}
+                                use a senha geral do sistema para entrar sem e-mail ou
+                                redefinir a senha de perfis esquecidos.
+                            </div>
+                        )}
 
                         <div>
                             <label
                                 htmlFor="senha-admin"
                                 className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
                             >
-                                Senha *
+                                {modoLogin === 'master'
+                                    ? 'Senha da Chave Mestra *'
+                                    : 'Senha do Perfil *'}
                             </label>
-                            <input
-                                id="senha-admin"
-                                type="password"
-                                required
-                                value={senha}
-                                onChange={(e) => setSenha(e.target.value)}
-                                placeholder="••••••••"
-                                className={`w-full border rounded-xl px-4 py-3 text-base focus:outline-none ${clsInput}`}
-                            />
+                            <div className="relative">
+                                <input
+                                    id="senha-admin"
+                                    type={mostrarSenhaLogin ? 'text' : 'password'}
+                                    required
+                                    value={senha}
+                                    onChange={(e) => setSenha(e.target.value)}
+                                    placeholder="••••••••"
+                                    className={`w-full border rounded-xl pl-4 pr-11 py-3 text-base focus:outline-none ${clsInput}`}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarSenhaLogin((v) => !v)}
+                                    title={mostrarSenhaLogin ? 'Ocultar senha' : 'Ver senha'}
+                                    className={`absolute right-3 top-3.5 cursor-pointer ${clsSubtexto} hover:text-[#1496A1]`}
+                                >
+                                    {mostrarSenhaLogin ? (
+                                        <EyeOff className="w-4 h-4" />
+                                    ) : (
+                                        <Eye className="w-4 h-4" />
+                                    )}
+                                </button>
+                            </div>
                         </div>
 
                         {erroLogin && (
@@ -1339,7 +1438,11 @@ export default function PainelAdmin({
                             disabled={entrando}
                             className="w-full py-3 px-4 bg-[#0E7C86] hover:bg-[#118E99] text-white font-semibold rounded-xl text-base shadow-md shadow-[#0E7C86]/25 transition cursor-pointer"
                         >
-                            {entrando ? 'Verificando...' : 'Acessar Painel'}
+                            {entrando
+                                ? 'Verificando...'
+                                : modoLogin === 'master'
+                                    ? 'Entrar com Chave Mestra'
+                                    : 'Acessar Painel'}
                         </button>
                     </form>
 
@@ -1627,7 +1730,6 @@ export default function PainelAdmin({
                         </button>
                     </div>
 
-                    {/* CARD DO PERFIL DO ADMINISTRADOR LOGADO */}
                     <div className={`border rounded-2xl p-3 space-y-2.5 ${clsSubCard}`}>
                         <div className="flex items-center gap-3">
                             <button
@@ -1658,7 +1760,7 @@ export default function PainelAdmin({
                                     {perfilAtual.nome}
                                 </p>
                                 <p className={`text-[10px] truncate ${clsSubtexto}`}>
-                                    {perfilAtual.email || 'Acesso Master'}
+                                    {perfilAtual.email || 'Acesso Chave Mestra'}
                                 </p>
                             </div>
                         </div>
@@ -1667,7 +1769,7 @@ export default function PainelAdmin({
                             type="button"
                             onClick={() => {
                                 setFeedbackPerfil(null);
-                                setAbaModalPerfil('meu');
+                                setAbaModalPerfil(perfilAtual.id === 0 ? 'equipe' : 'meu');
                                 setModalPerfilAberto(true);
                                 setMenuMobileAberto(false);
                             }}
@@ -1806,7 +1908,6 @@ export default function PainelAdmin({
 
     return (
         <div className={`min-h-screen flex transition-colors ${clsBgApp}`}>
-            {/* Input oculto para troca instantânea de foto ao clicar no avatar */}
             <input
                 ref={inputFotoRapidaRef}
                 type="file"
@@ -1876,7 +1977,6 @@ export default function PainelAdmin({
                         </div>
 
                         <div className="flex items-center gap-2.5">
-                            {/* Avatar clicável também no cabeçalho */}
                             <button
                                 type="button"
                                 onClick={() => inputFotoRapidaRef.current?.click()}
@@ -4124,6 +4224,7 @@ export default function PainelAdmin({
                                         <input
                                             type="email"
                                             required
+                                            autoComplete="off"
                                             value={editMeuEmail}
                                             onChange={(e) => setEditMeuEmail(e.target.value)}
                                             placeholder="nome@r4ensina.com.br"
@@ -4136,16 +4237,30 @@ export default function PainelAdmin({
                                     <label className={`block text-xs mb-1 ${clsSubtexto}`}>
                                         {perfilAtual.id === 0
                                             ? 'Defina sua Senha Pessoal (mín. 6 caracteres) *'
-                                            : 'Alterar Senha (deixe em branco para manter a atual)'}
+                                            : 'Nova Senha (deixe em branco para manter a atual)'}
                                     </label>
-                                    <input
-                                        type="password"
-                                        required={perfilAtual.id === 0}
-                                        value={editMinhaNovaSenha}
-                                        onChange={(e) => setEditMinhaNovaSenha(e.target.value)}
-                                        placeholder="••••••"
-                                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type={mostrarMinhaNovaSenha ? 'text' : 'password'}
+                                            autoComplete="new-password"
+                                            required={perfilAtual.id === 0}
+                                            value={editMinhaNovaSenha}
+                                            onChange={(e) => setEditMinhaNovaSenha(e.target.value)}
+                                            placeholder="Digite a senha desejada"
+                                            className={`w-full border rounded-xl pl-3.5 pr-10 py-2.5 text-sm ${clsInput}`}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setMostrarMinhaNovaSenha((v) => !v)}
+                                            className={`absolute right-3 top-3 cursor-pointer ${clsSubtexto}`}
+                                        >
+                                            {mostrarMinhaNovaSenha ? (
+                                                <EyeOff className="w-4 h-4" />
+                                            ) : (
+                                                <Eye className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="flex justify-end gap-2 pt-2">
@@ -4189,19 +4304,34 @@ export default function PainelAdmin({
                                         <input
                                             type="email"
                                             required
+                                            autoComplete="off"
                                             value={novoAdminEmail}
                                             onChange={(e) => setNovoAdminEmail(e.target.value)}
                                             placeholder="E-mail de acesso *"
                                             className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         />
-                                        <input
-                                            type="password"
-                                            required
-                                            value={novoAdminSenha}
-                                            onChange={(e) => setNovoAdminSenha(e.target.value)}
-                                            placeholder="Senha (mín. 6) *"
-                                            className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                        />
+                                        <div className="relative">
+                                            <input
+                                                type={mostrarNovoAdminSenha ? 'text' : 'password'}
+                                                required
+                                                autoComplete="new-password"
+                                                value={novoAdminSenha}
+                                                onChange={(e) => setNovoAdminSenha(e.target.value)}
+                                                placeholder="Senha (mín. 6) *"
+                                                className={`w-full border rounded-xl pl-3 pr-8 py-2 text-xs ${clsInput}`}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setMostrarNovoAdminSenha((v) => !v)}
+                                                className={`absolute right-2.5 top-2 cursor-pointer ${clsSubtexto}`}
+                                            >
+                                                {mostrarNovoAdminSenha ? (
+                                                    <EyeOff className="w-3.5 h-3.5" />
+                                                ) : (
+                                                    <Eye className="w-3.5 h-3.5" />
+                                                )}
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4251,57 +4381,100 @@ export default function PainelAdmin({
                                         perfisAdmin.map((p) => (
                                             <div
                                                 key={p.id}
-                                                className={`flex items-center justify-between gap-3 border rounded-xl p-3 ${clsSubCard}`}
+                                                className={`border rounded-xl p-3 space-y-2.5 ${clsSubCard}`}
                                             >
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                    <div className="w-9 h-9 rounded-full overflow-hidden bg-[#0E7C86]/20 border border-[#0E7C86] flex items-center justify-center text-xs font-bold text-[#1496A1] shrink-0">
-                                                        {p.foto_url ? (
-                                                            // eslint-disable-next-line @next/next/no-img-element
-                                                            <img
-                                                                src={p.foto_url}
-                                                                alt={p.nome}
-                                                                className="w-full h-full object-cover"
-                                                            />
-                                                        ) : (
-                                                            obterIniciais(p.nome)
-                                                        )}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <p className={`text-xs font-bold truncate ${clsTitulo}`}>
-                                                            {p.nome}{' '}
-                                                            {p.id === perfilAtual.id && (
-                                                                <span className="text-[10px] text-[#1496A1]">
-                                  (Você)
-                                </span>
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="w-9 h-9 rounded-full overflow-hidden bg-[#0E7C86]/20 border border-[#0E7C86] flex items-center justify-center text-xs font-bold text-[#1496A1] shrink-0">
+                                                            {p.foto_url ? (
+                                                                // eslint-disable-next-line @next/next/no-img-element
+                                                                <img
+                                                                    src={p.foto_url}
+                                                                    alt={p.nome}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            ) : (
+                                                                obterIniciais(p.nome)
                                                             )}
-                                                        </p>
-                                                        <p className={`text-[11px] truncate ${clsSubtexto}`}>
-                                                            {p.email}
-                                                        </p>
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p
+                                                                className={`text-xs font-bold truncate ${clsTitulo}`}
+                                                            >
+                                                                {p.nome}{' '}
+                                                                {p.id === perfilAtual.id && (
+                                                                    <span className="text-[10px] text-[#1496A1]">
+                                    (Você)
+                                  </span>
+                                                                )}
+                                                            </p>
+                                                            <p className={`text-[11px] truncate ${clsSubtexto}`}>
+                                                                {p.email}
+                                                            </p>
+                                                        </div>
                                                     </div>
-                                                </div>
 
-                                                {p.id !== perfilAtual.id && (
                                                     <div className="flex items-center gap-2">
                                                         <button
                                                             type="button"
-                                                            onClick={() =>
-                                                                void alternarStatusAdmin(p.id, !p.ativo)
-                                                            }
-                                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
-                                                                p.ativo
-                                                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
-                                                                    : 'bg-stone-500/20 text-stone-400'
-                                                            }`}
+                                                            onClick={() => {
+                                                                setRedefinirSenhaId(
+                                                                    redefinirSenhaId === p.id ? null : p.id
+                                                                );
+                                                                setNovaSenhaEquipe('');
+                                                            }}
+                                                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer ${clsCard} ${clsSubtexto} hover:text-[#1496A1]`}
                                                         >
-                                                            {p.ativo ? 'Ativo' : 'Desativado'}
+                                                            Redefinir Senha
                                                         </button>
+
+                                                        {p.id !== perfilAtual.id && (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        void alternarStatusAdmin(p.id, !p.ativo)
+                                                                    }
+                                                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                                                                        p.ativo
+                                                                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
+                                                                            : 'bg-stone-500/20 text-stone-400'
+                                                                    }`}
+                                                                >
+                                                                    {p.ativo ? 'Ativo' : 'Desativado'}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void excluirPerfilAdmin(p.id)}
+                                                                    className="p-1.5 rounded-lg text-rose-400 hover:bg-[#BE1E23]/15 cursor-pointer"
+                                                                >
+                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {redefinirSenhaId === p.id && (
+                                                    <div className="flex items-center gap-2 pt-1">
+                                                        <input
+                                                            type="text"
+                                                            autoComplete="new-password"
+                                                            value={novaSenhaEquipe}
+                                                            onChange={(e) =>
+                                                                setNovaSenhaEquipe(e.target.value)
+                                                            }
+                                                            placeholder="Nova senha (mín. 6 caracteres)"
+                                                            className={`flex-1 border rounded-lg px-3 py-1.5 text-xs ${clsInput}`}
+                                                        />
                                                         <button
                                                             type="button"
-                                                            onClick={() => void excluirPerfilAdmin(p.id)}
-                                                            className="p-1.5 rounded-lg text-rose-400 hover:bg-[#BE1E23]/15 cursor-pointer"
+                                                            onClick={() =>
+                                                                void handleRedefinirSenhaEquipe(p.id)
+                                                            }
+                                                            className="px-3 py-1.5 rounded-lg bg-[#0E7C86] text-xs font-semibold text-white cursor-pointer"
                                                         >
-                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                            Salvar Senha
                                                         </button>
                                                     </div>
                                                 )}
