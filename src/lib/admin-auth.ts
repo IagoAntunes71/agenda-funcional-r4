@@ -1,46 +1,112 @@
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
+import { sql } from '@/lib/db';
 
-export const NOME_COOKIE_ADMIN = 'agenda_r4_admin_session';
+export const NOME_COOKIE_ADMIN = 'r4_admin_session';
 
-function gerarTokenAssinado(senha: string): string {
-    return crypto
-        .createHmac('sha256', senha)
-        .update('agenda-funcional-r4-admin')
-        .digest('hex');
+export interface SessaoAdmin {
+    id: number;
+    nome: string;
+    email: string;
 }
 
-export function validarSenhaAdmin(senhaInformada: string): boolean {
-    const senhaCorreta = process.env.ADMIN_PASSWORD;
-    if (!senhaCorreta || !senhaInformada) return false;
-
-    const a = Buffer.from(senhaInformada);
-    const b = Buffer.from(senhaCorreta);
-    if (a.length !== b.length) return false;
-
-    return crypto.timingSafeEqual(a, b);
+function obterSegredoAssinatura(): string {
+    return (
+        process.env.ADMIN_SESSION_SECRET ||
+        process.env.ADMIN_PASSWORD ||
+        'r4-ensina-admin-secret-2026'
+    );
 }
 
-export function criarValorSessaoAdmin(): string {
-    const senhaCorreta = process.env.ADMIN_PASSWORD;
-    if (!senhaCorreta) {
-        throw new Error('ADMIN_PASSWORD não configurada.');
+export async function garantirTabelaAdmins(): Promise<void> {
+    await sql`
+    CREATE TABLE IF NOT EXISTS admins_sistema (
+      id SERIAL PRIMARY KEY,
+      nome TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      senha_hash TEXT NOT NULL,
+      foto_url TEXT,
+      ativo BOOLEAN DEFAULT true,
+      criado_em TIMESTAMPTZ DEFAULT now()
+    )
+  `;
+}
+
+export function hashSenhaAdmin(senha: string): string {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const derivado = crypto.scryptSync(senha, salt, 64).toString('hex');
+    return `${salt}:${derivado}`;
+}
+
+export function verificarSenhaAdmin(senha: string, hashSalvo: string): boolean {
+    const [salt, hashOriginal] = (hashSalvo || '').split(':');
+    if (!salt || !hashOriginal) return false;
+    const derivado = crypto.scryptSync(senha, salt, 64).toString('hex');
+    const bufA = Buffer.from(hashOriginal, 'hex');
+    const bufB = Buffer.from(derivado, 'hex');
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+}
+
+export function criarTokenSessaoAdmin(sessao: SessaoAdmin): string {
+    const payloadBase64 = Buffer.from(
+        JSON.stringify({
+            id: sessao.id,
+            nome: sessao.nome,
+            email: sessao.email,
+            iat: Date.now(),
+        })
+    ).toString('base64url');
+
+    const assinatura = crypto
+        .createHmac('sha256', obterSegredoAssinatura())
+        .update(payloadBase64)
+        .digest('base64url');
+
+    return `${payloadBase64}.${assinatura}`;
+}
+
+export async function lerSessaoAdmin(): Promise<SessaoAdmin | null> {
+    try {
+        const cookieStore = await cookies();
+        const valor = cookieStore.get(NOME_COOKIE_ADMIN)?.value;
+        if (!valor) return null;
+
+        // Compatibilidade com sessão antiga antes da atualização multi-perfil
+        if (valor === 'authenticated' || valor === 'true') {
+            return {
+                id: 0,
+                nome: 'Administrador R4',
+                email: '',
+            };
+        }
+
+        const [payloadBase64, assinatura] = valor.split('.');
+        if (!payloadBase64 || !assinatura) return null;
+
+        const esperada = crypto
+            .createHmac('sha256', obterSegredoAssinatura())
+            .update(payloadBase64)
+            .digest('base64url');
+
+        if (assinatura !== esperada) return null;
+
+        const dados = JSON.parse(
+            Buffer.from(payloadBase64, 'base64url').toString('utf8')
+        ) as SessaoAdmin;
+
+        if (typeof dados.id !== 'number' || !dados.nome) return null;
+        return {
+            id: dados.id,
+            nome: dados.nome,
+            email: dados.email || '',
+        };
+    } catch {
+        return null;
     }
-    return gerarTokenAssinado(senhaCorreta);
 }
 
 export async function verificarAdminAutenticado(): Promise<boolean> {
-    const senhaCorreta = process.env.ADMIN_PASSWORD;
-    if (!senhaCorreta) return false;
-
-    const cookieStore = await cookies();
-    const cookie = cookieStore.get(NOME_COOKIE_ADMIN)?.value;
-    if (!cookie) return false;
-
-    const esperado = gerarTokenAssinado(senhaCorreta);
-    const a = Buffer.from(cookie);
-    const b = Buffer.from(esperado);
-    if (a.length !== b.length) return false;
-
-    return crypto.timingSafeEqual(a, b);
+    const sessao = await lerSessaoAdmin();
+    return sessao !== null;
 }

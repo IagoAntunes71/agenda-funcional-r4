@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
     ArrowLeft,
@@ -8,12 +8,14 @@ import {
     CalendarCheck2,
     CalendarDays,
     CalendarPlus,
+    Camera,
     CheckCircle2,
     ClipboardCheck,
     Clock,
     Download,
     Edit3,
     ExternalLink,
+    FileText,
     GraduationCap,
     KeyRound,
     Lock,
@@ -25,11 +27,13 @@ import {
     Plus,
     Power,
     RefreshCw,
+    RotateCcw,
     Save,
     Search,
     ShieldCheck,
     Sun,
     Trash2,
+    UserCog,
     UserPlus,
     Users,
     X,
@@ -51,6 +55,7 @@ import {
     gerarTodosSlotsProfessor,
     horaParaMinutos,
 } from '@/lib/horarios-reforco';
+import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos';
 
 interface UnidadeAdmin {
     id: number;
@@ -133,10 +138,20 @@ interface CooldownsSync {
     mes: string | null;
 }
 
+interface PerfilAdmin {
+    id: number;
+    nome: string;
+    email: string;
+    foto_url: string | null;
+    ativo?: boolean;
+    criado_em?: string;
+}
+
 type AbaAdmin =
     | 'agendamentos'
     | 'mapa'
     | 'alunos'
+    | 'textos'
     | 'datas'
     | 'professores'
     | 'unidades';
@@ -169,6 +184,42 @@ function extrairListaMaterias(texto: string): string[] {
                 .filter(Boolean)
         )
     );
+}
+
+function obterIniciais(nome: string): string {
+    const partes = nome.trim().split(/\s+/).filter(Boolean);
+    if (partes.length === 0) return 'R4';
+    if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+    return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+}
+
+function comprimirImagemAvatar(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                const tamanho = 240;
+                const canvas = document.createElement('canvas');
+                canvas.width = tamanho;
+                canvas.height = tamanho;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error('Falha ao processar imagem.'));
+                    return;
+                }
+                const menorLado = Math.min(img.width, img.height);
+                const sx = (img.width - menorLado) / 2;
+                const sy = (img.height - menorLado) / 2;
+                ctx.drawImage(img, sx, sy, menorLado, menorLado, 0, 0, tamanho, tamanho);
+                resolve(canvas.toDataURL('image/jpeg', 0.82));
+            };
+            img.onerror = () => reject(new Error('Imagem inválida.'));
+            img.src = String(reader.result);
+        };
+        reader.onerror = () => reject(new Error('Falha ao ler arquivo.'));
+        reader.readAsDataURL(file);
+    });
 }
 
 function SeletorSeriesPorMateria({
@@ -372,6 +423,7 @@ export default function PainelAdmin({
     autenticadoInicial: boolean;
 }) {
     const [autenticado, setAutenticado] = useState(autenticadoInicial);
+    const [emailLogin, setEmailLogin] = useState('');
     const [senha, setSenha] = useState('');
     const [erroLogin, setErroLogin] = useState<string | null>(null);
     const [entrando, setEntrando] = useState(false);
@@ -384,6 +436,45 @@ export default function PainelAdmin({
     const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(
         null
     );
+
+    // Perfil e Equipe Administrativa
+    const [perfilAtual, setPerfilAtual] = useState<PerfilAdmin>({
+        id: 0,
+        nome: 'Administrador R4',
+        email: '',
+        foto_url: null,
+    });
+    const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
+    const [modalPerfilAberto, setModalPerfilAberto] = useState(false);
+    const [abaModalPerfil, setAbaModalPerfil] = useState<'meu' | 'equipe'>('meu');
+    const [editMeuNome, setEditMeuNome] = useState('');
+    const [editMeuEmail, setEditMeuEmail] = useState('');
+    const [editMinhaNovaSenha, setEditMinhaNovaSenha] = useState('');
+    const [editMinhaFoto, setEditMinhaFoto] = useState<string | null>(null);
+    const [salvandoMeuPerfil, setSalvandoMeuPerfil] = useState(false);
+
+    // Novo Perfil Admin
+    const [novoAdminNome, setNovoAdminNome] = useState('');
+    const [novoAdminEmail, setNovoAdminEmail] = useState('');
+    const [novoAdminSenha, setNovoAdminSenha] = useState('');
+    const [novoAdminFoto, setNovoAdminFoto] = useState<string | null>(null);
+    const [criandoNovoAdmin, setCriandoNovoAdmin] = useState(false);
+    const [feedbackPerfil, setFeedbackPerfil] = useState<{
+        tipo: 'sucesso' | 'erro';
+        texto: string;
+    } | null>(null);
+
+    const inputFotoRapidaRef = useRef<HTMLInputElement | null>(null);
+
+    // Textos Editáveis do Portal
+    const [textosPortal, setTextosPortal] = useState<TextosPortal>(
+        TEXTOS_PORTAL_PADRAO
+    );
+    const [salvandoTextos, setSalvandoTextos] = useState(false);
+    const [feedbackTextos, setFeedbackTextos] = useState<{
+        tipo: 'sucesso' | 'erro';
+        texto: string;
+    } | null>(null);
 
     const [cooldownsSync, setCooldownsSync] = useState<CooldownsSync>({
         hoje: null,
@@ -425,7 +516,7 @@ export default function PainelAdmin({
     const [mapaData, setMapaData] = useState<string>('');
     const [mapaBuscaProf, setMapaBuscaProf] = useState<string>('');
 
-    // Módulo Alunos (Busca, Edição, Troca de WhatsApp, Reset PIN e Exclusão)
+    // Módulo Alunos
     const [buscaAluno, setBuscaAluno] = useState<string>('');
     const [filtroPinAluno, setFiltroPinAluno] = useState<string>('todos');
     const [editAlunoId, setEditAlunoId] = useState<number | null>(null);
@@ -523,6 +614,35 @@ export default function PainelAdmin({
         return diff > 0 ? diff : 0;
     }
 
+    const carregarPerfisETextos = useCallback(async () => {
+        try {
+            const [resPerfis, resTextos] = await Promise.all([
+                fetch('/api/admin/perfis', { cache: 'no-store' }),
+                fetch('/api/admin/textos-portal', { cache: 'no-store' }),
+            ]);
+
+            if (resPerfis.ok) {
+                const jsonP = await resPerfis.json();
+                if (jsonP.perfilAtual) {
+                    setPerfilAtual(jsonP.perfilAtual);
+                    setEditMeuNome(jsonP.perfilAtual.nome || '');
+                    setEditMeuEmail(jsonP.perfilAtual.email || '');
+                    setEditMinhaFoto(jsonP.perfilAtual.foto_url || null);
+                }
+                setPerfisAdmin(jsonP.perfis || []);
+            }
+
+            if (resTextos.ok) {
+                const jsonT = await resTextos.json();
+                if (jsonT.textos) {
+                    setTextosPortal(jsonT.textos);
+                }
+            }
+        } catch {
+            // Ignora falha silenciosa
+        }
+    }, []);
+
     const carregarDados = useCallback(async () => {
         setCarregandoDados(true);
         try {
@@ -574,10 +694,12 @@ export default function PainelAdmin({
                 amanha.getMonth() + 1
             ).padStart(2, '0')}-${String(amanha.getDate()).padStart(2, '0')}`;
             setMapaData((atual) => atual || amanhaISO);
+
+            await carregarPerfisETextos();
         } finally {
             setCarregandoDados(false);
         }
-    }, []);
+    }, [carregarPerfisETextos]);
 
     useEffect(() => {
         if (!autenticado) return;
@@ -586,6 +708,175 @@ export default function PainelAdmin({
         }, 0);
         return () => window.clearTimeout(timer);
     }, [autenticado, carregarDados]);
+
+    // Troca rápida de foto ao clicar diretamente no avatar do menu lateral
+    async function handleTrocaFotoRapida(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+
+        try {
+            const base64 = await comprimirImagemAvatar(file);
+            setEditMinhaFoto(base64);
+
+            if (perfilAtual.id === 0) {
+                // Perfil Master precisa definir e-mail e senha para salvar foto no banco
+                setAbaModalPerfil('meu');
+                setModalPerfilAberto(true);
+                setFeedbackPerfil({
+                    tipo: 'erro',
+                    texto:
+                        'Foto carregada! Preencha seu Nome, E-mail e uma Senha abaixo para ativar seu perfil pessoal e salvar sua foto.',
+                });
+                return;
+            }
+
+            const res = await fetch('/api/admin/perfis', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: perfilAtual.id,
+                    foto_url: base64,
+                }),
+            });
+
+            if (res.ok) {
+                setPerfilAtual((prev) => ({ ...prev, foto_url: base64 }));
+                await carregarPerfisETextos();
+            }
+        } catch {
+            setFeedbackPerfil({
+                tipo: 'erro',
+                texto: 'Não foi possível processar esta imagem.',
+            });
+        }
+    }
+
+    async function handleSalvarMeuPerfil(e: React.FormEvent) {
+        e.preventDefault();
+        setSalvandoMeuPerfil(true);
+        setFeedbackPerfil(null);
+
+        try {
+            const res = await fetch('/api/admin/perfis', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: perfilAtual.id,
+                    nome: editMeuNome,
+                    email: editMeuEmail,
+                    nova_senha: editMinhaNovaSenha || undefined,
+                    foto_url: editMinhaFoto,
+                }),
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                setFeedbackPerfil({
+                    tipo: 'erro',
+                    texto: json.error || 'Erro ao salvar perfil.',
+                });
+                return;
+            }
+
+            if (json.perfilAtual) {
+                setPerfilAtual(json.perfilAtual);
+            }
+            setEditMinhaNovaSenha('');
+            setFeedbackPerfil({
+                tipo: 'sucesso',
+                texto: json.mensagem || 'Perfil atualizado com sucesso!',
+            });
+            await carregarPerfisETextos();
+        } finally {
+            setSalvandoMeuPerfil(false);
+        }
+    }
+
+    async function handleCriarNovoAdmin(e: React.FormEvent) {
+        e.preventDefault();
+        setCriandoNovoAdmin(true);
+        setFeedbackPerfil(null);
+
+        try {
+            const res = await fetch('/api/admin/perfis', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    nome: novoAdminNome,
+                    email: novoAdminEmail,
+                    senha: novoAdminSenha,
+                    foto_url: novoAdminFoto,
+                }),
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                setFeedbackPerfil({
+                    tipo: 'erro',
+                    texto: json.error || 'Erro ao criar administrador.',
+                });
+                return;
+            }
+
+            setNovoAdminNome('');
+            setNovoAdminEmail('');
+            setNovoAdminSenha('');
+            setNovoAdminFoto(null);
+            setFeedbackPerfil({
+                tipo: 'sucesso',
+                texto: json.mensagem || 'Novo administrador cadastrado!',
+            });
+            await carregarPerfisETextos();
+        } finally {
+            setCriandoNovoAdmin(false);
+        }
+    }
+
+    async function alternarStatusAdmin(id: number, ativo: boolean) {
+        await fetch('/api/admin/perfis', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, ativo }),
+        });
+        await carregarPerfisETextos();
+    }
+
+    async function excluirPerfilAdmin(id: number) {
+        await fetch(`/api/admin/perfis?id=${id}`, { method: 'DELETE' });
+        await carregarPerfisETextos();
+    }
+
+    async function handleSalvarTextosPortal(e: React.FormEvent) {
+        e.preventDefault();
+        setSalvandoTextos(true);
+        setFeedbackTextos(null);
+
+        try {
+            const res = await fetch('/api/admin/textos-portal', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ textos: textosPortal }),
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                setFeedbackTextos({
+                    tipo: 'erro',
+                    texto: json.error || 'Não foi possível publicar os textos.',
+                });
+                return;
+            }
+            if (json.textos) {
+                setTextosPortal(json.textos);
+            }
+            setFeedbackTextos({
+                tipo: 'sucesso',
+                texto:
+                    json.mensagem ||
+                    'Textos publicados! O portal já está exibindo as alterações.',
+            });
+        } finally {
+            setSalvandoTextos(false);
+        }
+    }
 
     async function dispararSincronizacao(modo: 'hoje' | 'semana' | 'mes') {
         setDisparandoSync(modo);
@@ -661,7 +952,7 @@ export default function PainelAdmin({
             const res = await fetch('/api/admin/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ senha }),
+                body: JSON.stringify({ email: emailLogin, senha }),
             });
             const json = await res.json();
             if (!res.ok) {
@@ -669,6 +960,14 @@ export default function PainelAdmin({
                 return;
             }
             setSenha('');
+            if (json.perfil) {
+                setPerfilAtual({
+                    id: json.perfil.id,
+                    nome: json.perfil.nome,
+                    email: json.perfil.email,
+                    foto_url: null,
+                });
+            }
             setAutenticado(true);
         } finally {
             setEntrando(false);
@@ -982,24 +1281,41 @@ export default function PainelAdmin({
 
                     <div className="space-y-1">
                         <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1496A1]">
-                            <Lock className="w-3.5 h-3.5" /> Acesso Administrativo
+                            <Lock className="w-3.5 h-3.5" /> Acesso Administrativo R4 Ensina
                         </div>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>
                             Entrar no Sistema
                         </h2>
                         <p className={`text-sm ${clsSubtexto}`}>
-                            Informe a senha administrativa para gerenciar agendamentos, grades
-                            e sincronização.
+                            Entre com seu e-mail e senha cadastrados (ou deixe o e-mail em
+                            branco para acesso com a senha master).
                         </p>
                     </div>
 
                     <form onSubmit={handleLogin} className="space-y-4">
                         <div>
                             <label
+                                htmlFor="email-admin"
+                                className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                            >
+                                E-mail do Perfil
+                            </label>
+                            <input
+                                id="email-admin"
+                                type="email"
+                                value={emailLogin}
+                                onChange={(e) => setEmailLogin(e.target.value)}
+                                placeholder="seuemail@r4ensina.com.br"
+                                className={`w-full border rounded-xl px-4 py-3 text-sm focus:outline-none ${clsInput}`}
+                            />
+                        </div>
+
+                        <div>
+                            <label
                                 htmlFor="senha-admin"
                                 className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
                             >
-                                Senha do Administrador
+                                Senha *
                             </label>
                             <input
                                 id="senha-admin"
@@ -1083,6 +1399,12 @@ export default function PainelAdmin({
             icone: <Users className="w-4 h-4" />,
         },
         {
+            id: 'textos',
+            rotulo: 'Textos do Portal',
+            subtitulo: 'Avisos e regras ao vivo',
+            icone: <FileText className="w-4 h-4" />,
+        },
+        {
             id: 'datas',
             rotulo: 'Bloquear / Liberar',
             subtitulo: 'Exceções de datas',
@@ -1122,6 +1444,11 @@ export default function PainelAdmin({
             titulo: 'Alunos & Responsáveis',
             descricao:
                 'Pesquise por responsável ou número, altere WhatsApp, resete PIN de acesso ou exclua cadastros.',
+        },
+        textos: {
+            titulo: 'Textos & Avisos do Portal',
+            descricao:
+                'Altere frases, avisos e regras de cancelamento do portal dos pais em tempo real, sem precisar de commit.',
         },
         datas: {
             titulo: 'Bloquear ou Liberar Datas',
@@ -1287,8 +1614,8 @@ export default function PainelAdmin({
 
     function renderConteudoSidebar() {
         return (
-            <div className="flex flex-col justify-between h-full p-5">
-                <div className="space-y-7">
+            <div className="flex flex-col justify-between h-full p-5 overflow-y-auto">
+                <div className="space-y-6">
                     <div className="flex items-center justify-between">
                         <LogoR4 temaEscuro={escuro} subtitulo="Painel Administrativo" />
                         <button
@@ -1300,9 +1627,60 @@ export default function PainelAdmin({
                         </button>
                     </div>
 
-                    <nav className="space-y-1.5">
+                    {/* CARD DO PERFIL DO ADMINISTRADOR LOGADO */}
+                    <div className={`border rounded-2xl p-3 space-y-2.5 ${clsSubCard}`}>
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => inputFotoRapidaRef.current?.click()}
+                                title="Clique na foto para alterar seu avatar"
+                                className="relative w-11 h-11 rounded-full shrink-0 overflow-hidden border-2 border-[#0E7C86] group cursor-pointer bg-[#0E7C86]/20 flex items-center justify-center"
+                            >
+                                {perfilAtual.foto_url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                        src={perfilAtual.foto_url}
+                                        alt={perfilAtual.nome}
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <span className="text-xs font-bold text-[#1496A1]">
+                    {obterIniciais(perfilAtual.nome)}
+                  </span>
+                                )}
+                                <span className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                  <Camera className="w-4 h-4" />
+                </span>
+                            </button>
+
+                            <div className="min-w-0 flex-1">
+                                <p className={`text-xs font-bold truncate ${clsTitulo}`}>
+                                    {perfilAtual.nome}
+                                </p>
+                                <p className={`text-[10px] truncate ${clsSubtexto}`}>
+                                    {perfilAtual.email || 'Acesso Master'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFeedbackPerfil(null);
+                                setAbaModalPerfil('meu');
+                                setModalPerfilAberto(true);
+                                setMenuMobileAberto(false);
+                            }}
+                            className={`w-full py-1.5 px-2.5 rounded-xl border text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition ${clsCard} ${clsSubtexto} hover:text-[#1496A1] hover:border-[#0E7C86]`}
+                        >
+                            <UserCog className="w-3.5 h-3.5 text-[#1496A1]" />
+                            Editar Perfil / Equipe
+                        </button>
+                    </div>
+
+                    <nav className="space-y-1">
                         <p
-                            className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-3 ${clsSubtexto}`}
+                            className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-2 ${clsSubtexto}`}
                         >
                             Módulos
                         </p>
@@ -1317,7 +1695,7 @@ export default function PainelAdmin({
                                         setAba(item.id);
                                         setMenuMobileAberto(false);
                                     }}
-                                    className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition cursor-pointer group ${
+                                    className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl transition cursor-pointer group ${
                                         ativo
                                             ? escuro
                                                 ? 'bg-[#0E7C86]/20 text-white border border-[#0E7C86]/50'
@@ -1327,9 +1705,9 @@ export default function PainelAdmin({
                                                 : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900 border border-transparent'
                                     }`}
                                 >
-                                    <div className="flex items-center gap-3 min-w-0">
+                                    <div className="flex items-center gap-2.5 min-w-0">
                     <span
-                        className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition ${
                             ativo
                                 ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
                                 : escuro
@@ -1340,11 +1718,11 @@ export default function PainelAdmin({
                       {item.icone}
                     </span>
                                         <div className="text-left truncate">
-                                            <p className="text-sm font-semibold leading-tight truncate">
+                                            <p className="text-xs font-semibold leading-tight truncate">
                                                 {item.rotulo}
                                             </p>
                                             <p
-                                                className={`text-[11px] truncate ${
+                                                className={`text-[10px] truncate ${
                                                     ativo
                                                         ? escuro
                                                             ? 'text-[#39B8C4]'
@@ -1359,7 +1737,7 @@ export default function PainelAdmin({
 
                                     {typeof item.badge === 'number' && (
                                         <span
-                                            className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                                                 ativo
                                                     ? 'bg-[#0E7C86] text-white'
                                                     : escuro
@@ -1377,26 +1755,26 @@ export default function PainelAdmin({
                 </div>
 
                 <div
-                    className={`pt-4 border-t space-y-1.5 ${
+                    className={`pt-4 mt-4 border-t space-y-1.5 ${
                         escuro ? 'border-[#1F262E]' : 'border-stone-200'
                     }`}
                 >
                     <Link
                         href="/"
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition ${
                             escuro
                                 ? 'text-stone-300 hover:bg-[#181E26]'
                                 : 'text-stone-700 hover:bg-stone-100'
                         }`}
                     >
             <span
-                className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                className={`w-8 h-8 rounded-full flex items-center justify-center ${
                     escuro
                         ? 'bg-[#0E1217] text-[#25A4AF] border border-[#232B35]'
                         : 'bg-stone-100 text-[#0E7C86]'
                 }`}
             >
-              <ExternalLink className="w-4 h-4" />
+              <ExternalLink className="w-3.5 h-3.5" />
             </span>
                         <span>Link dos Pais</span>
                     </Link>
@@ -1404,20 +1782,20 @@ export default function PainelAdmin({
                     <button
                         type="button"
                         onClick={() => void handleLogout()}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition cursor-pointer ${
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
                             escuro
                                 ? 'text-rose-300 hover:bg-[#BE1E23]/15'
                                 : 'text-[#BE1E23] hover:bg-rose-50'
                         }`}
                     >
             <span
-                className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                className={`w-8 h-8 rounded-full flex items-center justify-center ${
                     escuro
                         ? 'bg-[#0E1217] text-[#F87171] border border-[#232B35]'
                         : 'bg-rose-50 text-[#BE1E23]'
                 }`}
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5" />
             </span>
                         <span>Sair do Painel</span>
                     </button>
@@ -1428,6 +1806,15 @@ export default function PainelAdmin({
 
     return (
         <div className={`min-h-screen flex transition-colors ${clsBgApp}`}>
+            {/* Input oculto para troca instantânea de foto ao clicar no avatar */}
+            <input
+                ref={inputFotoRapidaRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => void handleTrocaFotoRapida(e)}
+                className="hidden"
+            />
+
             <aside
                 className={`hidden lg:block w-72 shrink-0 border-r sticky top-0 h-screen ${clsSidebar}`}
             >
@@ -1489,23 +1876,47 @@ export default function PainelAdmin({
                         </div>
 
                         <div className="flex items-center gap-2.5">
-              <span
-                  className={`hidden sm:inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-full border ${
-                      sistemaAbertoAgora
-                          ? escuro
-                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                              : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                          : escuro
-                              ? 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-300'
-                              : 'bg-rose-50 border-rose-200 text-[#BE1E23]'
-                  }`}
-              >
+                            {/* Avatar clicável também no cabeçalho */}
+                            <button
+                                type="button"
+                                onClick={() => inputFotoRapidaRef.current?.click()}
+                                title={`Logado como ${perfilAtual.nome} — clique para trocar a foto`}
+                                className={`hidden sm:inline-flex items-center gap-2 pr-3 pl-1.5 py-1 rounded-full border transition cursor-pointer ${clsCard}`}
+                            >
+                <span className="w-7 h-7 rounded-full overflow-hidden bg-[#0E7C86]/20 border border-[#0E7C86] flex items-center justify-center text-[10px] font-bold text-[#1496A1]">
+                  {perfilAtual.foto_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                          src={perfilAtual.foto_url}
+                          alt={perfilAtual.nome}
+                          className="w-full h-full object-cover"
+                      />
+                  ) : (
+                      obterIniciais(perfilAtual.nome)
+                  )}
+                </span>
+                                <span className={`text-xs font-semibold ${clsTitulo}`}>
+                  {perfilAtual.nome.split(' ')[0]}
+                </span>
+                            </button>
+
+                            <span
+                                className={`hidden md:inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-full border ${
+                                    sistemaAbertoAgora
+                                        ? escuro
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                            : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                        : escuro
+                                            ? 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-300'
+                                            : 'bg-rose-50 border-rose-200 text-[#BE1E23]'
+                                }`}
+                            >
                 <span
                     className={`w-2 h-2 rounded-full ${
                         sistemaAbertoAgora ? 'bg-emerald-400' : 'bg-[#BE1E23]'
                     }`}
                 />
-                  {sistemaAbertoAgora ? 'Link Aberto' : 'Link Fechado'}
+                                {sistemaAbertoAgora ? 'Link Aberto' : 'Link Fechado'}
               </span>
 
                             <button
@@ -1549,12 +1960,6 @@ export default function PainelAdmin({
                 </header>
 
                 <div className="max-w-[1440px] w-full mx-auto px-4 sm:px-8 py-6">
-                    {carregandoDados && (
-                        <p className={`text-xs mb-4 ${clsSubtexto}`}>
-                            Atualizando registros do sistema...
-                        </p>
-                    )}
-
                     {/* ABA 1: AGENDAMENTOS */}
                     {aba === 'agendamentos' && (
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -2329,7 +2734,6 @@ export default function PainelAdmin({
                     {/* ABA 3: MÓDULO ALUNOS & RESPONSÁVEIS */}
                     {aba === 'alunos' && (
                         <section className="space-y-5">
-                            {/* Barra de Busca e Filtros */}
                             <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                 <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                                     <div className="md:col-span-7">
@@ -2405,7 +2809,6 @@ export default function PainelAdmin({
                                 )}
                             </div>
 
-                            {/* Lista de Alunos */}
                             {alunosFiltrados.length === 0 ? (
                                 <div
                                     className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
@@ -2709,7 +3112,270 @@ export default function PainelAdmin({
                         </section>
                     )}
 
-                    {/* ABA 4: BLOQUEAR / LIBERAR DIAS */}
+                    {/* ABA 4: EDITOR DE TEXTOS DO PORTAL (SEM COMMIT) */}
+                    {aba === 'textos' && (
+                        <form
+                            onSubmit={(e) => void handleSalvarTextosPortal(e)}
+                            className="max-w-4xl space-y-6"
+                        >
+                            <div className={`border rounded-2xl p-6 space-y-4 ${clsCard}`}>
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <h2 className={`text-base font-bold ${clsTitulo}`}>
+                                            Cabeçalho & Apresentação R4 Ensina
+                                        </h2>
+                                        <p className={`text-xs ${clsSubtexto}`}>
+                                            Qualquer palavra alterada aqui atualiza o site
+                                            imediatamente após salvar.
+                                        </p>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setTextosPortal({ ...TEXTOS_PORTAL_PADRAO });
+                                            setFeedbackTextos(null);
+                                        }}
+                                        className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer ${clsSubCard} ${clsSubtexto} hover:text-[#1496A1]`}
+                                    >
+                                        <RotateCcw className="w-3.5 h-3.5" /> Restaurar Padrões
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                            Selo Superior (Badge)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={textosPortal.badge_topo}
+                                            onChange={(e) =>
+                                                setTextosPortal((prev) => ({
+                                                    ...prev,
+                                                    badge_topo: e.target.value,
+                                                }))
+                                            }
+                                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                            Horário da Secretaria (Topo)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={textosPortal.horario_secretaria}
+                                            onChange={(e) =>
+                                                setTextosPortal((prev) => ({
+                                                    ...prev,
+                                                    horario_secretaria: e.target.value,
+                                                }))
+                                            }
+                                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                        Título Principal do Portal
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={textosPortal.titulo_principal}
+                                        onChange={(e) =>
+                                            setTextosPortal((prev) => ({
+                                                ...prev,
+                                                titulo_principal: e.target.value,
+                                            }))
+                                        }
+                                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                        Descrição / Subtítulo de Boas-Vindas
+                                    </label>
+                                    <textarea
+                                        rows={3}
+                                        value={textosPortal.subtitulo_principal}
+                                        onChange={(e) =>
+                                            setTextosPortal((prev) => ({
+                                                ...prev,
+                                                subtitulo_principal: e.target.value,
+                                            }))
+                                        }
+                                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className={`border rounded-2xl p-6 space-y-4 ${clsCard}`}>
+                                <h2 className={`text-base font-bold ${clsTitulo}`}>
+                                    Avisos de Cancelamento (Taxa 2h) & Regras de Atendimento
+                                </h2>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className={`border rounded-xl p-4 space-y-3 ${clsSubCard}`}>
+                                        <p className="text-xs font-bold text-[#1496A1]">
+                                            Bloco 1: Aulas da Próxima Semana
+                                        </p>
+                                        <div>
+                                            <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
+                                                Título do Aviso
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={textosPortal.aviso_proxima_semana_titulo}
+                                                onChange={(e) =>
+                                                    setTextosPortal((prev) => ({
+                                                        ...prev,
+                                                        aviso_proxima_semana_titulo: e.target.value,
+                                                    }))
+                                                }
+                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
+                                                Texto do Aviso
+                                            </label>
+                                            <textarea
+                                                rows={4}
+                                                value={textosPortal.aviso_proxima_semana_texto}
+                                                onChange={(e) =>
+                                                    setTextosPortal((prev) => ({
+                                                        ...prev,
+                                                        aviso_proxima_semana_texto: e.target.value,
+                                                    }))
+                                                }
+                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className={`border rounded-xl p-4 space-y-3 ${clsSubCard}`}>
+                                        <p className="text-xs font-bold text-rose-400">
+                                            Bloco 2: Política de Cancelamento (2h)
+                                        </p>
+                                        <div>
+                                            <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
+                                                Título do Aviso
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={textosPortal.aviso_cancelamento_titulo}
+                                                onChange={(e) =>
+                                                    setTextosPortal((prev) => ({
+                                                        ...prev,
+                                                        aviso_cancelamento_titulo: e.target.value,
+                                                    }))
+                                                }
+                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
+                                                Texto do Aviso (Topo da Página)
+                                            </label>
+                                            <textarea
+                                                rows={4}
+                                                value={textosPortal.aviso_cancelamento_texto}
+                                                onChange={(e) =>
+                                                    setTextosPortal((prev) => ({
+                                                        ...prev,
+                                                        aviso_cancelamento_texto: e.target.value,
+                                                    }))
+                                                }
+                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                        Alerta na Lista de &ldquo;Próximas Aulas&rdquo;
+                                    </label>
+                                    <textarea
+                                        rows={2}
+                                        value={textosPortal.aviso_agenda_cancelamento}
+                                        onChange={(e) =>
+                                            setTextosPortal((prev) => ({
+                                                ...prev,
+                                                aviso_agenda_cancelamento: e.target.value,
+                                            }))
+                                        }
+                                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                        Lembrete na Janela de Confirmação da Aula
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={textosPortal.aviso_modal_lembrete}
+                                        onChange={(e) =>
+                                            setTextosPortal((prev) => ({
+                                                ...prev,
+                                                aviso_modal_lembrete: e.target.value,
+                                            }))
+                                        }
+                                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                        Mensagem quando o Portal Online Estiver Fechado
+                                    </label>
+                                    <textarea
+                                        rows={2}
+                                        value={textosPortal.aviso_sistema_fechado}
+                                        onChange={(e) =>
+                                            setTextosPortal((prev) => ({
+                                                ...prev,
+                                                aviso_sistema_fechado: e.target.value,
+                                            }))
+                                        }
+                                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                    />
+                                </div>
+
+                                {feedbackTextos && (
+                                    <div
+                                        className={`rounded-xl border px-4 py-3 text-xs ${
+                                            feedbackTextos.tipo === 'sucesso'
+                                                ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400'
+                                                : 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-400'
+                                        }`}
+                                    >
+                                        {feedbackTextos.texto}
+                                    </div>
+                                )}
+
+                                <div className="flex justify-end pt-2">
+                                    <button
+                                        type="submit"
+                                        disabled={salvandoTextos}
+                                        className="px-6 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-bold text-white inline-flex items-center gap-2 shadow-md cursor-pointer"
+                                    >
+                                        <Save className="w-4 h-4" />
+                                        {salvandoTextos
+                                            ? 'Publicando...'
+                                            : 'Salvar e Publicar no Portal'}
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    )}
+
+                    {/* ABA 5: BLOQUEAR / LIBERAR DIAS */}
                     {aba === 'datas' && (
                         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                             <form
@@ -2845,7 +3511,7 @@ export default function PainelAdmin({
                         </section>
                     )}
 
-                    {/* ABA 5: PROFESSORES */}
+                    {/* ABA 6: PROFESSORES */}
                     {aba === 'professores' && (
                         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                             <form
@@ -3252,7 +3918,7 @@ export default function PainelAdmin({
                         </section>
                     )}
 
-                    {/* ABA 6: UNIDADES / CLIN CARE */}
+                    {/* ABA 7: UNIDADES / CLIN CARE */}
                     {aba === 'unidades' && (
                         <section
                             className={`border rounded-2xl p-6 space-y-4 max-w-3xl ${clsCard}`}
@@ -3312,6 +3978,342 @@ export default function PainelAdmin({
                     )}
                 </div>
             </div>
+
+            {/* MODAL DE PERFIL & EQUIPE ADMINISTRATIVA */}
+            {modalPerfilAberto && (
+                <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div
+                        className={`border rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto ${clsCard}`}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                  Conta & Administradores R4
+                </span>
+                                <h2 className={`text-lg font-bold ${clsTitulo}`}>
+                                    Perfil e Controle de Acesso
+                                </h2>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setModalPerfilAberto(false)}
+                                className={`p-1.5 rounded-lg cursor-pointer ${clsSubtexto}`}
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="flex gap-2 border-b pb-3 border-[#232B35]">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setAbaModalPerfil('meu');
+                                    setFeedbackPerfil(null);
+                                }}
+                                className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
+                                    abaModalPerfil === 'meu'
+                                        ? 'bg-[#0E7C86] text-white'
+                                        : `${clsSubCard} ${clsSubtexto}`
+                                }`}
+                            >
+                                Meu Perfil & Foto
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setAbaModalPerfil('equipe');
+                                    setFeedbackPerfil(null);
+                                }}
+                                className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
+                                    abaModalPerfil === 'equipe'
+                                        ? 'bg-[#0E7C86] text-white'
+                                        : `${clsSubCard} ${clsSubtexto}`
+                                }`}
+                            >
+                                Criar / Gerenciar Perfis ({perfisAdmin.length})
+                            </button>
+                        </div>
+
+                        {feedbackPerfil && (
+                            <div
+                                className={`rounded-xl border px-4 py-3 text-xs ${
+                                    feedbackPerfil.tipo === 'sucesso'
+                                        ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400'
+                                        : 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-400'
+                                }`}
+                            >
+                                {feedbackPerfil.texto}
+                            </div>
+                        )}
+
+                        {abaModalPerfil === 'meu' ? (
+                            <form
+                                onSubmit={(e) => void handleSalvarMeuPerfil(e)}
+                                className="space-y-4"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <label className="relative w-20 h-20 rounded-full overflow-hidden border-2 border-[#0E7C86] cursor-pointer group bg-[#0E7C86]/20 flex items-center justify-center shrink-0">
+                                        {editMinhaFoto ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                                src={editMinhaFoto}
+                                                alt="Avatar"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <span className="text-lg font-bold text-[#1496A1]">
+                        {obterIniciais(editMeuNome || perfilAtual.nome)}
+                      </span>
+                                        )}
+                                        <span className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                      <Camera className="w-5 h-5" />
+                    </span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={async (e) => {
+                                                const f = e.target.files?.[0];
+                                                if (f) {
+                                                    const b64 = await comprimirImagemAvatar(f);
+                                                    setEditMinhaFoto(b64);
+                                                }
+                                            }}
+                                            className="hidden"
+                                        />
+                                    </label>
+
+                                    <div className="space-y-1">
+                                        <p className={`text-sm font-bold ${clsTitulo}`}>
+                                            Foto de Perfil
+                                        </p>
+                                        <p className={`text-xs ${clsSubtexto}`}>
+                                            Clique no círculo ao lado para escolher uma foto do seu
+                                            computador ou celular.
+                                        </p>
+                                        {editMinhaFoto && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditMinhaFoto(null)}
+                                                className="text-xs text-rose-400 hover:underline cursor-pointer"
+                                            >
+                                                Remover foto
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                            Seu Nome Completo *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={editMeuNome}
+                                            onChange={(e) => setEditMeuNome(e.target.value)}
+                                            placeholder="Ex: Coordenação R4"
+                                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                            Seu E-mail de Login *
+                                        </label>
+                                        <input
+                                            type="email"
+                                            required
+                                            value={editMeuEmail}
+                                            onChange={(e) => setEditMeuEmail(e.target.value)}
+                                            placeholder="nome@r4ensina.com.br"
+                                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
+                                        {perfilAtual.id === 0
+                                            ? 'Defina sua Senha Pessoal (mín. 6 caracteres) *'
+                                            : 'Alterar Senha (deixe em branco para manter a atual)'}
+                                    </label>
+                                    <input
+                                        type="password"
+                                        required={perfilAtual.id === 0}
+                                        value={editMinhaNovaSenha}
+                                        onChange={(e) => setEditMinhaNovaSenha(e.target.value)}
+                                        placeholder="••••••"
+                                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
+                                    />
+                                </div>
+
+                                <div className="flex justify-end gap-2 pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setModalPerfilAberto(false)}
+                                        className={`px-4 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard}`}
+                                    >
+                                        Fechar
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={salvandoMeuPerfil}
+                                        className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        <Save className="w-3.5 h-3.5" />
+                                        {salvandoMeuPerfil ? 'Salvando...' : 'Salvar Meu Perfil'}
+                                    </button>
+                                </div>
+                            </form>
+                        ) : (
+                            <div className="space-y-5">
+                                <form
+                                    onSubmit={(e) => void handleCriarNovoAdmin(e)}
+                                    className={`border rounded-xl p-4 space-y-3 ${clsSubCard}`}
+                                >
+                                    <p className="text-xs font-bold text-[#1496A1] flex items-center gap-1.5">
+                                        <UserPlus className="w-4 h-4" /> Cadastrar Novo Perfil
+                                        Administrativo
+                                    </p>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <input
+                                            type="text"
+                                            required
+                                            value={novoAdminNome}
+                                            onChange={(e) => setNovoAdminNome(e.target.value)}
+                                            placeholder="Nome completo *"
+                                            className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                        />
+                                        <input
+                                            type="email"
+                                            required
+                                            value={novoAdminEmail}
+                                            onChange={(e) => setNovoAdminEmail(e.target.value)}
+                                            placeholder="E-mail de acesso *"
+                                            className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                        />
+                                        <input
+                                            type="password"
+                                            required
+                                            value={novoAdminSenha}
+                                            onChange={(e) => setNovoAdminSenha(e.target.value)}
+                                            placeholder="Senha (mín. 6) *"
+                                            className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <label
+                                            className={`text-xs inline-flex items-center gap-2 cursor-pointer ${clsSubtexto} hover:text-[#1496A1]`}
+                                        >
+                                            <Camera className="w-4 h-4 text-[#1496A1]" />
+                                            <span>
+                        {novoAdminFoto
+                            ? 'Foto selecionada ✓'
+                            : 'Adicionar foto opcional'}
+                      </span>
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={async (e) => {
+                                                    const f = e.target.files?.[0];
+                                                    if (f) {
+                                                        const b64 = await comprimirImagemAvatar(f);
+                                                        setNovoAdminFoto(b64);
+                                                    }
+                                                }}
+                                                className="hidden"
+                                            />
+                                        </label>
+
+                                        <button
+                                            type="submit"
+                                            disabled={criandoNovoAdmin}
+                                            className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <Plus className="w-3.5 h-3.5" />
+                                            {criandoNovoAdmin ? 'Criando...' : 'Criar Perfil'}
+                                        </button>
+                                    </div>
+                                </form>
+
+                                <div className="space-y-2">
+                                    <p className={`text-xs font-bold ${clsTitulo}`}>
+                                        Perfis Cadastrados ({perfisAdmin.length})
+                                    </p>
+                                    {perfisAdmin.length === 0 ? (
+                                        <p className={`text-xs ${clsSubtexto}`}>
+                                            Nenhum perfil individual cadastrado ainda.
+                                        </p>
+                                    ) : (
+                                        perfisAdmin.map((p) => (
+                                            <div
+                                                key={p.id}
+                                                className={`flex items-center justify-between gap-3 border rounded-xl p-3 ${clsSubCard}`}
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-9 h-9 rounded-full overflow-hidden bg-[#0E7C86]/20 border border-[#0E7C86] flex items-center justify-center text-xs font-bold text-[#1496A1] shrink-0">
+                                                        {p.foto_url ? (
+                                                            // eslint-disable-next-line @next/next/no-img-element
+                                                            <img
+                                                                src={p.foto_url}
+                                                                alt={p.nome}
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            obterIniciais(p.nome)
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className={`text-xs font-bold truncate ${clsTitulo}`}>
+                                                            {p.nome}{' '}
+                                                            {p.id === perfilAtual.id && (
+                                                                <span className="text-[10px] text-[#1496A1]">
+                                  (Você)
+                                </span>
+                                                            )}
+                                                        </p>
+                                                        <p className={`text-[11px] truncate ${clsSubtexto}`}>
+                                                            {p.email}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                {p.id !== perfilAtual.id && (
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                void alternarStatusAdmin(p.id, !p.ativo)
+                                                            }
+                                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                                                                p.ativo
+                                                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
+                                                                    : 'bg-stone-500/20 text-stone-400'
+                                                            }`}
+                                                        >
+                                                            {p.ativo ? 'Ativo' : 'Desativado'}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void excluirPerfilAdmin(p.id)}
+                                                            className="p-1.5 rounded-lg text-rose-400 hover:bg-[#BE1E23]/15 cursor-pointer"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -27,6 +27,7 @@ import {
   formatarTelefone,
   normalizarTelefone,
 } from '@/lib/cliente-helpers';
+import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos';
 
 interface Unidade {
   id: number;
@@ -110,6 +111,7 @@ function formatarDiaSemana(isoDate: string): string {
 
 export default function PaginaAgendamentoReforco() {
   const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
+  const [textos, setTextos] = useState<TextosPortal>(TEXTOS_PORTAL_PADRAO);
 
   const [sistemaAberto, setSistemaAberto] = useState<boolean>(true);
   const [motivoFechado, setMotivoFechado] = useState<string | null>(null);
@@ -306,16 +308,22 @@ export default function PaginaAgendamentoReforco() {
       }
 
       try {
-        const [resSessao, resDisp, resColegios] = await Promise.all([
+        const [resSessao, resDisp, resColegios, resTextos] = await Promise.all([
           fetch('/api/cliente/sessao', { cache: 'no-store' }),
           fetch('/api/disponibilidade', { cache: 'no-store' }),
           fetch('/api/cliente', { cache: 'no-store' }),
+          fetch('/api/admin/textos-portal', { cache: 'no-store' }),
         ]);
 
         const jsonSessao = await resSessao.json();
         const jsonDisp = await resDisp.json();
         const jsonColegios = await resColegios.json();
+        const jsonTextos = resTextos.ok ? await resTextos.json() : null;
         if (cancelado) return;
+
+        if (jsonTextos?.textos) {
+          setTextos(jsonTextos.textos);
+        }
 
         if (resColegios.ok && Array.isArray(jsonColegios.colegios)) {
           const listaCol: ColegioOficial[] = jsonColegios.colegios;
@@ -909,7 +917,7 @@ export default function PaginaAgendamentoReforco() {
                 className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border ${clsSubCard} ${clsSubtexto}`}
             >
               <Clock className="w-3.5 h-3.5 text-[#1496A1]" />
-              Secretaria R4: Seg a Sex, 08h às 18h
+              {textos.horario_secretaria}
             </span>
 
               <button
@@ -938,11 +946,11 @@ export default function PaginaAgendamentoReforco() {
         </div>
 
         <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
-          {/* BANNER INSTITUCIONAL R4 ENSINA + REGRAS */}
+          {/* BANNER INSTITUCIONAL COM TEXTOS EDITÁVEIS PELO PAINEL ADMIN */}
           <header className={`border rounded-2xl p-6 space-y-3.5 ${clsCard}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1] bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-3 py-1 rounded-full">
-              R4 Ensina • Central Oficial de Agendamento
+              {textos.badge_topo}
             </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
               <ShieldCheck className="w-4 h-4" /> Acesso protegido por PIN
@@ -950,39 +958,26 @@ export default function PaginaAgendamentoReforco() {
             </div>
 
             <h1 className={`text-xl sm:text-2xl font-bold ${clsTitulo}`}>
-              Agende o atendimento do seu filho(a) no R4
+              {textos.titulo_principal}
             </h1>
             <p className={`text-sm ${clsSubtexto}`}>
-              Sistema exclusivo para famílias atendidas pela{' '}
-              <strong className={clsTitulo}>R4 Ensina</strong>. Agendamento
-              online disponível de segunda a sexta, das{' '}
-              <strong className={clsTitulo}>18:00 às 22:00</strong>, para aulas a
-              partir do próximo dia até domingo desta semana.
+              {textos.subtitulo_principal}
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
               <div className="rounded-xl bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-4 py-3 text-xs text-[#39B8C4] space-y-1">
                 <p className="font-bold uppercase tracking-wide text-[11px]">
-                  Aulas da Próxima Semana
+                  {textos.aviso_proxima_semana_titulo}
                 </p>
-                <p>
-                  Marcações para a <strong>próxima semana</strong> são realizadas
-                  exclusivamente com o atendimento humano da equipe R4 (Segunda a
-                  Sexta, das 08:00 às 18:00).
-                </p>
+                <p>{textos.aviso_proxima_semana_texto}</p>
               </div>
 
               <div className="rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/45 px-4 py-3 text-xs text-rose-300 space-y-1">
                 <p className="font-bold uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-rose-400">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Política de Cancelamento e Taxa de Aula
+                  {textos.aviso_cancelamento_titulo}
                 </p>
-                <p>
-                  Cancelamentos gratuitos pelo site são permitidos{' '}
-                  <strong>até 2 horas antes do início da aula</strong>. Após
-                  esse prazo de 2h, o horário já estará reservado ao professor e{' '}
-                  <strong>a taxa referente à aula será cobrada</strong>.
-                </p>
+                <p>{textos.aviso_cancelamento_texto}</p>
               </div>
             </div>
           </header>
@@ -991,7 +986,7 @@ export default function PaginaAgendamentoReforco() {
               <section className="bg-emerald-500/10 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
                   <p className="text-sm font-bold text-emerald-400 inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" /> Aula agendada no R4
+                    <CheckCircle2 className="w-4 h-4" /> Aula agendada na R4 Ensina
                     com sucesso!
                   </p>
                   <p className={`text-xs ${clsTitulo}`}>
@@ -1423,7 +1418,7 @@ export default function PaginaAgendamentoReforco() {
                             </div>
                         )}
 
-                        <div className="flex items-center gap-2.5 pt-1">
+                        <div className="flex items-center gap-2.5">
                           <button
                               type="button"
                               onClick={() => {
@@ -1450,112 +1445,109 @@ export default function PaginaAgendamentoReforco() {
               </section>
           ) : (
               <>
-                <section className={`border rounded-2xl p-6 space-y-5 ${clsCard}`}>
+                {/* BARRA DO RESPONSÁVEL E SELEÇÃO DO ALUNO */}
+                <section className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                   <div
-                      className={`flex flex-wrap items-center justify-between gap-3 border-b pb-4 ${
+                      className={`flex flex-wrap items-center justify-between gap-3 pb-3 border-b ${
                           escuro ? 'border-[#232B35]' : 'border-stone-200'
                       }`}
                   >
-                    <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    Responsável Autenticado
-                  </span>
-                      <p className={`text-base font-bold ${clsTitulo}`}>
-                        {responsavelConfirmado} •{' '}
-                        <span className={`font-medium ${clsSubtexto}`}>
-                      {formatarTelefone(telefoneConfirmado)}
-                    </span>
-                      </p>
+                    <div className="flex items-center gap-2.5">
+                      <UserCheck className="w-5 h-5 text-[#1496A1]" />
+                      <div>
+                        <p className={`text-sm font-bold ${clsTitulo}`}>
+                          Responsável: {responsavelConfirmado}
+                        </p>
+                        <p className={`text-xs ${clsSubtexto}`}>
+                          WhatsApp: {formatarTelefone(telefoneConfirmado)} •{' '}
+                          <span className="text-[#1496A1] font-medium">
+                        {aulasAtivasAlunoSelecionado}/{limiteSimultaneo} aulas
+                        ativas para o aluno selecionado
+                      </span>
+                        </p>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {sistemaAberto && alunos.length > 0 && !exibirFormNovoAluno && (
+                      {alunos.length > 0 && (
                           <button
                               type="button"
                               onClick={() => {
                                 setAlunoEditandoId(null);
                                 setNovoAlunoNome('');
                                 setColegioOutroNome('');
-                                setExibirFormNovoAluno(true);
+                                setExibirFormNovoAluno((v) => !v);
+                                setErroFormAluno(null);
                               }}
-                              className="px-3.5 py-2 rounded-xl bg-[#0E7C86]/15 hover:bg-[#0E7C86] border border-[#0E7C86]/45 text-[#25A4AF] hover:text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+                              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1 cursor-pointer transition ${
+                                  escuro
+                                      ? 'bg-[#0E7C86]/15 hover:bg-[#0E7C86]/25 border-[#0E7C86]/40 text-[#39B8C4]'
+                                      : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86]/20 border-[#0E7C86]/30 text-[#0B5C63]'
+                              }`}
                           >
-                            <Plus className="w-3.5 h-3.5" /> Cadastrar outro filho(a)
+                            <Plus className="w-3.5 h-3.5" /> Cadastrar Outro Filho(a)
                           </button>
                       )}
+
                       <button
                           type="button"
                           onClick={() => void handleSairConta()}
-                          className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer ${clsSubCard} ${clsSubtexto} hover:text-[#BE1E23]`}
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsSubtexto} hover:text-rose-400`}
                       >
-                        <LogOut className="w-3.5 h-3.5" /> Sair
+                        <LogOut className="w-3.5 h-3.5" /> Sair / Trocar Conta
                       </button>
                     </div>
                   </div>
 
-                  {sistemaAberto && alunos.length > 0 && (
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <label
-                              className={`block text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
-                          >
-                            Selecione o(a) Aluno(a) para esta aula
-                          </label>
-                          {alunoAtivo && (
-                              <span
-                                  className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                                      aulasAtivasAlunoSelecionado >= limiteSimultaneo
-                                          ? 'bg-[#C24124]/15 border-[#C24124]/40 text-[#E07A5F]'
-                                          : `${clsSubCard} ${clsSubtexto}`
-                                  }`}
-                              >
-                        Aulas ativas: {aulasAtivasAlunoSelecionado} de{' '}
-                                {limiteSimultaneo}
-                      </span>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {alunos.length > 0 && (
+                      <div className="space-y-2">
+                        <p className={`text-xs font-medium ${clsSubtexto}`}>
+                          Selecione o aluno(a) que terá a aula:
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                           {alunos.map((al) => {
-                            const selecionado = al.id === alunoSelecionadoId;
+                            const ativo = al.id === alunoSelecionadoId;
                             return (
                                 <div
                                     key={al.id}
                                     onClick={() => handleSelecionarAluno(al)}
-                                    className={`text-left p-4 rounded-xl border transition cursor-pointer ${
-                                        selecionado
-                                            ? 'bg-[#0E7C86]/15 border-[#0E7C86] shadow-xs'
-                                            : `${clsSubCard} hover:border-stone-500`
+                                    className={`text-left rounded-xl p-3.5 border transition cursor-pointer flex items-start justify-between gap-2 ${
+                                        ativo
+                                            ? escuro
+                                                ? 'bg-[#0E7C86]/20 border-[#1496A1] text-white'
+                                                : 'bg-[#0E7C86]/10 border-[#0E7C86] text-stone-900'
+                                            : `${clsSubCard} hover:border-[#0E7C86]/50`
                                     }`}
                                 >
-                                  <div className="flex items-center justify-between gap-2">
-                            <span className={`font-bold text-sm ${clsTitulo}`}>
-                              {al.nome_aluno}
-                            </span>
-                                    <div className="flex items-center gap-1.5">
-                                      {selecionado && (
-                                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#0E7C86] text-white">
-                                  Ativo
-                                </span>
-                                      )}
-                                      <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            iniciarEdicaoAluno(al);
-                                          }}
-                                          className={`text-[11px] font-semibold px-2 py-0.5 rounded-lg border cursor-pointer ${clsCard} ${clsSubtexto}`}
-                                      >
-                                        Editar
-                                      </button>
-                                    </div>
+                                  <div>
+                                    <p className="text-sm font-bold">{al.nome_aluno}</p>
+                                    <p
+                                        className={`text-xs mt-0.5 ${
+                                            ativo
+                                                ? escuro
+                                                    ? 'text-[#39B8C4]'
+                                                    : 'text-[#0B5C63]'
+                                                : clsSubtexto
+                                        }`}
+                                    >
+                                      {al.colegio_nome} • {al.serie}
+                                    </p>
                                   </div>
-                                  <p className={`text-xs mt-1 ${clsSubtexto}`}>
-                                    {al.colegio_nome}
-                                  </p>
-                                  <p className="text-xs font-medium text-[#1496A1] mt-0.5">
-                                    {al.serie}
-                                  </p>
+
+                                  <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        iniciarEdicaoAluno(al);
+                                      }}
+                                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg border cursor-pointer shrink-0 ${
+                                          escuro
+                                              ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#1496A1]'
+                                              : 'bg-white border-stone-200 text-stone-600 hover:border-[#0E7C86]'
+                                      }`}
+                                  >
+                                    Editar
+                                  </button>
                                 </div>
                             );
                           })}
@@ -1563,18 +1555,16 @@ export default function PaginaAgendamentoReforco() {
                       </div>
                   )}
 
-                  {sistemaAberto && exibirFormNovoAluno && (
+                  {exibirFormNovoAluno && (
                       <form
                           onSubmit={handleCadastrarAluno}
-                          className={`border rounded-xl p-5 space-y-4 ${clsSubCard}`}
+                          className={`rounded-xl border p-4 sm:p-5 space-y-4 ${clsSubCard}`}
                       >
                         <div className="flex items-center justify-between">
-                          <h3 className={`text-sm font-bold ${clsTitulo}`}>
+                          <h3 className="text-sm font-bold text-[#1496A1]">
                             {alunoEditandoId
                                 ? 'Editar Dados do Aluno(a)'
-                                : alunos.length === 0
-                                    ? 'Cadastrar Dados do Aluno(a)'
-                                    : 'Cadastrar Novo Filho(a) neste WhatsApp'}
+                                : 'Cadastrar Aluno(a) na R4 Ensina'}
                           </h3>
                           {alunos.length > 0 && (
                               <button
@@ -1583,14 +1573,14 @@ export default function PaginaAgendamentoReforco() {
                                     setExibirFormNovoAluno(false);
                                     setAlunoEditandoId(null);
                                   }}
-                                  className={`text-xs hover:underline cursor-pointer ${clsSubtexto}`}
+                                  className={`text-xs cursor-pointer ${clsSubtexto}`}
                               >
                                 Cancelar
                               </button>
                           )}
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
@@ -1603,7 +1593,7 @@ export default function PaginaAgendamentoReforco() {
                                 value={novoAlunoNome}
                                 onChange={(e) => setNovoAlunoNome(e.target.value)}
                                 placeholder="Ex: Lucas Andrade"
-                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
+                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                             />
                           </div>
 
@@ -1617,16 +1607,14 @@ export default function PaginaAgendamentoReforco() {
                                 required
                                 value={colegioOpcao}
                                 onChange={(e) => setColegioOpcao(e.target.value)}
-                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
+                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                             >
                               {colegiosOficiais.map((col) => (
                                   <option key={col.id} value={String(col.id)}>
                                     {col.nome}
                                   </option>
                               ))}
-                              <option value="outros">
-                                Outros (digitar nome do colégio)
-                              </option>
+                              <option value="outros">Outros (digitar)</option>
                             </select>
                           </div>
 
@@ -1634,13 +1622,13 @@ export default function PaginaAgendamentoReforco() {
                             <label
                                 className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
                             >
-                              Série / Ano Escolar *
+                              Série / Ano *
                             </label>
                             <select
                                 required
                                 value={serieAluno}
                                 onChange={(e) => setSerieAluno(e.target.value)}
-                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
+                                className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                             >
                               {SERIES_ESCOLARES.map((s) => (
                                   <option key={s} value={s}>
@@ -1654,7 +1642,7 @@ export default function PaginaAgendamentoReforco() {
                         {colegioOpcao === 'outros' && (
                             <div>
                               <label className="block text-xs font-medium text-[#D96B43] mb-1">
-                                Digite o Nome do Colégio *
+                                Nome do Colégio *
                               </label>
                               <input
                                   type="text"
@@ -1662,546 +1650,541 @@ export default function PaginaAgendamentoReforco() {
                                   value={colegioOutroNome}
                                   onChange={(e) => setColegioOutroNome(e.target.value)}
                                   placeholder="Ex: Colégio Antônio Vieira"
-                                  className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
+                                  className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                               />
                             </div>
                         )}
 
                         {erroFormAluno && (
-                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2 text-xs text-rose-400">
+                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
                               {erroFormAluno}
                             </div>
                         )}
 
-                        <div className="flex justify-end">
-                          <button
-                              type="submit"
-                              disabled={salvandoAluno}
-                              className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
-                          >
-                            {salvandoAluno
-                                ? 'Salvando...'
-                                : alunoEditandoId
-                                    ? 'Salvar Alterações'
-                                    : 'Salvar Aluno e Escolher Horário'}
-                          </button>
-                        </div>
+                        <button
+                            type="submit"
+                            disabled={salvandoAluno}
+                            className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
+                        >
+                          {salvandoAluno
+                              ? 'Salvando...'
+                              : alunoEditandoId
+                                  ? 'Salvar Alterações'
+                                  : 'Salvar Aluno(a)'}
+                        </button>
                       </form>
                   )}
                 </section>
 
-                {/* PRÓXIMAS AULAS AGENDADAS + AVISO DE CANCELAMENTO E TAXA */}
-                {(proximasAulas.length > 0 || avisoProximasAulas) && (
-                    <section className={`border rounded-2xl p-6 space-y-4 ${clsCard}`}>
+                {/* PRÓXIMAS AULAS AGENDADAS DO RESPONSÁVEL */}
+                {proximasAulas.length > 0 && (
+                    <section className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                      Agenda Confirmada R4
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#1496A1]">
+                      Sua Agenda na R4 Ensina
                     </span>
                           <h2 className={`text-base font-bold ${clsTitulo}`}>
-                            Próximas Aulas ({proximasAulas.length})
+                            Próximas Aulas Agendadas ({proximasAulas.length})
                           </h2>
                         </div>
                       </div>
 
-                      {/* Alerta destacado sobre prazo de 2h e cobrança de taxa */}
-                      <div className="rounded-xl border border-[#BE1E23]/45 bg-[#BE1E23]/15 px-4 py-3 text-xs text-rose-300 flex items-start gap-2.5">
-                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                        <div>
-                          <strong className="text-rose-400">
-                            Atenção ao prazo de cancelamento (2 horas):
-                          </strong>{' '}
-                          O cancelamento gratuito pelo site fica disponível apenas{' '}
-                          <strong>até 2 horas antes do início da aula</strong>. Caso
-                          ultrapasse esse limite de 2 horas, a vaga já estará
-                          comprometida e{' '}
-                          <strong>a taxa da aula será cobrada normalmente</strong>.
-                        </div>
+                      <div className="rounded-xl bg-[#BE1E23]/12 border border-[#BE1E23]/35 px-3.5 py-2.5 text-xs text-rose-300 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>{textos.aviso_agenda_cancelamento}</span>
                       </div>
 
                       {avisoProximasAulas && (
                           <div
-                              className={`rounded-xl border px-4 py-3 text-xs ${
+                              className={`rounded-xl border px-3.5 py-2.5 text-xs flex items-center justify-between gap-2 ${
                                   avisoProximasAulas.tipo === 'sucesso'
-                                      ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400'
-                                      : 'border-[#BE1E23]/40 bg-[#BE1E23]/15 text-rose-400'
+                                      ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400'
+                                      : 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-400'
                               }`}
                           >
-                            {avisoProximasAulas.texto}
+                            <span>{avisoProximasAulas.texto}</span>
+                            <button
+                                type="button"
+                                onClick={() => setAvisoProximasAulas(null)}
+                                className="cursor-pointer shrink-0"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                       )}
 
-                      {proximasAulas.length > 0 && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {proximasAulas.map((aula) => {
-                              const pedindoConfirmacao =
-                                  confirmandoCancelamentoId === aula.id;
-                              const cancelandoEsta = cancelandoAulaId === aula.id;
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {proximasAulas.map((aula) => {
+                          const pedindoConfirmacao =
+                              confirmandoCancelamentoId === aula.id;
 
-                              return (
-                                  <div
-                                      key={aula.id}
-                                      className={`border rounded-xl p-4 flex flex-col justify-between gap-3 ${clsSubCard}`}
-                                  >
-                                    <div className="space-y-1">
-                                      <div className="flex items-center justify-between gap-2">
-                              <span className={`text-sm font-bold ${clsTitulo}`}>
-                                {aula.aluno_nome}
-                              </span>
-                                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#0E7C86]/15 text-[#25A4AF] border border-[#0E7C86]/35">
-                                {aula.data_formatada} • {aula.horario}
-                              </span>
-                                      </div>
-
-                                      <p className={`text-xs ${clsTitulo}`}>
-                                        <strong>Matéria:</strong> {aula.materia} •{' '}
-                                        <strong>Prof.:</strong> {aula.professor_nome}
-                                      </p>
-                                      <p className={`text-xs ${clsSubtexto}`}>
-                                        <strong>Unidade:</strong> {aula.unidade_nome}
-                                      </p>
-                                      {aula.observacoes && (
-                                          <p className={`text-xs ${clsSubtexto}`}>
-                                            <strong>Assunto:</strong> {aula.observacoes}
-                                          </p>
-                                      )}
-                                    </div>
-
-                                    <div
-                                        className={`pt-2 border-t flex items-center justify-between gap-2 ${
-                                            escuro ? 'border-[#232B35]' : 'border-stone-200'
+                          return (
+                              <div
+                                  key={aula.id}
+                                  className={`rounded-xl border p-4 flex flex-col justify-between gap-3 ${clsSubCard}`}
+                              >
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-[#1496A1]">
+                              {aula.data_formatada} • {aula.horario}
+                            </span>
+                                    <span
+                                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
+                                            escuro
+                                                ? 'bg-[#151A21] text-stone-300 border border-[#232B35]'
+                                                : 'bg-white text-stone-700 border border-stone-200'
                                         }`}
                                     >
-                                      {aula.pode_cancelar ? (
-                                          pedindoConfirmacao ? (
-                                              <div className="flex flex-wrap items-center gap-2 w-full justify-between">
-                                  <span className="text-xs text-[#D96B43] font-medium">
-                                    Confirmar cancelamento gratuito?
-                                  </span>
-                                                <div className="flex items-center gap-2">
-                                                  <button
-                                                      type="button"
-                                                      disabled={cancelandoEsta}
-                                                      onClick={() =>
-                                                          setConfirmandoCancelamentoId(null)
-                                                      }
-                                                      className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${clsCard}`}
-                                                  >
-                                                    Manter
-                                                  </button>
-                                                  <button
-                                                      type="button"
-                                                      disabled={cancelandoEsta}
-                                                      onClick={() =>
-                                                          void handleCancelarProximaAula(aula.id)
-                                                      }
-                                                      className="px-3 py-1.5 rounded-lg bg-[#BE1E23] hover:bg-rose-700 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
-                                                  >
-                                                    {cancelandoEsta
-                                                        ? 'Cancelando...'
-                                                        : 'Sim, cancelar'}
-                                                  </button>
-                                                </div>
-                                              </div>
-                                          ) : (
-                                              <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    setConfirmandoCancelamentoId(aula.id);
-                                                    setAvisoProximasAulas(null);
-                                                  }}
-                                                  className="px-3 py-1.5 rounded-lg bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-semibold cursor-pointer transition"
-                                              >
-                                                Cancelar Aula (dentro do prazo)
-                                              </button>
-                                          )
-                                      ) : (
-                                          <span className="text-[11px] font-medium text-rose-400">
-                                Prazo de 2h encerrado — cancelamento indisponível
-                                (taxa da aula aplicável; contate a secretaria R4).
-                              </span>
-                                      )}
-                                    </div>
+                              {aula.unidade_nome}
+                            </span>
                                   </div>
-                              );
-                            })}
-                          </div>
-                      )}
+
+                                  <p className={`text-sm font-bold ${clsTitulo}`}>
+                                    {aula.aluno_nome}{' '}
+                                    <span className={`font-normal ${clsSubtexto}`}>
+                              • {aula.materia}
+                            </span>
+                                  </p>
+
+                                  <p className={`text-xs ${clsSubtexto}`}>
+                                    Professor(a):{' '}
+                                    <strong className={clsTitulo}>
+                                      {aula.professor_nome}
+                                    </strong>
+                                  </p>
+                                </div>
+
+                                <div
+                                    className={`pt-2.5 border-t ${
+                                        escuro ? 'border-[#232B35]' : 'border-stone-200'
+                                    }`}
+                                >
+                                  {!aula.pode_cancelar ? (
+                                      <p className="text-[11px] font-medium text-rose-400">
+                                        Prazo de 2h encerrado: cancelamento gratuito
+                                        indisponível (taxa da aula aplicável). Contate a
+                                        secretaria R4.
+                                      </p>
+                                  ) : pedindoConfirmacao ? (
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-rose-400">
+                                Confirmar cancelamento gratuito?
+                              </span>
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                              type="button"
+                                              disabled={cancelandoAulaId === aula.id}
+                                              onClick={() =>
+                                                  setConfirmandoCancelamentoId(null)
+                                              }
+                                              className={`px-2.5 py-1 rounded-lg border text-xs cursor-pointer ${clsCard}`}
+                                          >
+                                            Não
+                                          </button>
+                                          <button
+                                              type="button"
+                                              disabled={cancelandoAulaId === aula.id}
+                                              onClick={() =>
+                                                  void handleCancelarProximaAula(aula.id)
+                                              }
+                                              className="px-3 py-1 rounded-lg bg-[#BE1E23] hover:bg-rose-700 text-xs font-semibold text-white cursor-pointer"
+                                          >
+                                            {cancelandoAulaId === aula.id
+                                                ? 'Cancelando...'
+                                                : 'Sim, cancelar'}
+                                          </button>
+                                        </div>
+                                      </div>
+                                  ) : (
+                                      <button
+                                          type="button"
+                                          onClick={() =>
+                                              setConfirmandoCancelamentoId(aula.id)
+                                          }
+                                          className="text-xs font-semibold text-rose-400 hover:underline cursor-pointer"
+                                      >
+                                        Cancelar agendamento (gratuito até 2h antes)
+                                      </button>
+                                  )}
+                                </div>
+                              </div>
+                          );
+                        })}
+                      </div>
                     </section>
                 )}
 
-                {!sistemaAberto ? (
-                    <section
-                        className={`border border-[#C24124]/45 rounded-2xl p-6 text-center space-y-3 ${clsCard}`}
-                    >
-                <span className="inline-block text-xs font-bold uppercase tracking-wider text-[#E07A5F] bg-[#C24124]/15 px-3 py-1 rounded-full">
-                  Agendamento Online Fechado
-                </span>
-                      <h2 className={`text-lg font-bold ${clsTitulo}`}>
-                        No momento o agendamento pelo portal online do R4 não está
-                        ativo
-                      </h2>
-                      <p className={`text-sm max-w-xl mx-auto ${clsSubtexto}`}>
-                        {motivoFechado ||
-                            'O agendamento online funciona de Segunda a Sexta, das 18:00 às 22:00. Para marcar aulas agora ou para a próxima semana, fale com nosso atendimento humano (Segunda a Sexta, das 08:00 às 18:00).'}
-                      </p>
-                    </section>
-                ) : (
-                    alunoAtivo && (
-                        <>
-                          <section
-                              className={`border rounded-2xl p-6 space-y-6 ${clsCard}`}
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-dashed border-[#0E7C86]/35">
-                      <span className="text-xs font-semibold text-[#1496A1]">
-                        Professores R4 habilitados para:{' '}
-                        <strong>{alunoAtivo.serie}</strong>
-                      </span>
+                {/* GRADE DE AGENDAMENTO */}
+                {alunoAtivo && (
+                    <>
+                      {!sistemaAberto && (
+                          <section className="rounded-2xl border border-[#C24124]/45 bg-[#C24124]/15 p-5 flex items-start gap-3">
+                            <AlertCircle className="w-5 h-5 text-[#E07A5F] shrink-0 mt-0.5" />
+                            <div className="space-y-1 text-sm">
+                              <p className="font-bold text-[#E07A5F]">
+                                Agendamento Online Indisponível Neste Momento
+                              </p>
+                              <p className={clsSubtexto}>
+                                {motivoFechado || textos.aviso_sistema_fechado}
+                              </p>
                             </div>
+                          </section>
+                      )}
 
-                            <div>
-                              <label
-                                  className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-2.5 ${clsSubtexto}`}
-                              >
-                                <MapPin className="w-3.5 h-3.5 text-[#1496A1]" />
-                                1. Escolha a Unidade R4 (Presencial ou Online)
-                              </label>
-                              <div className="flex flex-wrap gap-2">
-                                {unidades.map((u) => {
-                                  const ativa = u.id === unidadeId;
-                                  return (
-                                      <button
-                                          key={u.id}
-                                          type="button"
-                                          onClick={() => handleTrocarUnidade(u.id)}
-                                          className={`px-4 py-2 rounded-xl text-sm font-medium border transition cursor-pointer ${
-                                              ativa
-                                                  ? 'bg-[#0E7C86] border-[#1496A1] text-white'
-                                                  : `${clsSubCard} ${clsSubtexto} hover:border-stone-500`
-                                          }`}
-                                      >
-                                        {u.nome}
-                                      </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            <div>
-                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                      {sistemaAberto && (
+                          <>
+                            <section
+                                className={`border rounded-2xl p-5 space-y-5 ${clsCard}`}
+                            >
+                              <div className="space-y-2">
                                 <label
                                     className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
                                 >
-                                  <Calendar className="w-3.5 h-3.5 text-[#1496A1]" />
-                                  2. Escolha a Data (Até Domingo desta Semana)
+                                  <MapPin className="w-3.5 h-3.5 text-[#1496A1]" /> 1.
+                                  Escolha a Unidade R4
                                 </label>
-                                <span className={`text-[11px] ${clsSubtexto}`}>
-                          Próxima semana: apenas via atendimento humano
-                        </span>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                  {unidades.map((u) => {
+                                    const ativa = u.id === unidadeId;
+                                    return (
+                                        <button
+                                            key={u.id}
+                                            type="button"
+                                            onClick={() => handleTrocarUnidade(u.id)}
+                                            className={`py-3 px-4 rounded-xl text-sm font-semibold border transition cursor-pointer ${
+                                                ativa
+                                                    ? 'bg-[#0E7C86] border-[#1496A1] text-white shadow-md shadow-[#0E7C86]/25'
+                                                    : `${clsSubCard} ${clsSubtexto} hover:border-[#0E7C86]/50`
+                                            }`}
+                                        >
+                                          {u.nome}
+                                        </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
 
-                              {datas.length === 0 && !carregandoHorarios ? (
-                                  <p className="text-sm text-[#D96B43]">
-                                    Nenhuma data disponível nesta janela. Para aulas na
-                                    próxima semana, entre em contato com o atendimento
-                                    humano da equipe R4 (Segunda a Sexta, das 08:00 às
-                                    18:00).
-                                  </p>
-                              ) : (
-                                  <div className="flex flex-wrap gap-2">
-                                    {datas.map((d) => {
-                                      const ativa = d.data === dataSelecionada;
-                                      return (
-                                          <button
-                                              key={d.data}
-                                              type="button"
-                                              onClick={() => handleTrocarData(d.data)}
-                                              className={`px-3.5 py-2 rounded-xl text-left border transition cursor-pointer ${
-                                                  ativa
-                                                      ? 'bg-[#0E7C86] border-[#1496A1] text-white'
-                                                      : `${clsSubCard} ${clsSubtexto} hover:border-stone-500`
-                                              }`}
-                                          >
-                                <span className="block text-[10px] font-bold opacity-80">
-                                  {formatarDiaSemana(d.data)}
-                                </span>
-                                            <span className="text-sm font-semibold">
-                                  {d.data_formatada}
-                                </span>
-                                          </button>
-                                      );
-                                    })}
+                              <div className="space-y-2">
+                                <label
+                                    className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
+                                >
+                                  <Calendar className="w-3.5 h-3.5 text-[#1496A1]" /> 2.
+                                  Datas Liberadas Esta Semana
+                                </label>
+
+                                {datas.length === 0 ? (
+                                    <div
+                                        className={`rounded-xl border p-3.5 text-xs ${clsSubCard} ${clsSubtexto}`}
+                                    >
+                                      Não há mais datas disponíveis para esta semana. Para
+                                      marcar na próxima semana, fale com nossa secretaria
+                                      (segunda a sexta, das 08:00 às 18:00).
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-2.5 overflow-x-auto pb-1">
+                                      {datas.map((d) => {
+                                        const ativa = d.data === dataSelecionada;
+                                        return (
+                                            <button
+                                                key={d.data}
+                                                type="button"
+                                                onClick={() => handleTrocarData(d.data)}
+                                                className={`min-w-[118px] py-2.5 px-3.5 rounded-xl border text-center transition cursor-pointer shrink-0 ${
+                                                    ativa
+                                                        ? 'bg-[#0E7C86] border-[#1496A1] text-white shadow-md shadow-[#0E7C86]/25'
+                                                        : `${clsSubCard} ${clsSubtexto} hover:border-[#0E7C86]/50`
+                                                }`}
+                                            >
+                                  <span
+                                      className={`block text-[10px] font-bold tracking-wider ${
+                                          ativa
+                                              ? 'text-teal-100'
+                                              : 'text-[#1496A1]'
+                                      }`}
+                                  >
+                                    {formatarDiaSemana(d.data)}
+                                  </span>
+                                              <span className="block text-sm font-bold mt-0.5">
+                                    {d.data_formatada}
+                                  </span>
+                                            </button>
+                                        );
+                                      })}
+                                    </div>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                <div>
+                                  <label
+                                      className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                                  >
+                                    Filtrar por Matéria (para {alunoAtivo.serie})
+                                  </label>
+                                  <select
+                                      value={materiaFiltro}
+                                      onChange={(e) =>
+                                          handleTrocarMateria(e.target.value)
+                                      }
+                                      className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                                  >
+                                    <option value="todas">
+                                      Todas as matérias para esta série
+                                    </option>
+                                    {materias.map((m) => (
+                                        <option key={m} value={m}>
+                                          {m}
+                                        </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label
+                                      className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                                  >
+                                    Buscar Professor(a)
+                                  </label>
+                                  <div className="relative">
+                                    <Search
+                                        className={`w-4 h-4 absolute left-3.5 top-3 ${clsSubtexto}`}
+                                    />
+                                    <input
+                                        type="text"
+                                        value={buscaProfessor}
+                                        onChange={(e) =>
+                                            setBuscaProfessor(e.target.value)
+                                        }
+                                        placeholder="Digite o nome do professor..."
+                                        className={`w-full rounded-xl border pl-10 pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                                    />
                                   </div>
-                              )}
-                            </div>
-
-                            <div
-                                className={`grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t ${
-                                    escuro ? 'border-[#232B35]' : 'border-stone-200'
-                                }`}
-                            >
-                              <div>
-                                <label
-                                    className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${clsSubtexto}`}
-                                >
-                                  3. Filtrar por Matéria
-                                </label>
-                                <select
-                                    value={materiaFiltro}
-                                    onChange={(e) => handleTrocarMateria(e.target.value)}
-                                    className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
-                                >
-                                  <option value="todas">Todas as Matérias</option>
-                                  {materias.map((m) => (
-                                      <option key={m} value={m}>
-                                        {m}
-                                      </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div>
-                                <label
-                                    className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${clsSubtexto}`}
-                                >
-                                  4. Buscar Professor(a)
-                                </label>
-                                <div className="relative">
-                                  <Search
-                                      className={`w-4 h-4 absolute left-3.5 top-3 ${clsSubtexto}`}
-                                  />
-                                  <input
-                                      type="text"
-                                      value={buscaProfessor}
-                                      onChange={(e) => setBuscaProfessor(e.target.value)}
-                                      placeholder="Digite o nome do professor..."
-                                      className={`w-full rounded-xl border pl-10 pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
-                                  />
                                 </div>
                               </div>
-                            </div>
-                          </section>
-
-                          <section className="space-y-4">
-                            {aulasAtivasAlunoSelecionado >= limiteSimultaneo && (
-                                <div className="rounded-2xl border border-[#C24124]/45 bg-[#C24124]/15 p-4 text-xs text-[#E07A5F] flex items-center gap-2.5">
-                                  <AlertCircle className="w-4 h-4 shrink-0" />
-                                  <span>
-                          <strong>{alunoAtivo.nome_aluno}</strong> já atingiu o
-                          limite de <strong>{limiteSimultaneo} aulas</strong>{' '}
-                                    futuras agendadas simultaneamente. Conclua ou cancele
-                          uma aula acima para liberar nova reserva.
-                        </span>
-                                </div>
-                            )}
+                            </section>
 
                             {erroGeral && (
-                                <div className="rounded-2xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 p-4 text-sm text-rose-400">
+                                <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 p-4 text-sm text-rose-400">
                                   {erroGeral}
                                 </div>
                             )}
 
-                            {carregandoHorarios ? (
-                                <div
-                                    className={`border rounded-2xl p-8 text-center text-sm ${clsCard} ${clsSubtexto}`}
-                                >
-                                  Consultando horários disponíveis na agenda do R4...
-                                </div>
-                            ) : professoresExibidos.length === 0 ? (
-                                <div
-                                    className={`border rounded-2xl p-8 text-center text-sm ${clsCard} ${clsSubtexto}`}
-                                >
-                                  Nenhum professor habilitado para{' '}
-                                  <strong>{alunoAtivo.serie}</strong> encontrado neste
-                                  filtro.
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  {professoresExibidos.map((prof) => {
-                                    const listaSlots = prof.todosSlots || [];
+                            <section className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <h2 className={`text-base font-bold ${clsTitulo}`}>
+                                  3. Horários Disponíveis (100 min) —{' '}
+                                  {unidadeAtual?.nome || 'Unidade'}
+                                </h2>
+                                <span className={`text-xs ${clsSubtexto}`}>
+                          {professoresExibidos.length} professor(es) para{' '}
+                                  {alunoAtivo.serie}
+                        </span>
+                              </div>
 
-                                    return (
-                                        <div
-                                            key={prof.id}
-                                            className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}
-                                        >
-                                          <div>
-                                            <h3 className={`text-base font-bold ${clsTitulo}`}>
-                                              {prof.nome}
-                                            </h3>
-                                            <p className={`text-xs mt-0.5 ${clsSubtexto}`}>
-                                              {prof.materias.join(' • ')}
-                                            </p>
-                                          </div>
+                              {carregandoHorarios ? (
+                                  <div
+                                      className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
+                                  >
+                                    Sincronizando agenda em tempo real...
+                                  </div>
+                              ) : datas.length === 0 ? null : professoresExibidos.length ===
+                              0 ? (
+                                  <div
+                                      className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
+                                  >
+                                    Nenhum professor encontrado para {alunoAtivo.serie}{' '}
+                                    com esta matéria/unidade.
+                                  </div>
+                              ) : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {professoresExibidos.map((prof) => {
+                                      const livresSet = new Set(
+                                          prof.slotsDisponiveis.map((s) => s.inicio)
+                                      );
 
-                                          {listaSlots.length === 0 ? (
-                                              <p className={`text-xs ${clsSubtexto}`}>
-                                                Sem turnos configurados para este professor.
-                                              </p>
-                                          ) : (
-                                              <div className="grid grid-cols-2 gap-2">
-                                                {listaSlots.map((slot) => {
-                                                  const livre = prof.slotsDisponiveis.some(
-                                                      (s) => s.inicio === slot.inicio
-                                                  );
-                                                  const bloqueadoLimite =
-                                                      aulasAtivasAlunoSelecionado >=
-                                                      limiteSimultaneo;
-
-                                                  return (
-                                                      <button
-                                                          key={slot.inicio}
-                                                          type="button"
-                                                          disabled={!livre || bloqueadoLimite}
-                                                          onClick={() =>
-                                                              abrirModalAgendamento(prof, slot)
-                                                          }
-                                                          className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition text-center ${
-                                                              livre && !bloqueadoLimite
-                                                                  ? slot.periodo === 'manha'
-                                                                      ? 'bg-[#C24124]/15 hover:bg-[#C24124] border-[#C24124]/45 text-[#E07A5F] hover:text-white cursor-pointer'
-                                                                      : 'bg-[#0E7C86]/15 hover:bg-[#0E7C86] border-[#0E7C86]/45 text-[#25A4AF] hover:text-white cursor-pointer'
-                                                                  : `${clsSubCard} ${clsSubtexto} opacity-45 cursor-not-allowed line-through`
-                                                          }`}
-                                                      >
-                                        <span className="block text-[10px] uppercase opacity-80">
-                                          {slot.periodo === 'manha'
-                                              ? 'Manhã (100m)'
-                                              : 'Tarde/Noite'}
-                                        </span>
-                                                        {slot.label}
-                                                      </button>
-                                                  );
-                                                })}
+                                      return (
+                                          <article
+                                              key={prof.id}
+                                              className={`border rounded-2xl p-5 flex flex-col justify-between gap-4 transition ${clsCard}`}
+                                          >
+                                            <div className="space-y-1.5">
+                                              <div className="flex items-center justify-between gap-2">
+                                                <h3
+                                                    className={`text-base font-bold ${clsTitulo}`}
+                                                >
+                                                  {prof.nome}
+                                                </h3>
+                                                <span
+                                                    className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
+                                                        prof.slotsDisponiveis.length > 0
+                                                            ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/35'
+                                                            : `${clsSubCard} ${clsSubtexto}`
+                                                    }`}
+                                                >
+                                      {prof.slotsDisponiveis.length} livre(s)
+                                    </span>
                                               </div>
-                                          )}
-                                        </div>
-                                    );
-                                  })}
-                                </div>
-                            )}
-                          </section>
-                        </>
-                    )
+                                              <p className={`text-xs ${clsSubtexto}`}>
+                                                {prof.materias.join(' • ')}
+                                              </p>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-2">
+                                              {prof.todosSlots.map((slot) => {
+                                                const disponivel = livresSet.has(
+                                                    slot.inicio
+                                                );
+                                                return (
+                                                    <button
+                                                        key={slot.inicio}
+                                                        type="button"
+                                                        disabled={!disponivel}
+                                                        onClick={() =>
+                                                            abrirModalAgendamento(prof, slot)
+                                                        }
+                                                        className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition ${
+                                                            disponivel
+                                                                ? escuro
+                                                                    ? 'bg-[#0E7C86]/15 hover:bg-[#0E7C86] border-[#0E7C86]/45 text-[#39B8C4] hover:text-white cursor-pointer'
+                                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/35 text-[#0B5C63] hover:text-white cursor-pointer'
+                                                                : `${clsSubCard} ${clsSubtexto} opacity-55 line-through cursor-not-allowed`
+                                                        }`}
+                                                    >
+                                                      <Clock className="w-3.5 h-3.5" />
+                                                      <span>{slot.label}</span>
+                                                    </button>
+                                                );
+                                              })}
+                                            </div>
+                                          </article>
+                                      );
+                                    })}
+                                  </div>
+                              )}
+                            </section>
+                          </>
+                      )}
+                    </>
                 )}
               </>
           )}
+        </div>
 
-          {selecaoSlot && alunoAtivo && (
-              <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+        {/* MODAL DE CONFIRMAÇÃO DE AGENDAMENTO */}
+        {selecaoSlot && alunoAtivo && (
+            <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+              <div
+                  className={`border rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl ${clsCard}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                  Confirmar Aula R4 Ensina (100 min)
+                </span>
+                    <h2 className={`text-lg font-bold mt-0.5 ${clsTitulo}`}>
+                      {selecaoSlot.professor.nome}
+                    </h2>
+                    <p className={`text-xs mt-0.5 ${clsSubtexto}`}>
+                      {unidadeAtual?.nome} •{' '}
+                      {datas.find((d) => d.data === dataSelecionada)
+                          ?.data_formatada || dataSelecionada}{' '}
+                      às {selecaoSlot.slot.label}
+                    </p>
+                  </div>
+                  <button
+                      type="button"
+                      onClick={() => setSelecaoSlot(null)}
+                      className={`p-1.5 rounded-lg cursor-pointer ${clsSubtexto}`}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
                 <div
-                    className={`border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl ${clsCard}`}
+                    className={`rounded-xl border p-3.5 text-xs space-y-1 ${clsSubCard}`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    Confirmar Aula R4 (100 min)
-                  </span>
-                      <h3 className={`text-lg font-bold mt-0.5 ${clsTitulo}`}>
-                        {selecaoSlot.professor.nome}
-                      </h3>
-                      <p className={`text-xs ${clsSubtexto}`}>
-                        {unidadeAtual?.nome || 'Unidade'} • {dataSelecionada} •{' '}
-                        <strong className="text-[#1496A1]">
-                          {selecaoSlot.slot.label}
-                        </strong>
-                      </p>
-                    </div>
+                  <p>
+                    <strong>Aluno(a):</strong> {alunoAtivo.nome_aluno}
+                  </p>
+                  <p>
+                    <strong>Colégio / Série:</strong> {alunoAtivo.colegio_nome} •{' '}
+                    {alunoAtivo.serie}
+                  </p>
+                  <p>
+                    <strong>Responsável:</strong> {responsavelConfirmado} (
+                    {formatarTelefone(telefoneConfirmado)})
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-[#BE1E23]/12 border border-[#BE1E23]/35 px-3.5 py-2.5 text-[11px] text-rose-300">
+                  {textos.aviso_modal_lembrete}
+                </div>
+
+                <form onSubmit={handleConfirmarAgendamento} className="space-y-3.5">
+                  <div>
+                    <label
+                        className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                    >
+                      Matéria da Aula *
+                    </label>
+                    <select
+                        required
+                        value={materiaAula}
+                        onChange={(e) => setMateriaAula(e.target.value)}
+                        className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                    >
+                      {selecaoSlot.professor.materias.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                        className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
+                    >
+                      Conteúdo / Assunto da Prova (opcional)
+                    </label>
+                    <textarea
+                        rows={2}
+                        value={observacoes}
+                        onChange={(e) => setObservacoes(e.target.value)}
+                        placeholder="Ex: Revisão de equações do 2º grau para prova"
+                        className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                    />
+                  </div>
+
+                  {erroModal && (
+                      <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
+                        {erroModal}
+                      </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2.5 pt-2">
                     <button
                         type="button"
                         onClick={() => setSelecaoSlot(null)}
-                        className={`p-1.5 rounded-lg cursor-pointer ${clsSubtexto}`}
+                        className={`px-4 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
                     >
-                      <X className="w-4 h-4" />
+                      Voltar
+                    </button>
+                    <button
+                        type="submit"
+                        disabled={enviandoAgendamento}
+                        className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-bold text-white shadow-md cursor-pointer"
+                    >
+                      {enviandoAgendamento
+                          ? 'Agendando...'
+                          : 'Confirmar Agendamento'}
                     </button>
                   </div>
-
-                  <div
-                      className={`border rounded-xl p-3.5 text-xs space-y-1 ${clsSubCard}`}
-                  >
-                    <p>
-                      <strong>Aluno(a):</strong> {alunoAtivo.nome_aluno}
-                    </p>
-                    <p>
-                      <strong>Colégio / Série:</strong> {alunoAtivo.colegio_nome} •{' '}
-                      {alunoAtivo.serie}
-                    </p>
-                    <p>
-                      <strong>Responsável:</strong> {responsavelConfirmado} (
-                      {formatarTelefone(telefoneConfirmado)})
-                    </p>
-                  </div>
-
-                  <form onSubmit={handleConfirmarAgendamento} className="space-y-4">
-                    <div>
-                      <label
-                          className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                      >
-                        Matéria da Aula *
-                      </label>
-                      <select
-                          required
-                          value={materiaAula}
-                          onChange={(e) => setMateriaAula(e.target.value)}
-                          className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
-                      >
-                        {selecaoSlot.professor.materias.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label
-                          className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                      >
-                        Assunto / Conteúdo da Prova (opcional)
-                      </label>
-                      <textarea
-                          rows={3}
-                          value={observacoes}
-                          onChange={(e) => setObservacoes(e.target.value)}
-                          placeholder="Ex: Revisão de funções do 2º grau para prova de terça..."
-                          className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
-                      />
-                    </div>
-
-                    <p className="text-[11px] text-rose-400">
-                      Lembrete: cancelamentos gratuitos são aceitos até 2h antes do
-                      horário marcado; após esse prazo a taxa da aula é cobrada.
-                    </p>
-
-                    {erroModal && (
-                        <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2 text-xs text-rose-400">
-                          {erroModal}
-                        </div>
-                    )}
-
-                    <div className="flex items-center justify-end gap-2 pt-2">
-                      <button
-                          type="button"
-                          onClick={() => setSelecaoSlot(null)}
-                          className={`px-4 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                          type="submit"
-                          disabled={enviandoAgendamento}
-                          className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-bold text-white cursor-pointer"
-                      >
-                        {enviandoAgendamento
-                            ? 'Confirmando...'
-                            : 'Confirmar Agendamento'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                </form>
               </div>
-          )}
-        </div>
+            </div>
+        )}
       </main>
   );
 }
