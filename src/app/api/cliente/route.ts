@@ -159,6 +159,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (acao === 'removerAluno') {
+
             const alunoId = Number(body?.alunoId || 0);
             const telefone = normalizarTelefone(String(body?.telefone || ''));
 
@@ -185,6 +186,91 @@ export async function POST(req: NextRequest) {
       `;
 
             return NextResponse.json({ sucesso: true, alunos: restantes });
+        }
+        if (acao === 'editarAluno') {
+            const alunoId = Number(body?.alunoId || 0);
+            const telefone = normalizarTelefone(String(body?.telefone || ''));
+            const nomeAluno = String(body?.nomeAluno || '').trim();
+            const colegioOpcao = String(body?.colegioOpcao || '').trim();
+            const colegioOutroNome = String(body?.colegioOutroNome || '').trim();
+            const serie = String(body?.serie || '').trim();
+
+            if (!alunoId || telefone.length < 10 || !nomeAluno || !serie) {
+                return NextResponse.json(
+                    { error: 'Preencha todos os dados para atualizar o aluno.' },
+                    { status: 400 }
+                );
+            }
+
+            let colegioIdFinal: number | null = null;
+            let colegioNomeFinal = '';
+
+            if (colegioOpcao === 'outros') {
+                if (colegioOutroNome.length < 2) {
+                    return NextResponse.json(
+                        { error: 'Digite o nome do colégio na opção "Outros".' },
+                        { status: 400 }
+                    );
+                }
+                colegioNomeFinal = colegioOutroNome.replace(/\s+/g, ' ').trim();
+                const existente = (await sql`
+          SELECT id, nome FROM colegios
+          WHERE lower(trim(nome)) = lower(trim(${colegioNomeFinal}))
+          LIMIT 1
+        `) as { id: number; nome: string }[];
+
+                if (existente.length > 0) {
+                    colegioIdFinal = existente[0].id;
+                    colegioNomeFinal = existente[0].nome;
+                } else {
+                    const novoColegio = (await sql`
+            INSERT INTO colegios (nome, aprovado)
+            VALUES (${colegioNomeFinal}, false)
+            RETURNING id, nome
+          `) as { id: number; nome: string }[];
+                    colegioIdFinal = novoColegio[0].id;
+                    colegioNomeFinal = novoColegio[0].nome;
+                }
+            } else {
+                const idNum = Number(colegioOpcao);
+                const colRows = (await sql`
+          SELECT id, nome FROM colegios WHERE id = ${idNum} LIMIT 1
+        `) as { id: number; nome: string }[];
+
+                if (colRows.length === 0) {
+                    return NextResponse.json(
+                        { error: 'Colégio selecionado não encontrado.' },
+                        { status: 404 }
+                    );
+                }
+                colegioIdFinal = colRows[0].id;
+                colegioNomeFinal = colRows[0].nome;
+            }
+
+            await sql`
+        UPDATE alunos
+        SET
+          nome_aluno = ${nomeAluno},
+          colegio_id = ${colegioIdFinal},
+          colegio_nome = ${colegioNomeFinal},
+          serie = ${serie}
+        WHERE id = ${alunoId}
+          AND telefone = ${telefone}
+          AND ativo = true
+      `;
+
+            const todosAlunos = await sql`
+        SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
+        FROM alunos
+        WHERE telefone = ${telefone}
+          AND ativo = true
+        ORDER BY id ASC
+      `;
+
+            return NextResponse.json({
+                sucesso: true,
+                alunos: todosAlunos,
+            });
         }
 
         const telefone = normalizarTelefone(String(body?.telefone || ''));

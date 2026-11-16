@@ -18,112 +18,140 @@ export async function GET() {
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`;
 
-        const [unidades, professores, datasLiberadas, agendamentos, syncInfo] =
-            await Promise.all([
-                sql`
-          SELECT id, nome, clin_care_id, ativa
-          FROM unidades
-          ORDER BY nome ASC
-        `,
-                sql`
-          SELECT
-            p.id,
-            p.nome,
-            p.clin_care_id,
-            p.unidade_id,
-            u.nome AS unidade_nome,
-            p.materias,
-            to_char(p.hora_inicio, 'HH24:MI') AS hora_inicio,
-            to_char(p.hora_fim, 'HH24:MI') AS hora_fim,
-            p.ativo
-          FROM professores p
-          JOIN unidades u ON u.id = p.unidade_id
-          ORDER BY u.nome ASC, p.nome ASC
-        `,
-                sql`
-          SELECT
-            id,
-            to_char(data, 'YYYY-MM-DD') AS data,
-            descricao,
-            ativo
-          FROM datas_liberadas
-          ORDER BY data DESC
-          LIMIT 60
-        `,
-                sql`
-          SELECT
-            a.id,
-            a.unidade_id,
-            COALESCE(u.nome, 'Unidade') AS unidade_nome,
-            a.professor_id,
-            COALESCE(p.nome, 'Professor') AS professor_nome,
-            a.materia,
-            to_char(a.data, 'YYYY-MM-DD') AS data,
-            COALESCE(
-              CASE
-                WHEN a.hora_inicio IS NOT NULL AND a.hora_fim IS NOT NULL
-                  THEN to_char(a.hora_inicio, 'HH24:MI') || ' às ' || to_char(a.hora_fim, 'HH24:MI')
-                WHEN a.hora_inicio IS NOT NULL
-                  THEN to_char(a.hora_inicio, 'HH24:MI')
-                ELSE NULL
-              END,
-              to_char(a.horario, 'HH24:MI'),
-              ''
-            ) AS horario,
-            COALESCE(
-              NULLIF(trim(a.responsavel_nome), ''),
-              NULLIF(trim(a.nome_responsavel), ''),
-              NULLIF(trim(al.responsavel_nome), ''),
-              ''
-            ) AS nome_responsavel,
-            COALESCE(
-              NULLIF(trim(a.aluno_telefone), ''),
-              NULLIF(trim(a.whatsapp_responsavel), ''),
-              NULLIF(trim(al.telefone_formatado), ''),
-              NULLIF(trim(al.telefone), ''),
-              ''
-            ) AS whatsapp_responsavel,
-            COALESCE(
-              NULLIF(trim(a.aluno_nome), ''),
-              NULLIF(trim(a.nome_aluno), ''),
-              NULLIF(trim(al.nome_aluno), ''),
-              'Aluno não informado'
-            ) AS nome_aluno,
-            COALESCE(
-              NULLIF(trim(a.colegio_nome), ''),
-              NULLIF(trim(a.colegio_aluno), ''),
-              NULLIF(trim(al.colegio_nome), ''),
-              ''
-            ) AS colegio_aluno,
-            COALESCE(
-              NULLIF(trim(a.serie), ''),
-              NULLIF(trim(a.serie_aluno), ''),
-              NULLIF(trim(al.serie), ''),
-              ''
-            ) AS serie_aluno,
-            a.observacoes,
-            COALESCE(a.status, 'confirmado') AS status,
-            COALESCE(a.lancado_clincare, a.sincronizado_clincare, false) AS sincronizado_clincare,
-            to_char(a.criado_em AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS criado_em_formatado
-          FROM agendamentos a
-          LEFT JOIN unidades u ON u.id = a.unidade_id
-          LEFT JOIN professores p ON p.id = a.professor_id
-          LEFT JOIN alunos al ON al.id = a.aluno_id
-          ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
-          LIMIT 250
-        `,
-                sql`
-          SELECT to_char(max(atualizado_em) AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS ultima_sincronizacao
-          FROM bloqueios_clincare
-        `,
-            ]);
+        const [
+            unidades,
+            professores,
+            datasLiberadas,
+            agendamentos,
+            bloqueios,
+            syncInfo,
+        ] = await Promise.all([
+            sql`
+        SELECT id, nome, clin_care_id, ativa
+        FROM unidades
+        ORDER BY nome ASC
+      `,
+            sql`
+        SELECT
+          p.id,
+          p.nome,
+          p.clin_care_id,
+          p.unidade_id,
+          u.nome AS unidade_nome,
+          p.materias,
+          to_char(p.hora_inicio, 'HH24:MI') AS hora_inicio,
+          to_char(p.hora_fim, 'HH24:MI') AS hora_fim,
+          p.ativo
+        FROM professores p
+        JOIN unidades u ON u.id = p.unidade_id
+        ORDER BY u.nome ASC, p.nome ASC
+      `,
+            sql`
+        SELECT
+          id,
+          to_char(data, 'YYYY-MM-DD') AS data,
+          descricao,
+          ativo
+        FROM datas_liberadas
+        ORDER BY data DESC
+        LIMIT 60
+      `,
+            sql`
+        SELECT
+          a.id,
+          a.unidade_id,
+          COALESCE(u.nome, 'Unidade') AS unidade_nome,
+          a.professor_id,
+          COALESCE(p.nome, 'Professor') AS professor_nome,
+          p.clin_care_id AS professor_clin_care_id,
+          a.materia,
+          to_char(a.data, 'YYYY-MM-DD') AS data,
+          COALESCE(
+            to_char(a.hora_inicio, 'HH24:MI'),
+            to_char(a.horario, 'HH24:MI'),
+            ''
+          ) AS hora_inicio,
+          COALESCE(
+            CASE
+              WHEN a.hora_inicio IS NOT NULL AND a.hora_fim IS NOT NULL
+                THEN to_char(a.hora_inicio, 'HH24:MI') || ' às ' || to_char(a.hora_fim, 'HH24:MI')
+              WHEN a.hora_inicio IS NOT NULL
+                THEN to_char(a.hora_inicio, 'HH24:MI')
+              ELSE NULL
+            END,
+            to_char(a.horario, 'HH24:MI'),
+            ''
+          ) AS horario,
+          COALESCE(
+            NULLIF(trim(a.responsavel_nome), ''),
+            NULLIF(trim(a.nome_responsavel), ''),
+            NULLIF(trim(al.responsavel_nome), ''),
+            ''
+          ) AS nome_responsavel,
+          COALESCE(
+            NULLIF(trim(a.aluno_telefone), ''),
+            NULLIF(trim(a.whatsapp_responsavel), ''),
+            NULLIF(trim(al.telefone_formatado), ''),
+            NULLIF(trim(al.telefone), ''),
+            ''
+          ) AS whatsapp_responsavel,
+          COALESCE(
+            NULLIF(trim(a.aluno_nome), ''),
+            NULLIF(trim(a.nome_aluno), ''),
+            NULLIF(trim(al.nome_aluno), ''),
+            'Aluno não informado'
+          ) AS nome_aluno,
+          COALESCE(
+            NULLIF(trim(a.colegio_nome), ''),
+            NULLIF(trim(a.colegio_aluno), ''),
+            NULLIF(trim(al.colegio_nome), ''),
+            ''
+          ) AS colegio_aluno,
+          COALESCE(
+            NULLIF(trim(a.serie), ''),
+            NULLIF(trim(a.serie_aluno), ''),
+            NULLIF(trim(al.serie), ''),
+            ''
+          ) AS serie_aluno,
+          a.observacoes,
+          COALESCE(a.status, 'confirmado') AS status,
+          COALESCE(a.lancado_clincare, a.sincronizado_clincare, false) AS sincronizado_clincare,
+          to_char(a.criado_em AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS criado_em_formatado
+        FROM agendamentos a
+        LEFT JOIN unidades u ON u.id = a.unidade_id
+        LEFT JOIN professores p ON p.id = a.professor_id
+        LEFT JOIN alunos al ON al.id = a.aluno_id
+        ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
+        LIMIT 250
+      `,
+            sql`
+        SELECT
+          b.id,
+          b.professor_id,
+          p.clin_care_id AS professor_clin_care_id,
+          to_char(b.data, 'YYYY-MM-DD') AS data,
+          LEFT(b.hora_inicio::text, 5) AS hora_inicio,
+          LEFT(b.hora_fim::text, 5) AS hora_fim,
+          COALESCE(NULLIF(trim(b.motivo), ''), 'Bloqueio clin.care') AS motivo
+        FROM bloqueios_clincare b
+        LEFT JOIN professores p ON p.id = b.professor_id
+        WHERE b.data >= CURRENT_DATE - INTERVAL '15 days'
+        ORDER BY b.data ASC, b.hora_inicio ASC
+      `,
+            sql`
+        SELECT to_char(max(atualizado_em) AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS ultima_sincronizacao
+        FROM bloqueios_clincare
+      `,
+        ]);
 
         return NextResponse.json({
             unidades,
             professores,
             datasLiberadas,
             agendamentos,
+            bloqueios,
             ultimaSincronizacao: syncInfo[0]?.ultima_sincronizacao || null,
         });
     } catch (error) {

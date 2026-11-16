@@ -9,22 +9,51 @@ export async function PATCH(req: NextRequest) {
     }
 
     try {
-        const { id, status } = await req.json();
-        if (!id || !['confirmado', 'cancelado', 'concluido'].includes(status)) {
-            return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 });
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`;
+
+        const body = await req.json();
+        const id = Number(body?.id || 0);
+
+        if (!id) {
+            return NextResponse.json(
+                { error: 'ID do agendamento inválido.' },
+                { status: 400 }
+            );
         }
 
-        await sql`
-      UPDATE agendamentos
-      SET status = ${status}
-      WHERE id = ${Number(id)}
-    `;
+        if (typeof body?.lancado_clincare === 'boolean') {
+            const lancado = body.lancado_clincare;
+            await sql`
+        UPDATE agendamentos
+        SET
+          lancado_clincare = ${lancado},
+          sincronizado_clincare = ${lancado}
+        WHERE id = ${id}
+      `;
+        }
 
-        return NextResponse.json({ ok: true });
+        if (typeof body?.status === 'string' && body.status) {
+            const status = body.status;
+            if (!['confirmado', 'cancelado', 'concluido'].includes(status)) {
+                return NextResponse.json(
+                    { error: 'Status inválido.' },
+                    { status: 400 }
+                );
+            }
+
+            await sql`
+        UPDATE agendamentos
+        SET status = ${status}
+        WHERE id = ${id}
+      `;
+        }
+
+        return NextResponse.json({ sucesso: true });
     } catch (error) {
         console.error('Erro ao atualizar agendamento:', error);
         return NextResponse.json(
-            { error: 'Falha ao atualizar status do agendamento.' },
+            { error: 'Não foi possível atualizar o agendamento.' },
             { status: 500 }
         );
     }

@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
 
+function normalizarMaterias(raw: unknown): string[] {
+    if (Array.isArray(raw)) {
+        return raw.map((m) => String(m).trim()).filter(Boolean);
+    }
+    return String(raw || '')
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean);
+}
+
 export async function POST(req: NextRequest) {
     const autenticado = await verificarAdminAutenticado();
     if (!autenticado) {
@@ -9,19 +19,17 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const { nome, unidade_id, materias, hora_inicio, hora_fim, clin_care_id } =
-            await req.json();
+        const body = await req.json();
+        const nome = String(body?.nome || '').trim();
+        const clinCareId = String(body?.clin_care_id || '').trim() || null;
+        const unidadeId = Number(body?.unidade_id || 0);
+        const materias = normalizarMaterias(body?.materias);
+        const horaInicio = String(body?.hora_inicio || '08:00').trim();
+        const horaFim = String(body?.hora_fim || '20:50').trim();
 
-        const listaMaterias = Array.isArray(materias)
-            ? materias
-            : String(materias || '')
-                .split(',')
-                .map((m) => m.trim())
-                .filter(Boolean);
-
-        if (!nome?.trim() || !unidade_id || listaMaterias.length === 0) {
+        if (!nome || !unidadeId || materias.length === 0) {
             return NextResponse.json(
-                { error: 'Preencha nome, unidade e ao menos uma matéria.' },
+                { error: 'Preencha nome, unidade e pelo menos uma matéria.' },
                 { status: 400 }
             );
         }
@@ -37,17 +45,17 @@ export async function POST(req: NextRequest) {
         ativo
       )
       VALUES (
-        ${nome.trim()},
-        ${clin_care_id?.trim() || null},
-        ${Number(unidade_id)},
-        ${listaMaterias},
-        ${hora_inicio || '08:00'}::time,
-        ${hora_fim || '17:00'}::time,
+        ${nome},
+        ${clinCareId},
+        ${unidadeId},
+        ${materias},
+        ${horaInicio}::time,
+        ${horaFim}::time,
         true
       )
     `;
 
-        return NextResponse.json({ ok: true });
+        return NextResponse.json({ sucesso: true }, { status: 201 });
     } catch (error) {
         console.error('Erro ao cadastrar professor:', error);
         return NextResponse.json(
@@ -64,14 +72,63 @@ export async function PATCH(req: NextRequest) {
     }
 
     try {
-        const { id, ativo } = await req.json();
+        const body = await req.json();
+        const id = Number(body?.id || 0);
+
+        if (!id) {
+            return NextResponse.json(
+                { error: 'ID do professor inválido.' },
+                { status: 400 }
+            );
+        }
+
+        // Alternar apenas status ativo/pausado
+        if (
+            typeof body?.ativo === 'boolean' &&
+            body?.nome === undefined &&
+            body?.materias === undefined
+        ) {
+            await sql`
+        UPDATE professores
+        SET ativo = ${body.ativo}
+        WHERE id = ${id}
+      `;
+            return NextResponse.json({ sucesso: true });
+        }
+
+        // Edição completa do professor
+        const nome = String(body?.nome || '').trim();
+        const clinCareId = String(body?.clin_care_id || '').trim() || null;
+        const unidadeId = Number(body?.unidade_id || 0);
+        const materias = normalizarMaterias(body?.materias);
+        const horaInicio = String(body?.hora_inicio || '08:00').trim();
+        const horaFim = String(body?.hora_fim || '20:50').trim();
+
+        if (!nome || !unidadeId || materias.length === 0) {
+            return NextResponse.json(
+                { error: 'Informe nome, unidade e ao menos uma matéria.' },
+                { status: 400 }
+            );
+        }
+
         await sql`
       UPDATE professores
-      SET ativo = ${Boolean(ativo)}
-      WHERE id = ${Number(id)}
+      SET
+        nome = ${nome},
+        clin_care_id = ${clinCareId},
+        unidade_id = ${unidadeId},
+        materias = ${materias},
+        hora_inicio = ${horaInicio}::time,
+        hora_fim = ${horaFim}::time
+      WHERE id = ${id}
     `;
-        return NextResponse.json({ ok: true });
-    } catch {
-        return NextResponse.json({ error: 'Falha ao atualizar professor.' }, { status: 500 });
+
+        return NextResponse.json({ sucesso: true });
+    } catch (error) {
+        console.error('Erro ao editar professor:', error);
+        return NextResponse.json(
+            { error: 'Falha ao salvar alterações do professor.' },
+            { status: 500 }
+        );
     }
 }
