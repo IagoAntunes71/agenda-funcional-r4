@@ -463,6 +463,25 @@ async function localizarColunaProfessor(
         return null;
     }, alvoNorm);
 }
+async function localizarHoraNaReguaEsquerda(
+    page: Page,
+    horaExata: string
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+    return page.evaluate((alvo) => {
+        const nos = Array.from(document.querySelectorAll('*'));
+        for (const el of nos) {
+            if (el.children.length > 0) continue;
+            const txt = (el.textContent || '').trim();
+            if (txt !== alvo) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0 && r.left >= 0 && r.left < 160) {
+                return { x: r.x, y: r.y, width: r.width, height: r.height };
+            }
+        }
+        return null;
+    }, horaExata);
+}
+
 async function criarReservaNoClinCare(
     page: Page,
     baseUrl: string,
@@ -511,55 +530,88 @@ async function criarReservaNoClinCare(
         );
     }
 
-    // 2. Localiza a linha vertical do horário (ex.: "19:00" para "19:10")
     const [hhRaw, mmRaw] = ag.hora_inicio.slice(0, 5).split(':');
     const hh = hhRaw.padStart(2, '0');
     const mm = mmRaw.padStart(2, '0');
-    const labelHoraAlvo = `${hh}:00`;
-    const labelHoraSeguinte = `${String(Number(hh) + 1).padStart(2, '0')}:00`;
-
-    const elHora = page.locator(`text="${labelHoraAlvo}"`).first();
-    if (await elHora.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await elHora.scrollIntoViewIfNeeded().catch(() => null);
-        await page.waitForTimeout(300);
-    }
-
-    // Revalida coordenadas após eventual rolagem vertical
-    coluna = (await localizarColunaProfessor(page, ag.professor_nome)) || coluna;
-    const boxHora = await elHora.boundingBox().catch(() => null);
-    const boxHoraSeguinte = await page
-        .locator(`text="${labelHoraSeguinte}"`)
-        .first()
-        .boundingBox()
-        .catch(() => null);
-
-    if (!boxHora) {
-        throw new Error(
-            `Linha do horário "${labelHoraAlvo}" não localizada na grade.`
-        );
-    }
-
-    const alturaHora =
-        boxHoraSeguinte && boxHoraSeguinte.y > boxHora.y + 20
-            ? boxHoraSeguinte.y - boxHora.y
-            : 88;
-
-    const clickX = Math.round(coluna.left + coluna.width / 2);
-    const baseY = Math.round(boxHora.y + (Number(mm) / 60) * alturaHora);
 
     const tituloModal = page.locator('text="Novo Agendamento"').first();
 
-    // Clica na barrinha branca do horário dentro da coluna do professor
-    for (const offsetY of [6, 18, 42]) {
-        await page.mouse.click(clickX, baseY + offsetY);
-        if (await tituloModal.isVisible({ timeout: 1400 }).catch(() => false)) {
+    // 2. Tenta abrir o modal clicando primeiro na hora desejada e, se estiver ocupada/bloqueada,
+    //    testa outras barrinhas brancas da mesma coluna do professor
+    const horasParaTentar = Array.from(
+        new Set([
+            `${hh}:00`,
+            '08:00',
+            '09:00',
+            '10:00',
+            '11:00',
+            '12:00',
+            '13:00',
+            '14:00',
+            '15:00',
+            '16:00',
+            '17:00',
+            '18:00',
+            '19:00',
+            '20:00',
+        ])
+    );
+
+    let ultimoDiagnostico = '';
+
+    for (const labelHora of horasParaTentar) {
+        const elRegua = page
+            .locator(`text="${labelHora}"`)
+            .filter({ hasText: new RegExp(`^${labelHora}$`) })
+            .first();
+
+        if (await elRegua.isVisible({ timeout: 500 }).catch(() => false)) {
+            await elRegua.scrollIntoViewIfNeeded().catch(() => null);
+            await page.waitForTimeout(200);
+        }
+
+        coluna = (await localizarColunaProfessor(page, ag.professor_nome)) || coluna;
+        const boxHora = await localizarHoraNaReguaEsquerda(page, labelHora);
+        if (!boxHora) continue;
+
+        const horaProx = `${String(Number(labelHora.slice(0, 2)) + 1).padStart(2, '0')}:00`;
+        const boxProx = await localizarHoraNaReguaEsquerda(page, horaProx);
+        const alturaHora =
+            boxProx && boxProx.y > boxHora.y + 20 ? boxProx.y - boxHora.y : 88;
+
+        const clickX = Math.round(coluna.left + coluna.width / 2);
+        const minutoRef = labelHora === `${hh}:00` ? Number(mm) : 10;
+        const baseY = Math.round(boxHora.y + (minutoRef / 60) * alturaHora);
+
+        for (const offsetY of [8, 28, 52]) {
+            const targetY = baseY + offsetY;
+            ultimoDiagnostico = await page.evaluate(
+                ({ x, y }) => {
+                    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+                    if (!el) return `sem elemento em (${x},${y})`;
+                    const txt = (el.innerText || el.textContent || '')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .slice(0, 40);
+                    return `(${x},${y}) tag=${el.tagName} txt="${txt}"`;
+                },
+                { x: clickX, y: targetY }
+            );
+
+            await page.mouse.click(clickX, targetY);
+            if (await tituloModal.isVisible({ timeout: 900 }).catch(() => false)) {
+                break;
+            }
+        }
+
+        if (await tituloModal.isVisible().catch(() => false)) {
             break;
         }
     }
 
-    if (!(await tituloModal.isVisible({ timeout: 1500 }).catch(() => false))) {
+    if (!(await tituloModal.isVisible().catch(() => false))) {
         throw new Error(
-            `Não foi possível abrir o modal de Novo Agendamento clicando em ${ag.professor_nome} às ${ag.hora_inicio} (possível choque de horário já ocupado no clin.care).`
+            `Não foi possível abrir o modal de Novo Agendamento para ${ag.professor_nome}. Último alvo: ${ultimoDiagnostico}`
         );
     }
 
