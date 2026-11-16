@@ -462,8 +462,7 @@ export default function PainelAdmin({
                                                     {ag.nome_aluno}
                                                 </h3>
                                                 <p className="text-xs text-slate-400">
-                                                    {ag.colegio_aluno ? `${ag.colegio_aluno} • ` : ''}
-                                                    {ag.serie_aluno}
+                                                    {[ag.colegio_aluno, ag.serie_aluno].filter(Boolean).join(' • ')}
                                                 </p>
                                             </div>
 
@@ -476,8 +475,8 @@ export default function PainelAdmin({
                                                             : 'bg-red-500/20 text-red-300'
                                                 }`}
                                             >
-                        {ag.status.toUpperCase()}
-                      </span>
+                                                {ag.status.toUpperCase()}
+                                            </span>
                                         </div>
 
                                         <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 text-xs space-y-1.5 text-slate-300">
@@ -489,11 +488,12 @@ export default function PainelAdmin({
                                                 <strong>Professor(a):</strong> {ag.professor_nome}
                                             </p>
                                             <p className="text-emerald-400 font-semibold">
-                                                Data: {formatarDataBR(ag.data)} às {ag.horario}
+                                                Data: {formatarDataBR(ag.data)}{ag.horario ? ` às ${ag.horario}` : ''}
                                             </p>
                                             <p>
-                                                <strong>Responsável:</strong> {ag.nome_responsavel} (
-                                                {ag.whatsapp_responsavel})
+                                                <strong>Responsável:</strong>{' '}
+                                                {ag.nome_responsavel || 'Não informado'}
+                                                {ag.whatsapp_responsavel ? ` (${ag.whatsapp_responsavel})` : ''}
                                             </p>
                                             {ag.observacoes && (
                                                 <p className="text-slate-400">
@@ -503,14 +503,16 @@ export default function PainelAdmin({
                                         </div>
 
                                         <div className="flex flex-wrap items-center gap-2 pt-1">
-                                            <a
-                                                href={linkWhatsapp}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="px-3 py-2 rounded-xl bg-emerald-950 border border-emerald-700 text-emerald-300 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-emerald-900"
-                                            >
-                                                <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                                            </a>
+                                            {whatsappNumeros && (
+                                                <a
+                                                    href={linkWhatsapp}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="px-3 py-2 rounded-xl bg-emerald-950 border border-emerald-700 text-emerald-300 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-emerald-900"
+                                                >
+                                                    <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                                                </a>
+                                            )}
 
                                             {ag.status === 'confirmado' && (
                                                 <>

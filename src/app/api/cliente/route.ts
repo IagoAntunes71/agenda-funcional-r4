@@ -20,6 +20,7 @@ export async function garantirTabelasClientesEColegios() {
       id SERIAL PRIMARY KEY,
       telefone TEXT NOT NULL,
       telefone_formatado TEXT,
+      responsavel_nome TEXT,
       nome_aluno TEXT NOT NULL,
       colegio_id INT REFERENCES colegios(id) ON DELETE SET NULL,
       colegio_nome TEXT NOT NULL,
@@ -28,6 +29,8 @@ export async function garantirTabelasClientesEColegios() {
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+
+    await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
 
     await sql`
     CREATE INDEX IF NOT EXISTS idx_alunos_telefone
@@ -55,6 +58,7 @@ export async function GET(req: NextRequest) {
                 {
                     telefone: '',
                     telefoneFormatado: '',
+                    responsavelNome: '',
                     alunos: [],
                     colegios: colegiosOficiais,
                 },
@@ -67,6 +71,7 @@ export async function GET(req: NextRequest) {
         id,
         telefone,
         telefone_formatado,
+        responsavel_nome,
         nome_aluno,
         colegio_id,
         colegio_nome,
@@ -79,16 +84,35 @@ export async function GET(req: NextRequest) {
             id: number;
             telefone: string;
             telefone_formatado: string | null;
+            responsavel_nome: string | null;
             nome_aluno: string;
             colegio_id: number | null;
             colegio_nome: string;
             serie: string;
         }[];
 
+        let responsavelNome =
+            alunos.find((a) => a.responsavel_nome && a.responsavel_nome.trim())
+                ?.responsavel_nome?.trim() || '';
+
+        if (!responsavelNome) {
+            const historico = (await sql`
+        SELECT COALESCE(NULLIF(trim(responsavel_nome), ''), NULLIF(trim(nome_responsavel), '')) AS resp
+        FROM agendamentos
+        WHERE regexp_replace(COALESCE(aluno_telefone, whatsapp_responsavel, ''), '\D', '', 'g') = ${telefone}
+          AND COALESCE(NULLIF(trim(responsavel_nome), ''), NULLIF(trim(nome_responsavel), '')) IS NOT NULL
+        ORDER BY criado_em DESC
+        LIMIT 1
+      `) as { resp: string | null }[];
+
+            responsavelNome = historico[0]?.resp?.trim() || '';
+        }
+
         return NextResponse.json(
             {
                 telefone,
                 telefoneFormatado: formatarTelefone(telefone),
+                responsavelNome,
                 alunos,
                 colegios: colegiosOficiais,
             },
@@ -110,6 +134,30 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const acao = String(body?.acao || 'cadastrarAluno');
 
+        if (acao === 'salvarResponsavel') {
+            const telefone = normalizarTelefone(String(body?.telefone || ''));
+            const responsavelNome = String(body?.responsavelNome || '').trim();
+
+            if (telefone.length < 10 || telefone.length > 11 || !responsavelNome) {
+                return NextResponse.json(
+                    { error: 'Informe o nome do responsável e um WhatsApp válido.' },
+                    { status: 400 }
+                );
+            }
+
+            await sql`
+        UPDATE alunos
+        SET responsavel_nome = ${responsavelNome}
+        WHERE telefone = ${telefone}
+          AND ativo = true
+      `;
+
+            return NextResponse.json({
+                sucesso: true,
+                responsavelNome,
+            });
+        }
+
         if (acao === 'removerAluno') {
             const alunoId = Number(body?.alunoId || 0);
             const telefone = normalizarTelefone(String(body?.telefone || ''));
@@ -129,7 +177,7 @@ export async function POST(req: NextRequest) {
       `;
 
             const restantes = await sql`
-        SELECT id, telefone, telefone_formatado, nome_aluno, colegio_id, colegio_nome, serie
+        SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
         FROM alunos
         WHERE telefone = ${telefone}
           AND ativo = true
@@ -140,6 +188,7 @@ export async function POST(req: NextRequest) {
         }
 
         const telefone = normalizarTelefone(String(body?.telefone || ''));
+        const responsavelNome = String(body?.responsavelNome || '').trim();
         const nomeAluno = String(body?.nomeAluno || '').trim();
         const colegioOpcao = String(body?.colegioOpcao || '').trim();
         const colegioOutroNome = String(body?.colegioOutroNome || '').trim();
@@ -172,7 +221,6 @@ export async function POST(req: NextRequest) {
 
             colegioNomeFinal = colegioOutroNome.replace(/\s+/g, ' ').trim();
 
-            // Verifica se já existe no banco (oficial ou pendente)
             const existente = (await sql`
         SELECT id, nome
         FROM colegios
@@ -184,7 +232,6 @@ export async function POST(req: NextRequest) {
                 colegioIdFinal = existente[0].id;
                 colegioNomeFinal = existente[0].nome;
             } else {
-                // Salva com aprovado = false para aparecer no painel Admin
                 const novoColegio = (await sql`
           INSERT INTO colegios (nome, aprovado)
           VALUES (${colegioNomeFinal}, false)
@@ -227,6 +274,7 @@ export async function POST(req: NextRequest) {
       INSERT INTO alunos (
         telefone,
         telefone_formatado,
+        responsavel_nome,
         nome_aluno,
         colegio_id,
         colegio_nome,
@@ -236,25 +284,36 @@ export async function POST(req: NextRequest) {
       VALUES (
         ${telefone},
         ${telFormatado},
+        ${responsavelNome || null},
         ${nomeAluno},
         ${colegioIdFinal},
         ${colegioNomeFinal},
         ${serie},
         true
       )
-      RETURNING id, telefone, telefone_formatado, nome_aluno, colegio_id, colegio_nome, serie
+      RETURNING id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
     `) as {
             id: number;
             telefone: string;
             telefone_formatado: string;
+            responsavel_nome: string | null;
             nome_aluno: string;
             colegio_id: number | null;
             colegio_nome: string;
             serie: string;
         }[];
 
+        if (responsavelNome) {
+            await sql`
+        UPDATE alunos
+        SET responsavel_nome = ${responsavelNome}
+        WHERE telefone = ${telefone}
+          AND ativo = true
+      `;
+        }
+
         const todosAlunos = await sql`
-      SELECT id, telefone, telefone_formatado, nome_aluno, colegio_id, colegio_nome, serie
+      SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
       FROM alunos
       WHERE telefone = ${telefone}
         AND ativo = true
@@ -264,6 +323,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
             {
                 sucesso: true,
+                responsavelNome,
                 alunoCriado: inserido[0],
                 alunos: todosAlunos,
             },

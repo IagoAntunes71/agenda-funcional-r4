@@ -90,6 +90,26 @@ export async function POST(req: NextRequest) {
         const responsavelNome = String(body?.responsavelNome || '').trim();
         const observacoes = String(body?.observacoes || '').trim();
 
+        let responsavelFinal = responsavelNome;
+        if (!responsavelFinal && alunoTelefone) {
+            const respRows = (await sql`
+              SELECT responsavel_nome
+              FROM alunos
+              WHERE telefone = ${alunoTelefone}
+                AND NULLIF(trim(responsavel_nome), '') IS NOT NULL
+              ORDER BY id DESC
+              LIMIT 1
+            `) as { responsavel_nome: string }[];
+            responsavelFinal = respRows[0]?.responsavel_nome?.trim() || '';
+        } else if (responsavelFinal && alunoTelefone) {
+            await sql`
+              UPDATE alunos
+              SET responsavel_nome = ${responsavelFinal}
+              WHERE telefone = ${alunoTelefone}
+                AND COALESCE(trim(responsavel_nome), '') = ''
+            `;
+        }
+
         if (
             !unidadeId ||
             !professorId ||
@@ -236,7 +256,7 @@ export async function POST(req: NextRequest) {
         ${alunoTelefone},
         ${colegioNome || null},
         ${serie || null},
-        ${responsavelNome || null},
+        ${responsavelFinal || null}.
         ${observacoes || null},
         'confirmado',
         false,

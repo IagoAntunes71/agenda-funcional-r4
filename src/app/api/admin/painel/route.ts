@@ -9,6 +9,16 @@ export async function GET() {
     }
 
     try {
+        await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_nome TEXT`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_telefone TEXT`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS colegio_nome TEXT`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS serie TEXT`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`;
+        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
+
         const [unidades, professores, datasLiberadas, agendamentos, syncInfo] =
             await Promise.all([
                 sql`
@@ -44,27 +54,63 @@ export async function GET() {
                 sql`
           SELECT
             a.id,
-            a.protocolo,
             a.unidade_id,
-            u.nome AS unidade_nome,
+            COALESCE(u.nome, 'Unidade') AS unidade_nome,
             a.professor_id,
-            p.nome AS professor_nome,
+            COALESCE(p.nome, 'Professor') AS professor_nome,
             a.materia,
             to_char(a.data, 'YYYY-MM-DD') AS data,
-            to_char(a.horario, 'HH24:MI') AS horario,
-            a.nome_responsavel,
-            a.whatsapp_responsavel,
-            a.nome_aluno,
-            a.colegio_aluno,
-            a.serie_aluno,
+            COALESCE(
+              CASE
+                WHEN a.hora_inicio IS NOT NULL AND a.hora_fim IS NOT NULL
+                  THEN to_char(a.hora_inicio, 'HH24:MI') || ' às ' || to_char(a.hora_fim, 'HH24:MI')
+                WHEN a.hora_inicio IS NOT NULL
+                  THEN to_char(a.hora_inicio, 'HH24:MI')
+                ELSE NULL
+              END,
+              to_char(a.horario, 'HH24:MI'),
+              ''
+            ) AS horario,
+            COALESCE(
+              NULLIF(trim(a.responsavel_nome), ''),
+              NULLIF(trim(a.nome_responsavel), ''),
+              NULLIF(trim(al.responsavel_nome), ''),
+              ''
+            ) AS nome_responsavel,
+            COALESCE(
+              NULLIF(trim(a.aluno_telefone), ''),
+              NULLIF(trim(a.whatsapp_responsavel), ''),
+              NULLIF(trim(al.telefone_formatado), ''),
+              NULLIF(trim(al.telefone), ''),
+              ''
+            ) AS whatsapp_responsavel,
+            COALESCE(
+              NULLIF(trim(a.aluno_nome), ''),
+              NULLIF(trim(a.nome_aluno), ''),
+              NULLIF(trim(al.nome_aluno), ''),
+              'Aluno não informado'
+            ) AS nome_aluno,
+            COALESCE(
+              NULLIF(trim(a.colegio_nome), ''),
+              NULLIF(trim(a.colegio_aluno), ''),
+              NULLIF(trim(al.colegio_nome), ''),
+              ''
+            ) AS colegio_aluno,
+            COALESCE(
+              NULLIF(trim(a.serie), ''),
+              NULLIF(trim(a.serie_aluno), ''),
+              NULLIF(trim(al.serie), ''),
+              ''
+            ) AS serie_aluno,
             a.observacoes,
-            a.status,
-            a.sincronizado_clincare,
+            COALESCE(a.status, 'confirmado') AS status,
+            COALESCE(a.lancado_clincare, a.sincronizado_clincare, false) AS sincronizado_clincare,
             to_char(a.criado_em AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS criado_em_formatado
           FROM agendamentos a
-          JOIN unidades u ON u.id = a.unidade_id
-          JOIN professores p ON p.id = a.professor_id
-          ORDER BY a.data DESC, a.horario ASC
+          LEFT JOIN unidades u ON u.id = a.unidade_id
+          LEFT JOIN professores p ON p.id = a.professor_id
+          LEFT JOIN alunos al ON al.id = a.aluno_id
+          ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
           LIMIT 250
         `,
                 sql`
