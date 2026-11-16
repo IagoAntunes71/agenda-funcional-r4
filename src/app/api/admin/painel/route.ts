@@ -3,6 +3,7 @@ import { sql } from '@/lib/db';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
+import { CONFIG_SYNC_MODOS } from '@/app/api/admin/sincronizar/route';
 
 export async function GET() {
     const autenticado = await verificarAdminAutenticado();
@@ -28,6 +29,7 @@ export async function GET() {
             agendamentos,
             bloqueios,
             syncInfo,
+            disparosRaw,
         ] = await Promise.all([
             sql`
         SELECT id, nome, clin_care_id, ativa
@@ -148,12 +150,51 @@ export async function GET() {
         SELECT to_char(max(atualizado_em) AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS ultima_sincronizacao
         FROM bloqueios_clincare
       `,
+            sql`
+        SELECT chave, valor
+        FROM configuracoes_sistema
+        WHERE chave IN ('sync_disparo_hoje', 'sync_disparo_semana', 'sync_disparo_mes')
+      `,
         ]);
+
+        const mapaDisparos = new Map<string, string>(
+            (disparosRaw as { chave: string; valor: string }[]).map((r) => [
+                r.chave,
+                r.valor,
+            ])
+        );
+
+        const agora = Date.now();
+        function calcularProximoDisponivel(
+            chaveDb: string,
+            cooldownSegundos: number
+        ): string | null {
+            const iso = mapaDisparos.get(chaveDb);
+            if (!iso) return null;
+            const disparoMs = new Date(iso).getTime();
+            if (Number.isNaN(disparoMs)) return null;
+            const expiraMs = disparoMs + cooldownSegundos * 1000;
+            return expiraMs > agora ? new Date(expiraMs).toISOString() : null;
+        }
 
         return NextResponse.json({
             chaveMestra: {
                 modo: modoChaveMestra,
                 aberto: statusChaveMestra.aberto,
+            },
+            cooldownsSync: {
+                hoje: calcularProximoDisponivel(
+                    CONFIG_SYNC_MODOS.hoje.chaveDb,
+                    CONFIG_SYNC_MODOS.hoje.cooldownSegundos
+                ),
+                semana: calcularProximoDisponivel(
+                    CONFIG_SYNC_MODOS.semana.chaveDb,
+                    CONFIG_SYNC_MODOS.semana.cooldownSegundos
+                ),
+                mes: calcularProximoDisponivel(
+                    CONFIG_SYNC_MODOS.mes.chaveDb,
+                    CONFIG_SYNC_MODOS.mes.cooldownSegundos
+                ),
             },
             unidades,
             professores,

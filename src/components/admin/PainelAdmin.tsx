@@ -15,6 +15,7 @@ import {
     Lock,
     LogOut,
     MessageCircle,
+    Play,
     Plus,
     Power,
     RefreshCw,
@@ -92,10 +93,22 @@ interface BloqueioAdmin {
     motivo: string;
 }
 
+interface CooldownsSync {
+    hoje: string | null;
+    semana: string | null;
+    mes: string | null;
+}
+
 function formatarDataBR(dataISO: string): string {
     if (!dataISO) return '';
     const [ano, mes, dia] = dataISO.split('-');
     return `${dia}/${mes}/${ano}`;
+}
+
+function formatarCronometro(segundos: number): string {
+    const min = Math.floor(segundos / 60);
+    const seg = segundos % 60;
+    return `${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}`;
 }
 
 function escaparCelulaCSV(
@@ -122,6 +135,21 @@ export default function PainelAdmin({
     const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(
         null
     );
+
+    // Botões de Sincronização clin.care + Cronômetros
+    const [cooldownsSync, setCooldownsSync] = useState<CooldownsSync>({
+        hoje: null,
+        semana: null,
+        mes: null,
+    });
+    const [agoraMs, setAgoraMs] = useState<number>(() => Date.now());
+    const [disparandoSync, setDisparandoSync] = useState<
+        'hoje' | 'semana' | 'mes' | null
+    >(null);
+    const [feedbackSync, setFeedbackSync] = useState<{
+        tipo: 'sucesso' | 'erro';
+        texto: string;
+    } | null>(null);
 
     // Chave Mestra
     const [modoChaveMestra, setModoChaveMestra] =
@@ -185,6 +213,25 @@ export default function PainelAdmin({
         {}
     );
 
+    useEffect(() => {
+        const temCooldownAtivo = Boolean(
+            cooldownsSync.hoje || cooldownsSync.semana || cooldownsSync.mes
+        );
+        if (!temCooldownAtivo) return;
+
+        const timer = window.setInterval(() => {
+            setAgoraMs(Date.now());
+        }, 1000);
+
+        return () => window.clearInterval(timer);
+    }, [cooldownsSync]);
+
+    function calcularRestanteSegundos(expiraISO: string | null): number {
+        if (!expiraISO) return 0;
+        const diff = Math.ceil((new Date(expiraISO).getTime() - agoraMs) / 1000);
+        return diff > 0 ? diff : 0;
+    }
+
     const carregarDados = useCallback(async () => {
         setCarregandoDados(true);
         try {
@@ -200,6 +247,15 @@ export default function PainelAdmin({
             if (json.chaveMestra) {
                 setModoChaveMestra(json.chaveMestra.modo || 'auto');
                 setSistemaAbertoAgora(Boolean(json.chaveMestra.aberto));
+            }
+
+            if (json.cooldownsSync) {
+                setCooldownsSync({
+                    hoje: json.cooldownsSync.hoje || null,
+                    semana: json.cooldownsSync.semana || null,
+                    mes: json.cooldownsSync.mes || null,
+                });
+                setAgoraMs(Date.now());
             }
 
             setUnidades(listaUnidades);
@@ -238,6 +294,54 @@ export default function PainelAdmin({
         }, 0);
         return () => window.clearTimeout(timer);
     }, [autenticado, carregarDados]);
+
+    async function dispararSincronizacao(modo: 'hoje' | 'semana' | 'mes') {
+        setDisparandoSync(modo);
+        setFeedbackSync(null);
+        try {
+            const res = await fetch('/api/admin/sincronizar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ modo }),
+            });
+            const json = await res.json();
+
+            if (json.proximoDisponivelEm) {
+                setCooldownsSync((prev) => ({
+                    ...prev,
+                    [modo]: json.proximoDisponivelEm,
+                }));
+                setAgoraMs(Date.now());
+            }
+
+            if (!res.ok) {
+                setFeedbackSync({
+                    tipo: 'erro',
+                    texto: json.error || 'Não foi possível iniciar a sincronização.',
+                });
+                return;
+            }
+
+            const tempoEstimado =
+                modo === 'hoje'
+                    ? 'cerca de 40 segundos'
+                    : modo === 'semana'
+                        ? 'cerca de 2 minutos'
+                        : 'alguns minutos';
+
+            setFeedbackSync({
+                tipo: 'sucesso',
+                texto: `Sincronização "${json.rotulo}" iniciada com sucesso! Os bloqueios do clin.care serão atualizados em ${tempoEstimado}.`,
+            });
+        } catch {
+            setFeedbackSync({
+                tipo: 'erro',
+                texto: 'Erro de conexão ao solicitar sincronização.',
+            });
+        } finally {
+            setDisparandoSync(null);
+        }
+    }
 
     async function alterarChaveMestra(novoModo: ModoChaveMestra) {
         setSalvandoChaveMestra(true);
@@ -487,6 +591,10 @@ export default function PainelAdmin({
         );
     }
 
+    const restanteHoje = calcularRestanteSegundos(cooldownsSync.hoje);
+    const restanteSemana = calcularRestanteSegundos(cooldownsSync.semana);
+    const restanteMes = calcularRestanteSegundos(cooldownsSync.mes);
+
     const pendentesClinCare = agendamentos.filter(
         (a) => a.status !== 'cancelado' && !a.sincronizado_clincare
     ).length;
@@ -692,41 +800,128 @@ export default function PainelAdmin({
                 </div>
             </div>
 
-            {/* Status da Sincronização clin.care */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/70 border border-slate-800 rounded-2xl px-4 py-3 text-xs">
-                <div className="flex flex-wrap items-center gap-3 text-slate-300">
-          <span className="inline-flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 text-emerald-400" />
-            <span>
-              Última leitura mensal do clin.care:{' '}
-                <strong className="text-white">
-                {ultimaSincronizacao || 'Aguardando primeira sincronização'}
-              </strong>
+            {/* CENTRAL DE SINCRONIZAÇÃO CLIN.CARE (3 BOTÕES COM CRONÔMETRO) */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-3 text-slate-300">
+            <span className="inline-flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-emerald-400" />
+              <span>
+                Última leitura do clin.care:{' '}
+                  <strong className="text-white">
+                  {ultimaSincronizacao || 'Aguardando primeira sincronização'}
+                </strong>
+              </span>
             </span>
-          </span>
 
-                    {pendentesClinCare > 0 && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setAba('agendamentos');
-                                setFiltroStatus('todos');
-                                setFiltroClinCare('pendentes');
-                            }}
-                            className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 font-semibold hover:bg-amber-500/25 cursor-pointer"
-                        >
-                            {pendentesClinCare} aula(s) pendente(s) de lançar no clin.care
-                        </button>
-                    )}
+                        {pendentesClinCare > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setAba('agendamentos');
+                                    setFiltroStatus('todos');
+                                    setFiltroClinCare('pendentes');
+                                }}
+                                className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 font-semibold hover:bg-amber-500/25 cursor-pointer"
+                            >
+                                {pendentesClinCare} aula(s) pendente(s) de lançar no clin.care
+                            </button>
+                        )}
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => void carregarDados()}
+                        className="text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer"
+                    >
+                        Atualizar tela
+                    </button>
                 </div>
 
-                <button
-                    type="button"
-                    onClick={() => void carregarDados()}
-                    className="text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer"
-                >
-                    Atualizar tela
-                </button>
+                {/* 3 Botões de Disparo Manual com Trava de Tempo */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-800/80">
+          <span className="text-slate-400">
+            Puxar bloqueios do clin.care agora:
+          </span>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            disabled={restanteHoje > 0 || disparandoSync !== null}
+                            onClick={() => void dispararSincronizacao('hoje')}
+                            title="Atualiza hoje e amanhã em ~40 segundos (trava de 5 min)"
+                            className={`px-3.5 py-2 rounded-xl font-semibold inline-flex items-center gap-1.5 border transition ${
+                                restanteHoje > 0
+                                    ? 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'
+                                    : 'bg-emerald-600/20 hover:bg-emerald-600 border-emerald-500/50 text-emerald-200 hover:text-white cursor-pointer'
+                            }`}
+                        >
+                            <Play className="w-3.5 h-3.5" />
+                            {disparandoSync === 'hoje'
+                                ? 'Iniciando...'
+                                : restanteHoje > 0
+                                    ? `Hoje (${formatarCronometro(restanteHoje)})`
+                                    : 'Sincronizar Hoje'}
+                        </button>
+
+                        <button
+                            type="button"
+                            disabled={restanteSemana > 0 || disparandoSync !== null}
+                            onClick={() => void dispararSincronizacao('semana')}
+                            title="Atualiza os próximos 7 dias em ~2 minutos (trava de 30 min)"
+                            className={`px-3.5 py-2 rounded-xl font-semibold inline-flex items-center gap-1.5 border transition ${
+                                restanteSemana > 0
+                                    ? 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'
+                                    : 'bg-sky-600/20 hover:bg-sky-600 border-sky-500/50 text-sky-200 hover:text-white cursor-pointer'
+                            }`}
+                        >
+                            <Play className="w-3.5 h-3.5" />
+                            {disparandoSync === 'semana'
+                                ? 'Iniciando...'
+                                : restanteSemana > 0
+                                    ? `Semana (${formatarCronometro(restanteSemana)})`
+                                    : 'Sincronizar Semana'}
+                        </button>
+
+                        <button
+                            type="button"
+                            disabled={restanteMes > 0 || disparandoSync !== null}
+                            onClick={() => void dispararSincronizacao('mes')}
+                            title="Atualiza os próximos 30 dias completos (trava de 1 hora)"
+                            className={`px-3.5 py-2 rounded-xl font-semibold inline-flex items-center gap-1.5 border transition ${
+                                restanteMes > 0
+                                    ? 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'
+                                    : 'bg-indigo-600/20 hover:bg-indigo-600 border-indigo-500/50 text-indigo-200 hover:text-white cursor-pointer'
+                            }`}
+                        >
+                            <Play className="w-3.5 h-3.5" />
+                            {disparandoSync === 'mes'
+                                ? 'Iniciando...'
+                                : restanteMes > 0
+                                    ? `Mês (${formatarCronometro(restanteMes)})`
+                                    : 'Sincronizar Mês'}
+                        </button>
+                    </div>
+                </div>
+
+                {feedbackSync && (
+                    <div
+                        className={`rounded-xl border px-3.5 py-2.5 flex items-center justify-between gap-2 ${
+                            feedbackSync.tipo === 'sucesso'
+                                ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
+                                : 'bg-rose-950/60 border-rose-500/40 text-rose-200'
+                        }`}
+                    >
+                        <span>{feedbackSync.texto}</span>
+                        <button
+                            type="button"
+                            onClick={() => setFeedbackSync(null)}
+                            className="text-slate-400 hover:text-white cursor-pointer"
+                        >
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Navegação de Abas */}
@@ -1111,7 +1306,7 @@ export default function PainelAdmin({
                 </section>
             )}
 
-            {/* ABA 2: MAPA DO DIA (GRADE DINÂMICA PROFESSORES × TURNOS 100 MIN) */}
+            {/* ABA 2: MAPA DO DIA */}
             {aba === 'mapa' && (
                 <section className="space-y-4">
                     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
@@ -1482,7 +1677,7 @@ export default function PainelAdmin({
                 </section>
             )}
 
-            {/* ABA 4: PROFESSORES (MANHÃ FLEXÍVEL 100 MIN + TARDE + EDIÇÃO RÁPIDA) */}
+            {/* ABA 4: PROFESSORES */}
             {aba === 'professores' && (
                 <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     <form
@@ -1554,7 +1749,6 @@ export default function PainelAdmin({
                             />
                         </div>
 
-                        {/* Disponibilidade Manhã (100 min flexível) */}
                         <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-3">
                             <label className="flex items-center gap-2.5 text-xs font-semibold text-amber-300 cursor-pointer">
                                 <input
@@ -1595,7 +1789,6 @@ export default function PainelAdmin({
                             )}
                         </div>
 
-                        {/* Disponibilidade Tarde / Noite */}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs text-slate-400 mb-1">
