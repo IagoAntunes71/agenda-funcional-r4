@@ -1,34 +1,52 @@
-import { Suspense } from 'react';
-import { verificarAdminAutenticado } from '@/lib/admin-auth';
+'use client';
+
+import { useEffect, useState } from 'react';
 import PainelAdmin from '@/components/admin/PainelAdmin';
 import ImportadorProfessoresClinCare from '@/components/admin/ImportadorProfessoresClinCare';
 import AdminColegios from '@/components/AdminColegios';
 import AdminWhatsApp from '@/components/AdminWhatsApp';
 
-async function ConteudoAdmin() {
-    let autenticado = false;
-    try {
-        autenticado = await verificarAdminAutenticado();
-    } catch (error) {
-        console.error('Erro ao verificar sessão admin:', error);
-        autenticado = false;
-    }
-
-    return (
-        <div className="space-y-6">
-            <PainelAdmin autenticadoInicial={autenticado} />
-            {autenticado && (
-                <>
-                    <AdminWhatsApp />
-                    <AdminColegios />
-                    <ImportadorProfessoresClinCare />
-                </>
-            )}
-        </div>
-    );
-}
-
 export default function AdminPage() {
+    const [verificandoSessao, setVerificandoSessao] = useState(true);
+    const [autenticado, setAutenticado] = useState(false);
+
+    useEffect(() => {
+        let cancelado = false;
+
+        async function checarSessao() {
+            try {
+                const res = await fetch('/api/admin/colegios', {
+                    cache: 'no-store',
+                });
+                if (!cancelado) {
+                    setAutenticado(res.ok);
+                }
+            } catch {
+                if (!cancelado) {
+                    setAutenticado(false);
+                }
+            } finally {
+                if (!cancelado) {
+                    setVerificandoSessao(false);
+                }
+            }
+        }
+
+        void checarSessao();
+
+        // Se ainda não estiver logado, verifica a cada 2.5s para liberar os painéis assim que fizer login
+        const intervalo = window.setInterval(() => {
+            if (!autenticado) {
+                void checarSessao();
+            }
+        }, 2500);
+
+        return () => {
+            cancelado = true;
+            window.clearInterval(intervalo);
+        };
+    }, [autenticado]);
+
     return (
         <main className="min-h-dvh bg-slate-950 text-slate-100 py-6 sm:py-10 px-4">
             <div className="max-w-6xl mx-auto space-y-6">
@@ -41,15 +59,22 @@ export default function AdminPage() {
                     </h1>
                 </header>
 
-                <Suspense
-                    fallback={
-                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
-                            Verificando sessão administrativa...
-                        </div>
-                    }
-                >
-                    <ConteudoAdmin />
-                </Suspense>
+                {verificandoSessao ? (
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">
+                        Verificando sessão administrativa...
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        <PainelAdmin autenticadoInicial={autenticado} />
+                        {autenticado && (
+                            <>
+                                <AdminWhatsApp />
+                                <AdminColegios />
+                                <ImportadorProfessoresClinCare />
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
         </main>
     );
