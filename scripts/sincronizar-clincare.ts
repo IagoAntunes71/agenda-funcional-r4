@@ -394,9 +394,17 @@ async function localizarColunaProfessor(
     page: Page,
     nomeProfessor: string
 ): Promise<{ left: number; width: number } | null> {
+    const alvoNorm = normalizarTexto(nomeProfessor);
+    if (!alvoNorm) return null;
+
     return page.evaluate((alvo) => {
-        function norm(t: string) {
-            return t
+        const nos = Array.from(document.querySelectorAll('*'));
+        for (const el of nos) {
+            if (el.children.length > 0) continue;
+            const txt = (el.textContent || '').trim();
+            if (!txt || txt.length > 65) continue;
+
+            const candNorm = txt
                 .replace(/^(\d+\s*\.\s*)+/, '')
                 .replace(/\./g, ' ')
                 .normalize('NFD')
@@ -404,35 +412,26 @@ async function localizarColunaProfessor(
                 .replace(/\s+/g, ' ')
                 .trim()
                 .toLowerCase();
-        }
 
-        function bate(aBruto: string, bBruto: string) {
-            const a = norm(aBruto);
-            const b = norm(bBruto);
-            if (!a || !b) return false;
-            if (a === b) return true;
-            const pa = a.split(' ');
-            const pb = b.split(' ');
-            if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0]) {
-                const ua = pa[pa.length - 1];
-                const ub = pb[pb.length - 1];
-                if (
-                    (ua.length === 1 && ub.startsWith(ua)) ||
-                    (ub.length === 1 && ua.startsWith(ub))
-                ) {
-                    return true;
+            if (!candNorm) continue;
+
+            let corresponde = candNorm === alvo;
+            if (!corresponde) {
+                const pa = alvo.split(' ');
+                const pb = candNorm.split(' ');
+                if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0]) {
+                    const ua = pa[pa.length - 1];
+                    const ub = pb[pb.length - 1];
+                    if (
+                        (ua.length === 1 && ub.startsWith(ua)) ||
+                        (ub.length === 1 && ua.startsWith(ub))
+                    ) {
+                        corresponde = true;
+                    }
                 }
             }
-            return false;
-        }
 
-        const nos = Array.from(document.querySelectorAll('*'));
-        for (const el of nos) {
-            if (el.children.length > 0) continue;
-            const txt = (el.textContent || '').trim();
-            if (!txt || txt.length > 65) continue;
-
-            if (bate(alvo, txt)) {
+            if (corresponde) {
                 let box: HTMLElement | null = el.parentElement;
                 for (let i = 0; i < 4 && box; i++) {
                     const r = box.getBoundingClientRect();
@@ -462,9 +461,8 @@ async function localizarColunaProfessor(
             }
         }
         return null;
-    }, nomeProfessor);
+    }, alvoNorm);
 }
-
 async function criarReservaNoClinCare(
     page: Page,
     baseUrl: string,
