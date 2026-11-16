@@ -138,7 +138,6 @@ export function montarMensagemAgendamento(
 ): string {
     const linhas = [
         `📚 *NOVO AGENDAMENTO DE REFORÇO*`,
-        `*Protocolo:* #${dados.id}`,
         `*Unidade:* ${dados.unidade}`,
         `*Data:* ${formatarDataComDia(dados.data)}`,
         `*Horário:* ${dados.horario} (100 min)`,

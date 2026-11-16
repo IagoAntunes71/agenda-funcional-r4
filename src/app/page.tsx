@@ -431,7 +431,7 @@ export default function PaginaAgendamentoReforco() {
               <section className="bg-emerald-950/50 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold text-emerald-300">
-                    Aula agendada com sucesso! (Protocolo #{comprovante.id})
+                    Aula agendada com sucesso!
                   </p>
                   <p className="text-xs text-slate-200">
                     <strong>Aluno(a):</strong> {comprovante.alunoNome}

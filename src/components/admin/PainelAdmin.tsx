@@ -458,9 +458,6 @@ export default function PainelAdmin({
                                     >
                                         <div className="flex items-start justify-between gap-2">
                                             <div>
-                        <span className="text-xs font-mono text-emerald-400 font-bold">
-                          {ag.protocolo}
-                        </span>
                                                 <h3 className="text-base font-bold text-white">
                                                     {ag.nome_aluno}
                                                 </h3>
