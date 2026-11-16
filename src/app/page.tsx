@@ -27,8 +27,7 @@ import {
   formatarTelefone,
   normalizarTelefone,
 } from '@/lib/cliente-helpers';
-import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos';
-
+import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos-padrao';
 interface Unidade {
   id: number;
   nome: string;

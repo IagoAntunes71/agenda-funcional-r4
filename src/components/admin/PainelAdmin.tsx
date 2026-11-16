@@ -55,7 +55,7 @@ import {
     gerarTodosSlotsProfessor,
     horaParaMinutos,
 } from '@/lib/horarios-reforco';
-import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos';
+import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos-padrao';
 
 interface UnidadeAdmin {
     id: number;
