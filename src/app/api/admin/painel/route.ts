@@ -4,6 +4,7 @@ import { verificarAdminAutenticado } from '@/lib/admin-auth';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
 import { CONFIG_SYNC_MODOS } from '@/app/api/admin/sincronizar/route';
+import { garantirColunasSegurancaAlunos } from '@/lib/cliente-auth';
 
 export async function GET() {
     const autenticado = await verificarAdminAutenticado();
@@ -15,6 +16,7 @@ export async function GET() {
         const modoChaveMestra = await obterModoChaveMestra();
         const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
 
+        await garantirColunasSegurancaAlunos();
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
@@ -26,6 +28,7 @@ export async function GET() {
         const [
             unidades,
             professores,
+            alunos,
             datasLiberadas,
             agendamentos,
             bloqueios,
@@ -55,6 +58,26 @@ export async function GET() {
         FROM professores p
         JOIN unidades u ON u.id = p.unidade_id
         ORDER BY u.nome ASC, p.nome ASC
+      `,
+            sql`
+        SELECT
+          al.id,
+          COALESCE(NULLIF(trim(al.nome_aluno), ''), 'Aluno sem nome') AS nome_aluno,
+          COALESCE(NULLIF(trim(al.responsavel_nome), ''), '') AS responsavel_nome,
+          COALESCE(NULLIF(trim(al.telefone), ''), '') AS telefone,
+          COALESCE(NULLIF(trim(al.telefone_formatado), ''), NULLIF(trim(al.telefone), ''), '') AS telefone_formatado,
+          COALESCE(NULLIF(trim(al.colegio_nome), ''), '') AS colegio_nome,
+          COALESCE(NULLIF(trim(al.serie), ''), '') AS serie,
+          (al.pin_hash IS NOT NULL AND trim(al.pin_hash) <> '') AS tem_pin,
+          (al.pin_bloqueado_ate IS NOT NULL AND al.pin_bloqueado_ate > now()) AS pin_bloqueado,
+          (
+            SELECT COUNT(*)::int
+            FROM agendamentos ag
+            WHERE ag.aluno_id = al.id
+              AND COALESCE(ag.status, 'confirmado') <> 'cancelado'
+          ) AS total_aulas
+        FROM alunos al
+        ORDER BY COALESCE(NULLIF(trim(al.responsavel_nome), ''), al.nome_aluno) ASC, al.nome_aluno ASC
       `,
             sql`
         SELECT
@@ -200,6 +223,7 @@ export async function GET() {
             },
             unidades,
             professores,
+            alunos,
             datasLiberadas,
             agendamentos,
             bloqueios,

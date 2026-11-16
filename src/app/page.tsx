@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
   Calendar,
   CheckCircle2,
   Clock,
-  GraduationCap,
   KeyRound,
   Lock,
   LogOut,
@@ -669,7 +669,8 @@ export default function PaginaAgendamentoReforco() {
 
       const listaAtualizada: AlunoCadastrado[] = json.alunos || [];
       setAlunos(listaAtualizada);
-      const idAtivo = json.alunoCriado?.id || alunoEditandoId || alunoSelecionadoId;
+      const idAtivo =
+          json.alunoCriado?.id || alunoEditandoId || alunoSelecionadoId;
       if (idAtivo) {
         setAlunoSelecionadoId(idAtivo);
       }
@@ -725,7 +726,7 @@ export default function PaginaAgendamentoReforco() {
       setAvisoProximasAulas({
         tipo: 'sucesso',
         texto:
-            'Aula cancelada com sucesso! O horário já voltou a ficar disponível na agenda.',
+            'Aula cancelada dentro do prazo gratuito! O horário já voltou a ficar disponível na agenda.',
       });
 
       if (sistemaAberto && dataSelecionada) {
@@ -799,7 +800,7 @@ export default function PaginaAgendamentoReforco() {
     const matInicial =
         materiaFiltro !== 'todas'
             ? materiaFiltro
-            : prof.materias[0] || 'Reforço Geral';
+            : prof.materias[0] || 'Acompanhamento Escolar';
     setMateriaAula(matInicial);
     setErroModal(null);
   }
@@ -901,14 +902,14 @@ export default function PaginaAgendamentoReforco() {
             }`}
         >
           <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
-            <LogoR4 temaEscuro={escuro} subtitulo="Portal do Aluno" />
+            <LogoR4 temaEscuro={escuro} subtitulo="Portal de Agendamento" />
 
             <div className="flex items-center gap-2.5">
             <span
                 className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border ${clsSubCard} ${clsSubtexto}`}
             >
               <Clock className="w-3.5 h-3.5 text-[#1496A1]" />
-              Secretaria: Seg a Sex, 08h às 18h
+              Secretaria R4: Seg a Sex, 08h às 18h
             </span>
 
               <button
@@ -937,11 +938,11 @@ export default function PaginaAgendamentoReforco() {
         </div>
 
         <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
-          <header className={`border rounded-2xl p-6 space-y-3 ${clsCard}`}>
+          {/* BANNER INSTITUCIONAL R4 ENSINA + REGRAS */}
+          <header className={`border rounded-2xl p-6 space-y-3.5 ${clsCard}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1] bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-3 py-1 rounded-full">
-              <GraduationCap className="w-3.5 h-3.5" />
-              Agendamento de Reforço Escolar (100 min)
+              R4 Ensina • Central Oficial de Agendamento
             </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
               <ShieldCheck className="w-4 h-4" /> Acesso protegido por PIN
@@ -949,18 +950,40 @@ export default function PaginaAgendamentoReforco() {
             </div>
 
             <h1 className={`text-xl sm:text-2xl font-bold ${clsTitulo}`}>
-              Reserve o horário do seu filho(a)
+              Agende o atendimento do seu filho(a) no R4
             </h1>
             <p className={`text-sm ${clsSubtexto}`}>
-              Agendamento online disponível de segunda a sexta, das{' '}
+              Sistema exclusivo para famílias atendidas pela{' '}
+              <strong className={clsTitulo}>R4 Ensina</strong>. Agendamento
+              online disponível de segunda a sexta, das{' '}
               <strong className={clsTitulo}>18:00 às 22:00</strong>, para aulas a
               partir do próximo dia até domingo desta semana.
             </p>
 
-            <div className="rounded-xl bg-[#C24124]/15 border border-[#C24124]/35 px-4 py-2.5 text-xs text-[#E07A5F]">
-              <strong>Atenção:</strong> Aulas para a{' '}
-              <strong>próxima semana</strong> devem ser agendadas exclusivamente
-              com nosso atendimento humano (segunda a sexta, das 08:00 às 18:00).
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <div className="rounded-xl bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-4 py-3 text-xs text-[#39B8C4] space-y-1">
+                <p className="font-bold uppercase tracking-wide text-[11px]">
+                  Aulas da Próxima Semana
+                </p>
+                <p>
+                  Marcações para a <strong>próxima semana</strong> são realizadas
+                  exclusivamente com o atendimento humano da equipe R4 (Segunda a
+                  Sexta, das 08:00 às 18:00).
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/45 px-4 py-3 text-xs text-rose-300 space-y-1">
+                <p className="font-bold uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-rose-400">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Política de Cancelamento e Taxa de Aula
+                </p>
+                <p>
+                  Cancelamentos gratuitos pelo site são permitidos{' '}
+                  <strong>até 2 horas antes do início da aula</strong>. Após
+                  esse prazo de 2h, o horário já estará reservado ao professor e{' '}
+                  <strong>a taxa referente à aula será cobrada</strong>.
+                </p>
+              </div>
             </div>
           </header>
 
@@ -968,7 +991,8 @@ export default function PaginaAgendamentoReforco() {
               <section className="bg-emerald-500/10 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
                   <p className="text-sm font-bold text-emerald-400 inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" /> Aula agendada com sucesso!
+                    <CheckCircle2 className="w-4 h-4" /> Aula agendada no R4
+                    com sucesso!
                   </p>
                   <p className={`text-xs ${clsTitulo}`}>
                     <strong>Aluno(a):</strong> {comprovante.alunoNome}
@@ -992,7 +1016,7 @@ export default function PaginaAgendamentoReforco() {
                           className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white inline-flex items-center gap-1.5 transition"
                       >
                         <MessageCircle className="w-3.5 h-3.5" /> Enviar Comprovante no
-                        WhatsApp
+                        WhatsApp R4
                       </a>
                   )}
                   <button
@@ -1014,7 +1038,7 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    <Lock className="w-3.5 h-3.5" /> Acesso Seguro
+                    <Lock className="w-3.5 h-3.5" /> Acesso Exclusivo R4 Ensina
                   </span>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>
                           Informe seu WhatsApp
@@ -1244,7 +1268,7 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    <UserCheck className="w-3.5 h-3.5" /> Primeiro Cadastro
+                    <UserCheck className="w-3.5 h-3.5" /> Primeiro Cadastro R4
                   </span>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>
                           Complete seus dados e crie seu PIN
@@ -1666,20 +1690,33 @@ export default function PaginaAgendamentoReforco() {
                   )}
                 </section>
 
+                {/* PRÓXIMAS AULAS AGENDADAS + AVISO DE CANCELAMENTO E TAXA */}
                 {(proximasAulas.length > 0 || avisoProximasAulas) && (
                     <section className={`border rounded-2xl p-6 space-y-4 ${clsCard}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                     <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                      Agenda Confirmada
+                      Agenda Confirmada R4
                     </span>
                           <h2 className={`text-base font-bold ${clsTitulo}`}>
                             Próximas Aulas ({proximasAulas.length})
                           </h2>
                         </div>
-                        <p className={`text-xs ${clsSubtexto}`}>
-                          Cancelamentos pelo site são permitidos até 2h antes da aula.
-                        </p>
+                      </div>
+
+                      {/* Alerta destacado sobre prazo de 2h e cobrança de taxa */}
+                      <div className="rounded-xl border border-[#BE1E23]/45 bg-[#BE1E23]/15 px-4 py-3 text-xs text-rose-300 flex items-start gap-2.5">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-rose-400">
+                            Atenção ao prazo de cancelamento (2 horas):
+                          </strong>{' '}
+                          O cancelamento gratuito pelo site fica disponível apenas{' '}
+                          <strong>até 2 horas antes do início da aula</strong>. Caso
+                          ultrapasse esse limite de 2 horas, a vaga já estará
+                          comprometida e{' '}
+                          <strong>a taxa da aula será cobrada normalmente</strong>.
+                        </div>
                       </div>
 
                       {avisoProximasAulas && (
@@ -1739,7 +1776,7 @@ export default function PaginaAgendamentoReforco() {
                                           pedindoConfirmacao ? (
                                               <div className="flex flex-wrap items-center gap-2 w-full justify-between">
                                   <span className="text-xs text-[#D96B43] font-medium">
-                                    Liberar esta vaga?
+                                    Confirmar cancelamento gratuito?
                                   </span>
                                                 <div className="flex items-center gap-2">
                                                   <button
@@ -1775,13 +1812,13 @@ export default function PaginaAgendamentoReforco() {
                                                   }}
                                                   className="px-3 py-1.5 rounded-lg bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-semibold cursor-pointer transition"
                                               >
-                                                Cancelar Aula
+                                                Cancelar Aula (dentro do prazo)
                                               </button>
                                           )
                                       ) : (
-                                          <span className="text-[11px] text-[#D96B43]">
-                                Menos de 2h para a aula — para alterar, contate a
-                                secretaria.
+                                          <span className="text-[11px] font-medium text-rose-400">
+                                Prazo de 2h encerrado — cancelamento indisponível
+                                (taxa da aula aplicável; contate a secretaria R4).
                               </span>
                                       )}
                                     </div>
@@ -1801,11 +1838,12 @@ export default function PaginaAgendamentoReforco() {
                   Agendamento Online Fechado
                 </span>
                       <h2 className={`text-lg font-bold ${clsTitulo}`}>
-                        No momento o agendamento pelo site não está ativo
+                        No momento o agendamento pelo portal online do R4 não está
+                        ativo
                       </h2>
                       <p className={`text-sm max-w-xl mx-auto ${clsSubtexto}`}>
                         {motivoFechado ||
-                            'O agendamento online funciona de segunda a sexta, das 18:00 às 22:00. Para marcar aulas agora ou para a próxima semana, fale com nosso atendimento humano (segunda a sexta, das 08:00 às 18:00).'}
+                            'O agendamento online funciona de Segunda a Sexta, das 18:00 às 22:00. Para marcar aulas agora ou para a próxima semana, fale com nosso atendimento humano (Segunda a Sexta, das 08:00 às 18:00).'}
                       </p>
                     </section>
                 ) : (
@@ -1816,7 +1854,7 @@ export default function PaginaAgendamentoReforco() {
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-dashed border-[#0E7C86]/35">
                       <span className="text-xs font-semibold text-[#1496A1]">
-                        Exibindo professores habilitados para:{' '}
+                        Professores R4 habilitados para:{' '}
                         <strong>{alunoAtivo.serie}</strong>
                       </span>
                             </div>
@@ -1826,7 +1864,7 @@ export default function PaginaAgendamentoReforco() {
                                   className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-2.5 ${clsSubtexto}`}
                               >
                                 <MapPin className="w-3.5 h-3.5 text-[#1496A1]" />
-                                1. Escolha a Unidade (Presencial ou Online)
+                                1. Escolha a Unidade R4 (Presencial ou Online)
                               </label>
                               <div className="flex flex-wrap gap-2">
                                 {unidades.map((u) => {
@@ -1866,7 +1904,8 @@ export default function PaginaAgendamentoReforco() {
                                   <p className="text-sm text-[#D96B43]">
                                     Nenhuma data disponível nesta janela. Para aulas na
                                     próxima semana, entre em contato com o atendimento
-                                    humano (segunda a sexta, das 08:00 às 18:00).
+                                    humano da equipe R4 (Segunda a Sexta, das 08:00 às
+                                    18:00).
                                   </p>
                               ) : (
                                   <div className="flex flex-wrap gap-2">
@@ -1966,7 +2005,7 @@ export default function PaginaAgendamentoReforco() {
                                 <div
                                     className={`border rounded-2xl p-8 text-center text-sm ${clsCard} ${clsSubtexto}`}
                                 >
-                                  Consultando horários disponíveis na agenda...
+                                  Consultando horários disponíveis na agenda do R4...
                                 </div>
                             ) : professoresExibidos.length === 0 ? (
                                 <div
@@ -2056,7 +2095,7 @@ export default function PaginaAgendamentoReforco() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                   <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    Confirmar Aula (100 min)
+                    Confirmar Aula R4 (100 min)
                   </span>
                       <h3 className={`text-lg font-bold mt-0.5 ${clsTitulo}`}>
                         {selecaoSlot.professor.nome}
@@ -2128,6 +2167,11 @@ export default function PaginaAgendamentoReforco() {
                           className={`w-full rounded-xl border px-3.5 py-2.5 text-sm ${clsInput}`}
                       />
                     </div>
+
+                    <p className="text-[11px] text-rose-400">
+                      Lembrete: cancelamentos gratuitos são aceitos até 2h antes do
+                      horário marcado; após esse prazo a taxa da aula é cobrada.
+                    </p>
 
                     {erroModal && (
                         <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2 text-xs text-rose-400">
