@@ -1,15 +1,19 @@
-name: Sincronizar Mapa de Agenda clin.care
+name: Sincronizar clin.care — Mês Completo (30 dias)
 
 on:
-  schedule:
-    - cron: '0 * * * *'
   workflow_dispatch:
+  schedule:
+    # Diariamente às 03:00 da madrugada (horário de Salvador/Bahia, UTC-3)
+    - cron: '0 6 * * *'
+
+concurrency:
+  group: sync-clincare-mes
+  cancel-in-progress: true
 
 jobs:
   sincronizar:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 90
     steps:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
@@ -18,17 +22,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Instalar dependências
         run: npm ci
 
-      - name: Instalar navegador Chromium (Playwright)
+      - name: Instalar Chromium do Playwright
         run: npx playwright install chromium --with-deps
 
-      - name: Executar leitura do Mapa de Agenda
+      - name: Executar sincronização mensal (30 dias)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           CLINCARE_URL: ${{ secrets.CLINCARE_URL }}
           CLINCARE_EMAIL: ${{ secrets.CLINCARE_EMAIL }}
           CLINCARE_PASSWORD: ${{ secrets.CLINCARE_PASSWORD }}
-        run: npx tsx scripts/sincronizar-clincare.ts
+          SYNC_MODO: mes
+        run: npx tsx scripts/sincronizar-clincare.ts --modo=mes

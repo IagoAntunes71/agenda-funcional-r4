@@ -29,9 +29,45 @@ interface BloqueioGrade {
     motivo: string;
 }
 
+type ModoSync = 'hoje' | 'semana' | 'mes';
+
 const HORA_INICIO_PADRAO = '14:10';
 const HORA_FIM_PADRAO = '20:50';
-const DIAS_VARREDURA_MENSAL = 30;
+
+function obterConfiguracaoModo(): {
+    modo: ModoSync;
+    dias: number;
+    descricao: string;
+} {
+    const argModo = process.argv.find((a) => a.startsWith('--modo='));
+    const bruto = (
+        argModo ? argModo.split('=')[1] : process.env.SYNC_MODO || 'mes'
+    )
+        .trim()
+        .toLowerCase();
+
+    if (bruto === 'hoje' || bruto === 'dia') {
+        return {
+            modo: 'hoje',
+            dias: 1, // Hoje + amanhã (garante bloqueios imediatos e do próximo dia)
+            descricao: 'Hoje e Amanhã (2 dias)',
+        };
+    }
+
+    if (bruto === 'semana') {
+        return {
+            modo: 'semana',
+            dias: 7,
+            descricao: 'Semana Atual (7 dias)',
+        };
+    }
+
+    return {
+        modo: 'mes',
+        dias: 30,
+        descricao: 'Mês Completo (30 dias)',
+    };
+}
 
 function normalizarTexto(texto: string): string {
     return texto
@@ -162,7 +198,7 @@ async function realizarLogin(
     console.log(`[LOGIN] Acedendo a ${loginUrl}...`);
 
     await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1500);
 
     if (!page.url().includes('/painel')) {
         let contextoLogin = page.mainFrame();
@@ -272,7 +308,7 @@ async function descobrirTodosProfissionais(
     await page
         .goto(urlLista, { waitUntil: 'domcontentloaded', timeout: 45000 })
         .catch(() => null);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2000);
 
     const selectPagina = page
         .locator('select:has(option[value="50"]), select:has(option[value="100"])')
@@ -282,12 +318,12 @@ async function descobrirTodosProfissionais(
         await selectPagina
             .selectOption(tem100 > 0 ? '100' : '50')
             .catch(() => null);
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(1500);
     }
 
     for (let pagina = 1; pagina <= 20; pagina++) {
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-        await page.waitForTimeout(800);
+        await page.waitForTimeout(600);
 
         const htmlAtual = await page.content();
         for (const [uuid, nome] of extrairParesIdNomeDeTexto(htmlAtual)) {
@@ -354,7 +390,7 @@ async function descobrirTodosProfissionais(
 
         if (await botaoProxima.isVisible({ timeout: 1500 }).catch(() => false)) {
             await botaoProxima.click();
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(1500);
             if (profissionaisEncontrados.size === tamanhoAntes && pagina > 2) break;
         } else {
             break;
@@ -362,10 +398,6 @@ async function descobrirTodosProfissionais(
     }
 
     page.off('response', listener);
-
-    console.log(
-        `[DISCOVERY] Total de profissionais encontrados: ${profissionaisEncontrados.size}`
-    );
 
     for (const [uuid, nomePrevio] of profissionaisEncontrados.entries()) {
         await sql`
@@ -613,10 +645,6 @@ async function processarUmProfessor(
           atualizado_em = now()
       WHERE id = ${item.id}
     `;
-
-        console.log(
-            `[IMPORT] Sucesso: ${nomeLimpo} | Matérias: ${materiasFinais.join(', ')}`
-        );
     } catch (err) {
         console.error(`[IMPORT] Falha ao importar ${item.clin_care_id}:`, err);
         await sql`
@@ -654,12 +682,6 @@ async function importarProfessoresPendentes(
         );
     }
 
-    const todosFila = (await sql`
-    SELECT id, clin_care_id
-    FROM importacao_profissionais_clincare
-    WHERE clin_care_id <> '__TODOS__'
-  `) as ImportacaoRow[];
-
     const pendentes = (await sql`
     SELECT id, clin_care_id
     FROM importacao_profissionais_clincare
@@ -668,11 +690,9 @@ async function importarProfessoresPendentes(
     ORDER BY id ASC
   `) as ImportacaoRow[];
 
-    console.log(
-        `[IMPORT] Fila de importação: ${pendentes.length} pendente(s) de ${todosFila.length} total.`
-    );
-
     if (pendentes.length === 0) return;
+
+    console.log(`[IMPORT] Processando ${pendentes.length} professor(es) pendente(s)...`);
 
     const fila = [...pendentes];
     const numWorkers = Math.min(4, fila.length);
@@ -698,14 +718,14 @@ async function abrirMapaAgenda(
     page: Page
 ): Promise<Page> {
     const cardMapa = page.locator('a[aria-label="Mapa de agenda"]').first();
-    if (await cardMapa.isVisible({ timeout: 8000 }).catch(() => false)) {
+    if (await cardMapa.isVisible({ timeout: 6000 }).catch(() => false)) {
         const popupPromise = context
-            .waitForEvent('page', { timeout: 6000 })
+            .waitForEvent('page', { timeout: 5000 })
             .catch(() => null);
         await cardMapa.click();
         const novaAba = await popupPromise;
         const agendaPage = novaAba ?? page;
-        await agendaPage.waitForTimeout(2000);
+        await agendaPage.waitForTimeout(1200);
         return agendaPage;
     }
     return page;
@@ -843,6 +863,11 @@ async function extrairGradeVisivel(agendaPage: Page): Promise<{
 }
 
 async function main() {
+    const configModo = obterConfiguracaoModo();
+    console.log(
+        `[INÍCIO] Sincronização clin.care | Modo: ${configModo.modo.toUpperCase()} (${configModo.descricao})`
+    );
+
     const databaseUrl = (process.env.DATABASE_URL || '')
         .replace(/^DATABASE_URL=/i, '')
         .replace(/^psql\s+/i, '')
@@ -886,7 +911,7 @@ async function main() {
         return;
     }
 
-    const datasMes = gerarProximosDiasBahia(DIAS_VARREDURA_MENSAL);
+    const datasAlvo = gerarProximosDiasBahia(configModo.dias);
 
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
@@ -922,21 +947,20 @@ async function main() {
         const agendaPage = await abrirMapaAgenda(context, page);
 
         for (const unidade of unidades) {
-            for (const dataISO of datasMes) {
+            for (const dataISO of datasAlvo) {
                 const urlMapa = `${clinCareBaseUrl}/painel/mapa-agenda?date=${dataISO}&unitId=${unidade.clin_care_id}`;
-                console.log(`[SYNC] Abrindo ${unidade.nome} | ${dataISO}...`);
 
                 await agendaPage
-                    .goto(urlMapa, { waitUntil: 'networkidle', timeout: 60000 })
+                    .goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 })
                     .catch(() => null);
 
                 await agendaPage
-                    .locator('text="08:00", text="14:00"')
+                    .locator('text="08:00", text="14:00", text="14:10"')
                     .first()
-                    .waitFor({ state: 'visible', timeout: 15000 })
+                    .waitFor({ state: 'visible', timeout: 10000 })
                     .catch(() => null);
 
-                await agendaPage.waitForTimeout(1600);
+                await agendaPage.waitForTimeout(950);
 
                 const colunasTodas = new Set<string>();
                 const blocosMapa = new Map<string, BloqueioGrade>();
@@ -967,15 +991,10 @@ async function main() {
                     });
 
                     if (!rolou) break;
-                    await agendaPage.waitForTimeout(700);
+                    await agendaPage.waitForTimeout(500);
                 }
 
                 const blocosColetados = Array.from(blocosMapa.values());
-                console.log(
-                    `[SYNC] Colunas na grade (${unidade.nome} | ${dataISO}): ${
-                        Array.from(colunasTodas).join(', ') || 'nenhuma'
-                    }`
-                );
 
                 await sql`
           DELETE FROM bloqueios_clincare
@@ -995,12 +1014,7 @@ async function main() {
                             nomesCorrespondem(p.nome, bl.nomeProfessorBruto)
                         );
 
-                    if (!profMatch) {
-                        console.log(
-                            `[SYNC] Aviso: bloco de "${bl.nomeProfessorBruto}" (${bl.horaInicio}-${bl.horaFim}) sem professor correspondente no Neon.`
-                        );
-                        continue;
-                    }
+                    if (!profMatch) continue;
 
                     await sql`
             INSERT INTO bloqueios_clincare (
@@ -1026,7 +1040,7 @@ async function main() {
                 }
 
                 console.log(
-                    `Concluído ${unidade.nome} (${dataISO}): ${blocosColetados.length} bloco(s)/aula(s) lido(s), ${gravados} gravado(s) no Neon.`
+                    `[SYNC ${configModo.modo.toUpperCase()}] ${unidade.nome} (${dataISO}): ${blocosColetados.length} lido(s), ${gravados} gravado(s).`
                 );
             }
         }

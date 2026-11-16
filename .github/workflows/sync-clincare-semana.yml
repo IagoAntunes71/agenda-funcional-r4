@@ -1,0 +1,41 @@
+name: Sincronizar clin.care — Semana (7 dias)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 08:00, 13:00 e 17:30 (horário de Salvador/Bahia, UTC-3)
+    - cron: '0 11,16 * * *'
+    - cron: '30 20 * * *'
+
+concurrency:
+  group: sync-clincare-semana
+  cancel-in-progress: true
+
+jobs:
+  sincronizar-semana:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Instalar Chromium do Playwright
+        run: npx playwright install chromium --with-deps
+
+      - name: Executar sincronização da semana (7 dias)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CLINCARE_URL: ${{ secrets.CLINCARE_URL }}
+          CLINCARE_EMAIL: ${{ secrets.CLINCARE_EMAIL }}
+          CLINCARE_PASSWORD: ${{ secrets.CLINCARE_PASSWORD }}
+          SYNC_MODO: semana
+        run: npx tsx scripts/sincronizar-clincare.ts --modo=semana
