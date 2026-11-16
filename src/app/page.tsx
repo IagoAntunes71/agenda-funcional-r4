@@ -888,7 +888,7 @@ export default function PaginaAgendamentoReforco() {
             <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1] bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-3 py-1 rounded-full">
               <GraduationCap className="w-3.5 h-3.5" />
-              Agendamento de Reforço Escolar (100 min)
+              Agendamento de Aulas R4 Ensina
             </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
               <ShieldCheck className="w-4 h-4" /> Acesso protegido por PIN
