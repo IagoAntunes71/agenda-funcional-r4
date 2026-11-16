@@ -2090,9 +2090,10 @@ export default function PainelAdmin({
                         Vínculo de Unidades com o clin.care
                     </h3>
                     <p className="text-xs text-slate-400">
-                        Para a unidade <strong>Online</strong>, mantenha{' '}
-                        <code className="text-slate-300">id-online</code> (ou informe o
-                        UUID caso ela também exista no clin.care).
+                        Para as unidades <strong>Online</strong> e <strong>Imbuí</strong>,
+                        mantenha <code className="text-slate-300">id-online</code> e{' '}
+                        <code className="text-slate-300">id-imbui</code> (ou informe o UUID
+                        caso elas também possuam agenda no clin.care).
                     </p>
 
                     <div className="space-y-3">
