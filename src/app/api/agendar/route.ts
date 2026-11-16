@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+    LIMITE_AGENDAMENTOS_SIMULTANEOS,
+    buscarFamiliaPorTelefone,
+    lerSessaoCliente,
+} from '@/lib/cliente-auth';
 import { sql } from '@/lib/db';
 import {
     IntervaloOcupado,
@@ -175,6 +180,38 @@ export async function POST(req: NextRequest) {
                         'Horário inválido para a grade de 100 minutos deste professor.',
                 },
                 { status: 400 }
+            );
+        }
+
+        // Validação de sessão (WhatsApp + PIN) e limite de aulas simultâneas
+        const sessaoCliente = await lerSessaoCliente();
+        if (!sessaoCliente) {
+            return NextResponse.json(
+                { error: 'Sessão expirada. Confirme seu WhatsApp e PIN para agendar.' },
+                { status: 401 }
+            );
+        }
+
+        const familia = await buscarFamiliaPorTelefone(sessaoCliente.telefone);
+        const alunoSelecionado = familia.alunos.find(
+            (a) => a.id === Number(alunoId)
+        );
+
+        if (!alunoSelecionado) {
+            return NextResponse.json(
+                { error: 'Aluno não vinculado ao WhatsApp autenticado.' },
+                { status: 403 }
+            );
+        }
+
+        if (
+            alunoSelecionado.agendamentos_futuros >= LIMITE_AGENDAMENTOS_SIMULTANEOS
+        ) {
+            return NextResponse.json(
+                {
+                    error: `Este aluno já possui ${LIMITE_AGENDAMENTOS_SIMULTANEOS} aulas futuras agendadas. Conclua ou cancele uma aula antes de marcar outra.`,
+                },
+                { status: 409 }
             );
         }
 

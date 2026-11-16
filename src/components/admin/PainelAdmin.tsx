@@ -15,6 +15,7 @@ import {
     Edit3,
     ExternalLink,
     GraduationCap,
+    KeyRound,
     Lock,
     LogOut,
     Menu,
@@ -556,6 +557,24 @@ export default function PainelAdmin({
             }),
         });
         await carregarDados();
+    }
+
+    const [resetandoPin, setResetandoPin] = useState(false);
+
+    async function resetarPinCliente(telefoneAlvo: string) {
+        if (!telefoneAlvo.trim()) return;
+        setResetandoPin(true);
+        try {
+            const res = await fetch('/api/admin/alunos/reset-pin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ telefone: telefoneAlvo }),
+            });
+            const json = await res.json();
+            alert(json.mensagem || json.error);
+        } finally {
+            setResetandoPin(false);
+        }
     }
 
     const escuro = tema === 'escuro';
@@ -1415,6 +1434,19 @@ export default function PainelAdmin({
                                                                 <MessageCircle className="w-3.5 h-3.5" />{' '}
                                                                 WhatsApp
                                                             </a>
+                                                        )}
+
+                                                        {ag.whatsapp_responsavel && (
+                                                            <button
+                                                                type="button"
+                                                                disabled={resetandoPin}
+                                                                onClick={() =>
+                                                                    void resetarPinCliente(ag.whatsapp_responsavel)
+                                                                }
+                                                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsSubtexto} hover:text-[#1496A1]`}
+                                                            >
+                                                                <KeyRound className="w-3.5 h-3.5" /> Resetar PIN
+                                                            </button>
                                                         )}
 
                                                         {ag.status !== 'cancelado' && (
