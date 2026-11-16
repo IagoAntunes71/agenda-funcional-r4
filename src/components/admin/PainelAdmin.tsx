@@ -141,7 +141,7 @@ export default function PainelAdmin({
 
     useEffect(() => {
         if (autenticado) {
-            carregarDados();
+            void Promise.resolve().then(() => carregarDados());
         }
     }, [autenticado, carregarDados]);
 
@@ -448,7 +448,7 @@ export default function PainelAdmin({
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {agendamentosFiltrados.map((ag) => {
-                                const whatsappNumeros = ag.whatsapp_responsavel.replace(/\D/g, '');
+                                const whatsappNumeros = (ag.whatsapp_responsavel || '').replace(/\D/g, '');
                                 const linkWhatsapp = `https://wa.me/55${whatsappNumeros}`;
 
                                 return (
