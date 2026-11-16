@@ -3,6 +3,7 @@ import { verificarAdminAutenticado } from '@/lib/admin-auth';
 import PainelAdmin from '@/components/admin/PainelAdmin';
 import ImportadorProfessoresClinCare from '@/components/admin/ImportadorProfessoresClinCare';
 import AdminColegios from '@/components/AdminColegios';
+import AdminWhatsApp from '@/components/AdminWhatsApp';
 
 async function ConteudoAdmin() {
     const autenticado = await verificarAdminAutenticado();
@@ -36,6 +37,7 @@ export default function AdminPage() {
                 >
                     <ConteudoAdmin />
                     <AdminColegios />
+                    <AdminWhatsApp />
                 </Suspense>
             </div>
         </main>

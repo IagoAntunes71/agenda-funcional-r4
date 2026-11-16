@@ -65,7 +65,6 @@ function formatarDiaSemana(isoDate: string): string {
 }
 
 export default function PaginaAgendamentoReforco() {
-  // Etapa 1 e 2: WhatsApp e Alunos (Filhos)
   const [telefoneInput, setTelefoneInput] = useState<string>('');
   const [telefoneConfirmado, setTelefoneConfirmado] = useState<string>('');
   const [buscandoCliente, setBuscandoCliente] = useState<boolean>(true);
@@ -76,7 +75,6 @@ export default function PaginaAgendamentoReforco() {
   const [colegiosOficiais, setColegiosOficiais] = useState<ColegioOficial[]>([]);
   const [exibirFormNovoAluno, setExibirFormNovoAluno] = useState<boolean>(false);
 
-  // Formulário de cadastro de aluno (filho)
   const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
   const [colegioOpcao, setColegioOpcao] = useState<string>('');
   const [colegioOutroNome, setColegioOutroNome] = useState<string>('');
@@ -84,7 +82,6 @@ export default function PaginaAgendamentoReforco() {
   const [salvandoAluno, setSalvandoAluno] = useState<boolean>(false);
   const [erroFormAluno, setErroFormAluno] = useState<string | null>(null);
 
-  // Etapa 3 e 4: Unidade, Data, Matéria e Professores (100 min)
   const [unidades, setUnidades] = useState<Unidade[]>([]);
   const [datas, setDatas] = useState<DataLiberada[]>([]);
   const [materias, setMaterias] = useState<string[]>([]);
@@ -98,7 +95,6 @@ export default function PaginaAgendamentoReforco() {
   const [carregandoHorarios, setCarregandoHorarios] = useState<boolean>(true);
   const [erroGeral, setErroGeral] = useState<string | null>(null);
 
-  // Modal de confirmação final
   const [selecaoSlot, setSelecaoSlot] = useState<{
     professor: ProfessorDisponivel;
     slot: SlotAula;
@@ -450,12 +446,7 @@ export default function PaginaAgendamentoReforco() {
                     {comprovante.horario}
                   </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => setComprovante(null)}
-                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
-                >
-                  Fechar aviso <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {comprovante.linkWaMe && (
                       <a
                           href={comprovante.linkWaMe}
@@ -474,7 +465,6 @@ export default function PaginaAgendamentoReforco() {
                     Fechar aviso
                   </button>
                 </div>
-                </button>
               </section>
           )}
 
@@ -559,7 +549,6 @@ export default function PaginaAgendamentoReforco() {
                     </div>
                   </div>
 
-                  {/* Lista de alunos já cadastrados neste WhatsApp */}
                   {alunos.length > 0 && (
                       <div className="space-y-2.5">
                         <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -603,7 +592,6 @@ export default function PaginaAgendamentoReforco() {
                       </div>
                   )}
 
-                  {/* Formulário para cadastrar 1º filho ou novo filho */}
                   {exibirFormNovoAluno && (
                       <form
                           onSubmit={handleCadastrarAluno}
