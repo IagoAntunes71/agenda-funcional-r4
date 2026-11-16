@@ -6,6 +6,7 @@ import {
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
 import { normalizarTelefone } from '@/lib/cliente-helpers';
+import { notificarGrupoNovoAgendamento } from '@/lib/whatsapp-notificacao';
 
 async function garantirTabelaAgendamentos() {
     await sql`
@@ -25,6 +26,8 @@ async function garantirTabelaAgendamentos() {
       responsavel_nome TEXT,
       observacoes TEXT,
       status TEXT NOT NULL DEFAULT 'confirmado',
+      notificado_whatsapp BOOLEAN NOT NULL DEFAULT false,
+      lancado_clincare BOOLEAN NOT NULL DEFAULT false,
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
@@ -43,6 +46,8 @@ async function garantirTabelaAgendamentos() {
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS observacoes TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'confirmado'`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS notificado_whatsapp BOOLEAN DEFAULT false`;
+    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ DEFAULT now()`;
 
     await sql`
@@ -215,7 +220,9 @@ export async function POST(req: NextRequest) {
         serie,
         responsavel_nome,
         observacoes,
-        status
+        status,
+        notificado_whatsapp,
+        lancado_clincare
       )
       VALUES (
         ${unidadeId},
@@ -231,21 +238,49 @@ export async function POST(req: NextRequest) {
         ${serie || null},
         ${responsavelNome || null},
         ${observacoes || null},
-        'confirmado'
+        'confirmado',
+        false,
+        false
       )
       RETURNING id
     `) as { id: number }[];
 
+        const agendamentoId = inserido[0]?.id;
+
         const unidadeRows = (await sql`
       SELECT nome FROM unidades WHERE id = ${unidadeId} LIMIT 1
     `) as { nome: string }[];
+        const nomeUnidade = unidadeRows[0]?.nome || 'Unidade';
+
+        const notif = await notificarGrupoNovoAgendamento({
+            id: agendamentoId,
+            unidade: nomeUnidade,
+            professor: prof.nome,
+            materia,
+            data,
+            horario: slotEscolhido.label,
+            alunoNome,
+            alunoTelefone,
+            colegioNome,
+            serie,
+            observacoes,
+        });
+
+        if (notif.enviado && agendamentoId) {
+            await sql`
+        UPDATE agendamentos
+        SET notificado_whatsapp = true
+        WHERE id = ${agendamentoId}
+      `;
+        }
 
         return NextResponse.json(
             {
                 sucesso: true,
+                notificadoWhatsApp: notif.enviado,
                 agendamento: {
-                    id: inserido[0]?.id,
-                    unidade: unidadeRows[0]?.nome || '',
+                    id: agendamentoId,
+                    unidade: nomeUnidade,
                     professor: prof.nome,
                     materia,
                     data,
@@ -253,6 +288,7 @@ export async function POST(req: NextRequest) {
                     alunoNome,
                     colegioNome,
                     serie,
+                    linkWaMe: notif.linkWaMe,
                 },
             },
             { status: 201 }

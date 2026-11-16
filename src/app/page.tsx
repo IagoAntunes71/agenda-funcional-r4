@@ -51,6 +51,7 @@ interface ComprovanteAgendamento {
   alunoNome: string;
   colegioNome?: string;
   serie?: string;
+  linkWaMe?: string | null;
 }
 
 function formatarDiaSemana(isoDate: string): string {
@@ -454,7 +455,25 @@ export default function PaginaAgendamentoReforco() {
                     onClick={() => setComprovante(null)}
                     className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
                 >
-                  Fechar aviso
+                  Fechar aviso <div className="flex flex-wrap items-center gap-2">
+                  {comprovante.linkWaMe && (
+                      <a
+                          href={comprovante.linkWaMe}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-xs font-bold text-slate-950 transition"
+                      >
+                        Enviar Comprovante no WhatsApp da Secretaria
+                      </a>
+                  )}
+                  <button
+                      type="button"
+                      onClick={() => setComprovante(null)}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white"
+                  >
+                    Fechar aviso
+                  </button>
+                </div>
                 </button>
               </section>
           )}
