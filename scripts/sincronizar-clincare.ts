@@ -1322,11 +1322,14 @@ async function localizarCardReservadoNaGrade(
                 const colDona = colunas.find(
                     (c) => cx >= c.left - 15 && cx <= c.right + 15
                 );
-                const bateProfessor = Boolean(
-                    colDona &&
-                    profAlvo &&
-                    colDona.nome === profAlvo
-                );
+                const partesAlvo = profAlvo.split(' ');
+                const partesColuna = (colDona?.nome || '').split(' ');
+                const abreviado = partesColuna.length === partesAlvo.length &&
+                    partesColuna.length >= 2 && partesColuna[0] === partesAlvo[0] &&
+                    partesColuna.every((parte, indice) => parte === partesAlvo[indice] ||
+                        (indice > 0 && parte.length === 1 && partesAlvo[indice].startsWith(parte)));
+                const bateProfessor = Boolean(colDona && profAlvo &&
+                    (colDona.nome === profAlvo || abreviado));
 
                 candidatos.push({
                     el,
@@ -1343,6 +1346,11 @@ async function localizarCardReservadoNaGrade(
 
             filtrados.sort((a, b) => a.area - b.area);
             const alvo = filtrados[0];
+            for (let i = 1; i < filtrados.length; i++) {
+                if (!filtrados[i].el.contains(alvo.el) && !alvo.el.contains(filtrados[i].el)) {
+                    throw new Error('Mais de uma reserva compatível com o professor/horário. Confira a grade antes de excluir.');
+                }
+            }
 
             alvo.el.scrollIntoView({ block: 'center', inline: 'center' });
             alvo.el.setAttribute('data-clincare-card-alvo', '1');
@@ -1543,268 +1551,115 @@ async function varrerMapaParaEncontrarCard(
     return null;
 }
 
-async function clicarCardFluxoExclusao(
+async function aguardarPainelExclusao(
     page: Page,
-    tituloAlvo: string,
-    subtituloAlvo: string,
-    descricaoEtapa: string,
-    aoFalharPrimeiraMetade?: () => Promise<void>
-): Promise<void> {
-    const tituloNorm = normalizarTexto(tituloAlvo);
-    const subtituloNorm = normalizarTexto(subtituloAlvo);
-    const inicio = Date.now();
-    const limite = inicio + 9000;
-    let ultimaPosicao: { x: number; y: number } | null = null;
-    let executouFallback = false;
-
+    etapa: 'detalhes' | 'menu' | 'confirmacao'
+): Promise<Locator> {
+    const requisitos = {
+        detalhes: ['reservado app', 'profissional', 'editar agendamento', 'dados administrativos'],
+        menu: ['editar agendamento', 'editar agenda', 'remover este atendimento'],
+        confirmacao: ['excluir este agendamento?', 'reservado app', 'cancelar'],
+    }[etapa];
+    const limite = Date.now() + 12000;
     while (Date.now() < limite) {
-        const coords = await page.evaluate(
-            ({ titulo, subtitulo }) => {
-                // IMPORTANTE: não declarar funções auxiliares internas aqui
-                const candidatos: {
-                    x: number;
-                    y: number;
-                    area: number;
-                    temSubtitulo: boolean;
-                    ehInterativo: boolean;
-                }[] = [];
-
-                const nos = Array.from(
-                    document.querySelectorAll('button, a, [role="button"], div, span')
-                ) as HTMLElement[];
-
-                for (let i = 0; i < nos.length; i++) {
-                    const el = nos[i];
-                    const r = el.getBoundingClientRect();
-                    if (
-                        r.width < 60 ||
-                        r.width > 900 ||
-                        r.height < 28 ||
-                        r.height > 180
-                    ) {
-                        continue;
-                    }
-                    if (
-                        r.right < 0 ||
-                        r.left > window.innerWidth ||
-                        r.bottom < 0 ||
-                        r.top > window.innerHeight
-                    ) {
-                        continue;
-                    }
-
-                    const st = window.getComputedStyle(el);
-                    if (st.display === 'none' || st.visibility === 'hidden') continue;
-
-                    const txt = (el.innerText || el.textContent || '')
-                        .normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g, '')
-                        .replace(/\s+/g, ' ')
-                        .trim()
-                        .toLowerCase();
-
-                    if (!txt || txt.length > 130 || !txt.includes(titulo)) continue;
-
-                    const cx = r.left + r.width / 2;
-                    const cy = r.top + r.height / 2;
-
-                    const topo = document.elementFromPoint(cx, cy);
-                    if (
-                        !topo ||
-                        (topo !== el && !el.contains(topo) && !topo.contains(el))
-                    ) {
-                        continue;
-                    }
-
-                    const ehInterativo =
-                        el.tagName === 'BUTTON' ||
-                        el.tagName === 'A' ||
-                        el.getAttribute('role') === 'button' ||
-                        st.cursor === 'pointer';
-
-                    candidatos.push({
-                        x: cx,
-                        y: cy,
-                        area: r.width * r.height,
-                        temSubtitulo: Boolean(subtitulo && txt.includes(subtitulo)),
-                        ehInterativo,
-                    });
-                }
-
-                if (candidatos.length === 0) return null;
-
-                const comSub = candidatos.filter((c) => c.temSubtitulo);
-                const pool = comSub.length > 0 ? comSub : candidatos;
-
-                pool.sort((a, b) => {
-                    if (a.ehInterativo !== b.ehInterativo) {
-                        return a.ehInterativo ? -1 : 1;
-                    }
-                    return a.area - b.area;
-                });
-
-                return { x: pool[0].x, y: pool[0].y };
-            },
-            { titulo: tituloNorm, subtitulo: subtituloNorm }
-        );
-
-        if (coords) {
-            if (
-                ultimaPosicao &&
-                Math.abs(coords.x - ultimaPosicao.x) <= 3 &&
-                Math.abs(coords.y - ultimaPosicao.y) <= 3
-            ) {
-                await page.mouse.click(coords.x, coords.y);
-                await page.waitForTimeout(550);
-                return;
-            }
-            ultimaPosicao = coords;
-            await page.waitForTimeout(180);
-            continue;
-        }
-
-        if (
-            !executouFallback &&
-            aoFalharPrimeiraMetade &&
-            Date.now() - inicio > 2500
-        ) {
-            executouFallback = true;
-            await aoFalharPrimeiraMetade();
-        }
-
-        ultimaPosicao = null;
-        await page.waitForTimeout(220);
-    }
-
-    throw new Error(
-        `Não foi possível localizar "${tituloAlvo}" na ${descricaoEtapa}.`
-    );
-}
-
-async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
-    const inicio = Date.now();
-    const limite = inicio + 9000;
-    let ultimaPosicao: { x: number; y: number } | null = null;
-
-    while (Date.now() < limite) {
-        const alvoExcluir = await page.evaluate(() => {
-            // IMPORTANTE: não declarar funções auxiliares internas aqui
-            const antigos = document.querySelectorAll('[data-clincare-btn-excluir]');
-            for (let k = 0; k < antigos.length; k++) {
-                antigos[k].removeAttribute('data-clincare-btn-excluir');
-            }
-
-            const candidatos: {
-                el: HTMLElement;
-                x: number;
-                y: number;
-                area: number;
-                ehBotao: boolean;
-            }[] = [];
-
-            const elementos = Array.from(
-                document.querySelectorAll('button, [role="button"], a, div, span')
-            ) as HTMLElement[];
-
+        const encontrado = await page.evaluate(({ requisitos, etapa }) => {
+            const anteriores = document.querySelectorAll(`[data-r4-painel="${etapa}"]`);
+            for (let i = 0; i < anteriores.length; i++) anteriores[i].removeAttribute('data-r4-painel');
+            let alvo: HTMLElement | null = null;
+            let menorArea = Infinity;
+            const elementos = Array.from(document.querySelectorAll('div, section, aside, [role="dialog"]')) as HTMLElement[];
             for (let i = 0; i < elementos.length; i++) {
                 const el = elementos[i];
-                const st = window.getComputedStyle(el);
-                if (
-                    st.display === 'none' ||
-                    st.visibility === 'hidden' ||
-                    st.opacity === '0'
-                ) {
-                    continue;
-                }
-
-                const txt = (el.innerText || el.textContent || '')
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .replace(/\s+/g, ' ')
-                    .trim()
-                    .toLowerCase();
-
-                if (txt !== 'excluir') continue;
-
                 const r = el.getBoundingClientRect();
-                if (r.width < 40 || r.height < 20) continue;
-
-                el.scrollIntoView({ block: 'center' });
-                const rVisivel = el.getBoundingClientRect();
-                if (
-                    rVisivel.width < 40 ||
-                    rVisivel.height < 20 ||
-                    rVisivel.bottom < 0 ||
-                    rVisivel.top > window.innerHeight
-                ) {
-                    continue;
+                const estilo = getComputedStyle(el);
+                if (r.width < 200 || r.width > 900 || r.height < 100 ||
+                    estilo.display === 'none' || estilo.visibility === 'hidden' || estilo.opacity === '0') continue;
+                const texto = (el.innerText || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ').trim().toLowerCase();
+                let atende = true;
+                for (let j = 0; j < requisitos.length; j++) {
+                    if (!texto.includes(requisitos[j])) { atende = false; break; }
                 }
-
-                candidatos.push({
-                    el,
-                    x: rVisivel.left + rVisivel.width / 2,
-                    y: rVisivel.top + rVisivel.height / 2,
-                    area: rVisivel.width * rVisivel.height,
-                    ehBotao:
-                        el.tagName === 'BUTTON' ||
-                        el.getAttribute('role') === 'button' ||
-                        st.cursor === 'pointer',
-                });
+                if (atende && r.width * r.height < menorArea) {
+                    alvo = el;
+                    menorArea = r.width * r.height;
+                }
             }
-
-            if (candidatos.length === 0) return null;
-
-            candidatos.sort((a, b) => {
-                if (a.ehBotao !== b.ehBotao) {
-                    return a.ehBotao ? -1 : 1;
-                }
-                if (Math.abs(b.y - a.y) > 10) {
-                    return b.y - a.y;
-                }
-                return b.area - a.area;
-            });
-
-            const escolhido = candidatos[0];
-            escolhido.el.setAttribute('data-clincare-btn-excluir', '1');
-
-            return { x: escolhido.x, y: escolhido.y };
-        });
-
-        if (alvoExcluir) {
-            if (
-                ultimaPosicao &&
-                Math.abs(alvoExcluir.x - ultimaPosicao.x) <= 3 &&
-                Math.abs(alvoExcluir.y - ultimaPosicao.y) <= 3
-            ) {
-                await page.mouse.click(alvoExcluir.x, alvoExcluir.y);
-                await page.waitForTimeout(700);
-
-                await page.evaluate(() => {
-                    const btn = document.querySelector(
-                        '[data-clincare-btn-excluir="1"]'
-                    ) as HTMLElement | null;
-                    if (btn) {
-                        const r = btn.getBoundingClientRect();
-                        if (r.width > 0 && r.height > 0) {
-                            btn.click();
-                        }
-                    }
-                });
-
-                return;
-            }
-            ultimaPosicao = alvoExcluir;
-            await page.waitForTimeout(180);
-            continue;
-        }
-
-        ultimaPosicao = null;
-        await page.waitForTimeout(220);
+            if (!alvo) return false;
+            alvo.setAttribute('data-r4-painel', etapa);
+            return true;
+        }, { requisitos, etapa });
+        if (encontrado) return page.locator(`[data-r4-painel="${etapa}"]`);
+        await page.waitForTimeout(200);
     }
+    throw new Error(`A tela "${etapa}" não apareceu após o clique. Nenhuma exclusão foi confirmada.`);
+}
 
-    throw new Error(
-        'Botão vermelho "EXCLUIR" não encontrado na Tela 3 de confirmação.'
-    );
+async function clicarAcaoExclusao(painel: Locator, texto: string): Promise<void> {
+    // O Playwright aguarda estabilidade e verifica se o elemento recebe o clique.
+    // Nunca usa force, clique duplicado ou coordenadas antigas.
+    const nome = new RegExp(`^${texto}$`, 'i');
+    const botao = painel.getByRole('button', { name: nome }).filter({ visible: true });
+    if (await botao.count() === 1) {
+        await botao.click({ timeout: 8000 });
+        return;
+    }
+    const rotulo = painel.getByText(nome).filter({ visible: true });
+    if (await rotulo.count() !== 1) {
+        throw new Error(`Ação "${texto}" ausente ou ambígua no painel de exclusão.`);
+    }
+    await rotulo.click({ timeout: 8000 });
+}
+
+function validarDadosExclusao(
+    textoPainel: string,
+    ag: ReservaFilaRow,
+    nomeClinCare?: string
+): void {
+    const texto = textoPainel.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[,.]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!/\breservado\s+app\b/.test(texto)) throw new Error('Paciente do painel não é RESERVADO APP.');
+    const [ano, mes, dia] = ag.data.split('-');
+    const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    const data = new RegExp(`\\b0?${Number(dia)}\\s+${meses[Number(mes) - 1]}[a-z]*\\s+${ano}\\b`);
+    if (!data.test(texto)) throw new Error(`Data do painel não corresponde a ${ag.data}. Exclusão interrompida.`);
+    const hora = ag.hora_inicio.slice(0, 5);
+    if (!new RegExp(`\\b${hora}\\b`).test(texto)) throw new Error(`Horário do painel não corresponde a ${hora}.`);
+    if (nomeClinCare) {
+        // A grade pode abreviar o sobrenome, mas o painel deve trazer o nome completo.
+        const linhas = textoPainel.split('\n');
+        if (!linhas.some(l => normalizarTexto(l) === normalizarTexto(nomeClinCare))) {
+            throw new Error(`O profissional do painel não corresponde ao perfil "${nomeClinCare}". Nenhuma exclusão foi feita.`);
+        }
+        const minutos = Number(hora.slice(0, 2)) * 60 + Number(hora.slice(3)) + 100;
+        const fim = `${String(Math.floor(minutos / 60) % 24).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`;
+        if (!new RegExp(`\\b${hora}\\s*[~–—-]\\s*${fim}\\b`).test(texto)) {
+            throw new Error('O intervalo do painel não corresponde à aula de 100 minutos.');
+        }
+    }
+}
+
+async function executarExclusaoEmTresTelas(
+    page: Page,
+    ag: ReservaFilaRow,
+    nomeClinCare: string
+): Promise<void> {
+    const detalhes = await aguardarPainelExclusao(page, 'detalhes');
+    validarDadosExclusao(await detalhes.innerText(), ag, nomeClinCare);
+    console.log(`[CANCELAR RESERVA #${ag.id}] Detalhes conferidos: paciente, professor, data e intervalo.`);
+    await clicarAcaoExclusao(detalhes, 'Editar Agendamento');
+
+    const menu = await aguardarPainelExclusao(page, 'menu');
+    console.log(`[CANCELAR RESERVA #${ag.id}] Menu Editar Agendamento visível.`);
+    await clicarAcaoExclusao(menu, 'Excluir agendamento');
+
+    const confirmacao = await aguardarPainelExclusao(page, 'confirmacao');
+    validarDadosExclusao(await confirmacao.innerText(), ag);
+    console.log(`[CANCELAR RESERVA #${ag.id}] Pergunta "Excluir este agendamento?" visível e conferida.`);
+    await clicarAcaoExclusao(confirmacao, 'EXCLUIR');
+    await confirmacao.getByText('Excluir este agendamento?', { exact: true })
+        .waitFor({ state: 'hidden', timeout: 12000 });
+    console.log(`[CANCELAR RESERVA #${ag.id}] Confirmação fechou; verificando remoção na grade.`);
 }
 
 async function obterNomeProfessorParaCancelamento(
@@ -1898,48 +1753,13 @@ async function cancelarReservaNoClinCare(
         `[CANCELAR RESERVA #${ag.id}] Card localizado: "${card.resumo}". Iniciando exclusão em 3 etapas...`
     );
 
-    // Passo 0: Clica no bloco da aula na agenda para abrir a Tela 1
-    await page.waitForTimeout(250);
-    await page.mouse.click(card.x, card.y);
-    await page.waitForTimeout(650);
-
-    // Tela 1: Clica em "Editar Agendamento" ("Dados administrativos")
-    await clicarCardFluxoExclusao(
-        page,
-        'Editar Agendamento',
-        'Dados administrativos',
-        'Tela 1 (Detalhes do Agendamento)',
-        async () => {
-            await page.evaluate(() => {
-                const alvo = document.querySelector(
-                    '[data-clincare-card-alvo="1"]'
-                ) as HTMLElement | null;
-                if (alvo) {
-                    alvo.scrollIntoView({ block: 'center', inline: 'center' });
-                    alvo.click();
-                }
-            });
-            await page.waitForTimeout(450);
-        }
-    );
-    console.log(`[CANCELAR RESERVA #${ag.id}] Tela 1 -> "Editar Agendamento" aberto.`);
-
-    // Tela 2: Clica em "Excluir agendamento" ("Remover este atendimento")
-    await clicarCardFluxoExclusao(
-        page,
-        'Excluir agendamento',
-        'Remover este atendimento',
-        'Tela 2 (Menu Editar Agendamento)'
-    );
-    console.log(`[CANCELAR RESERVA #${ag.id}] Tela 2 -> "Excluir agendamento" aberto.`);
-
-    // Tela 3: Confirma clicando no botão vermelho "EXCLUIR"
-    await confirmarBotaoExcluirTela3(page);
-    console.log(`[CANCELAR RESERVA #${ag.id}] Tela 3 -> Botão "EXCLUIR" confirmado.`);
+    // O marcador foi definido durante a busca. O clique acompanha a posição atual.
+    await page.locator('[data-clincare-card-alvo="1"]').click({ timeout: 8000 });
+    await executarExclusaoEmTresTelas(page, ag, nomeClinCare);
 
     await aguardarEstabilizacaoModal(page, 1800);
 
-    // Recarrega a agenda e valida que o card realmente desapareceu (zero falso positivo)
+    // Recarrega o mesmo mapa para verificar se a reserva ainda é detectada.
     const aindaExiste = await varrerMapaParaEncontrarCard(
         page,
         urlUtilizada,
@@ -2910,3 +2730,4 @@ main().catch((err) => {
     console.error('Falha na sincronização com clin.care:', err);
     process.exit(1);
 });
+
