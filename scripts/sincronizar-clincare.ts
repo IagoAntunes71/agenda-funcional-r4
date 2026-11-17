@@ -314,46 +314,86 @@ async function selecionarValorSelect(
 }
 
 async function obterCaixaModalAgendamento(
-    page: Page
+    page: Page,
+    timeoutMs = 2000
 ): Promise<{ left: number; right: number; top: number; bottom: number } | null> {
-    return page.evaluate(() => {
-        const nos = Array.from(document.querySelectorAll('*'));
-        for (let i = nos.length - 1; i >= 0; i--) {
-            const el = nos[i] as HTMLElement;
-            if (el.children.length > 2) continue;
-            const txt = (el.textContent || '').trim();
-            if (txt !== 'Novo Agendamento') continue;
+    const limite = Date.now() + timeoutMs;
 
-            let pai: HTMLElement | null = el.parentElement;
-            for (let nivel = 0; nivel < 6 && pai; nivel++) {
-                const r = pai.getBoundingClientRect();
-                if (
-                    r.width >= 300 &&
-                    r.width <= 700 &&
-                    r.height >= 420 &&
-                    r.height <= window.innerHeight
-                ) {
-                    return {
-                        left: r.left,
-                        right: r.right,
-                        top: r.top,
-                        bottom: r.bottom,
-                    };
+    while (Date.now() <= limite) {
+        const caixa = await page.evaluate(() => {
+            const nos = Array.from(document.querySelectorAll('*'));
+            for (let i = nos.length - 1; i >= 0; i--) {
+                const el = nos[i] as HTMLElement;
+                if (el.children.length > 2) continue;
+                const txt = (el.textContent || '').trim();
+                if (txt !== 'Novo Agendamento') continue;
+
+                let pai: HTMLElement | null = el.parentElement;
+                for (let nivel = 0; nivel < 7 && pai; nivel++) {
+                    const r = pai.getBoundingClientRect();
+                    if (
+                        r.width >= 300 &&
+                        r.width <= 760 &&
+                        r.height >= 380 &&
+                        r.height <= window.innerHeight
+                    ) {
+                        return {
+                            left: r.left,
+                            right: r.right,
+                            top: r.top,
+                            bottom: r.bottom,
+                        };
+                    }
+                    pai = pai.parentElement;
                 }
-                pai = pai.parentElement;
             }
-        }
-        return null;
-    });
+            return null;
+        });
+
+        if (caixa) return caixa;
+        if (timeoutMs <= 0) break;
+        await page.waitForTimeout(200);
+    }
+
+    return null;
+}
+
+async function aguardarEstabilizacaoModal(
+    page: Page,
+    tempoBaseMs: number
+): Promise<void> {
+    await page.waitForTimeout(tempoBaseMs);
+
+    // Aguarda eventuais indicadores de carregamento ("travadinha" do ClinCare ao validar sala/serviço)
+    const limite = Date.now() + 8000;
+    while (Date.now() < limite) {
+        const carregando = await page.evaluate(() => {
+            const spinners = document.querySelectorAll(
+                '[class*="animate-spin"], [role="progressbar"], [aria-busy="true"]'
+            );
+            for (let i = 0; i < spinners.length; i++) {
+                const r = (spinners[i] as HTMLElement).getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) return true;
+            }
+            return false;
+        });
+
+        if (!carregando) break;
+        await page.waitForTimeout(250);
+    }
 }
 
 async function preencherCampoDropdownModal(
     page: Page,
     textoPlaceholder: string,
     preferencias: string[],
-    textoBusca?: string
+    opcoes?: {
+        textoBusca?: string;
+        permitirUnicaOpcaoFallback?: boolean;
+        pausaPosSelecaoMs?: number;
+    }
 ): Promise<void> {
-    const modalRect = await obterCaixaModalAgendamento(page);
+    const modalRect = await obterCaixaModalAgendamento(page, 2500);
     if (!modalRect) {
         throw new Error(
             `Modal "Novo Agendamento" fechou inesperadamente antes de preencher "${textoPlaceholder}".`
@@ -430,6 +470,7 @@ async function preencherCampoDropdownModal(
     await page.mouse.click(coordsCampo.x, coordsCampo.y);
     await page.waitForTimeout(450);
 
+    const textoBusca = opcoes?.textoBusca;
     if (textoBusca) {
         const inputFocado = page.locator('input:focus').first();
         if (
@@ -442,30 +483,35 @@ async function preencherCampoDropdownModal(
             await page.waitForTimeout(1000);
         }
     } else {
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(550);
     }
 
-    // 2. Busca as opções abertas na camada superior do modal
+    // 2. Busca as opções abertas na camada superior do modal, garantindo que o clique nunca atinja o backdrop
     const prefsNorm = preferencias
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
 
-    let coordsOpcao: { x: number; y: number } | null = null;
+    let opcaoSelecionada: { x: number; y: number; bruto: string } | null = null;
     let ultimasOpcoesVisiveis: string[] = [];
     let tentativas = 0;
     const limiteEspera = Date.now() + 10000;
 
-    while (Date.now() < limiteEspera && !coordsOpcao) {
+    while (Date.now() < limiteEspera && !opcaoSelecionada) {
         tentativas++;
 
-        // Se após ~2s nenhuma lista abriu (ex.: 1º clique só fechou o dropdown anterior), clica novamente no campo
         if (tentativas === 8 && ultimasOpcoesVisiveis.length === 0) {
             await page.mouse.click(coordsCampo.x, coordsCampo.y);
-            await page.waitForTimeout(400);
+            await page.waitForTimeout(450);
         }
 
         const resultado = await page.evaluate(
-            ({ prefs, box, campoY }) => {
+            ({ prefs, box, campoY, permitirUnica }) => {
+                // Limpa marcação anterior
+                const marcados = document.querySelectorAll('[data-clincare-opcao-alvo]');
+                for (let m = 0; m < marcados.length; m++) {
+                    marcados[m].removeAttribute('data-clincare-opcao-alvo');
+                }
+
                 const ignorar = new Set([
                     'novo agendamento',
                     'selecione o profissional',
@@ -483,9 +529,18 @@ async function preencherCampoDropdownModal(
                     'criar atendimento',
                     'agendar um evento',
                     'bloqueio de agenda',
+                    'carregando',
+                    'buscando',
                 ]);
 
-                const candidatos: { x: number; y: number; txt: string; bruto: string }[] = [];
+                const candidatos: {
+                    el: HTMLElement;
+                    x: number;
+                    y: number;
+                    txt: string;
+                    bruto: string;
+                }[] = [];
+
                 const nos = Array.from(
                     document.querySelectorAll('li, [role="option"], button, div, span')
                 );
@@ -502,10 +557,12 @@ async function preencherCampoDropdownModal(
                     const cx = r.left + r.width / 2;
                     const cy = r.top + r.height / 2;
 
+                    // Mantém estritamente dentro dos limites horizontais e verticais do modal
                     if (
                         cx < box.left + 8 ||
                         cx > box.right - 8 ||
                         cy <= campoY + 10 ||
+                        cy > box.bottom - 6 ||
                         cy > window.innerHeight - 10
                     ) {
                         continue;
@@ -518,10 +575,19 @@ async function preencherCampoDropdownModal(
 
                     const estilo = window.getComputedStyle(htmlEl);
                     if (estilo.visibility !== 'visible' || estilo.display === 'none') continue;
-                    if (htmlEl.closest('[aria-hidden="true"], [inert], [aria-disabled="true"], [disabled]')) continue;
+                    if (
+                        htmlEl.closest(
+                            '[aria-hidden="true"], [inert], [aria-disabled="true"], [disabled]'
+                        )
+                    ) {
+                        continue;
+                    }
 
                     const topo = document.elementFromPoint(cx, cy);
-                    if (!topo || (topo !== htmlEl && !htmlEl.contains(topo) && !topo.contains(htmlEl))) {
+                    if (
+                        !topo ||
+                        (topo !== htmlEl && !htmlEl.contains(topo) && !topo.contains(htmlEl))
+                    ) {
                         continue;
                     }
 
@@ -539,48 +605,82 @@ async function preencherCampoDropdownModal(
 
                     if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
 
-                    candidatos.push({ x: cx, y: cy, txt: t, bruto });
+                    candidatos.push({ el: htmlEl, x: cx, y: cy, txt: t, bruto });
                 }
 
-                const opcoesUnicas = Array.from(new Set(candidatos.map((c) => c.bruto))).slice(0, 10);
+                const opcoesUnicas = Array.from(
+                    new Set(candidatos.map((c) => c.bruto))
+                ).slice(0, 10);
+
+                let escolhido: (typeof candidatos)[number] | null = null;
 
                 // 1ª passada: correspondência exata normalizada
-                for (let p = 0; p < prefs.length; p++) {
+                for (let p = 0; p < prefs.length && !escolhido; p++) {
                     const pref = prefs[p];
                     if (!pref) continue;
                     const exatos = candidatos.filter((c) => c.txt === pref);
                     if (exatos.length > 0) {
-                        return { coords: { x: exatos[0].x, y: exatos[0].y }, opcoesUnicas };
+                        escolhido = exatos[0];
                     }
                 }
 
-                // 2ª passada: correspondência parcial (ex.: "Química 100'" ou "Sala 01 - Pituba")
-                for (let p = 0; p < prefs.length; p++) {
+                // 2ª passada: correspondência parcial (ex.: "Química 100'" ou "Unidade Pituba")
+                for (let p = 0; p < prefs.length && !escolhido; p++) {
                     const pref = prefs[p];
                     if (!pref) continue;
                     const parciais = candidatos.filter((c) => c.txt.includes(pref));
                     if (parciais.length > 0) {
-                        // Se houver variações de duração (ex.: 50' e 100'), prioriza 100
                         const com100 = parciais.find((c) => c.txt.includes('100'));
-                        const escolhido = com100 || parciais[0];
-                        return { coords: { x: escolhido.x, y: escolhido.y }, opcoesUnicas };
+                        escolhido = com100 || parciais[0];
                     }
                 }
 
-                return { coords: null, opcoesUnicas };
+                // 3ª passada (opcional, ex.: sala única vinculada ao professor): se só existir 1 opção real
+                if (!escolhido && permitirUnica && opcoesUnicas.length === 1) {
+                    escolhido = candidatos[0];
+                }
+
+                if (!escolhido) {
+                    return { coords: null, opcoesUnicas };
+                }
+
+                escolhido.el.scrollIntoView({ block: 'nearest' });
+                escolhido.el.setAttribute('data-clincare-opcao-alvo', '1');
+                const rFinal = escolhido.el.getBoundingClientRect();
+                const cxFinal = rFinal.left + rFinal.width / 2;
+                const cyFinal = rFinal.top + rFinal.height / 2;
+
+                if (
+                    cxFinal < box.left + 6 ||
+                    cxFinal > box.right - 6 ||
+                    cyFinal < box.top + 6 ||
+                    cyFinal > box.bottom - 6
+                ) {
+                    return { coords: null, opcoesUnicas };
+                }
+
+                return {
+                    coords: { x: cxFinal, y: cyFinal, bruto: escolhido.bruto },
+                    opcoesUnicas,
+                };
             },
-            { prefs: prefsNorm, box: modalRect, campoY: coordsCampo.y }
+            {
+                prefs: prefsNorm,
+                box: modalRect,
+                campoY: coordsCampo.y,
+                permitirUnica: Boolean(opcoes?.permitirUnicaOpcaoFallback),
+            }
         );
 
         ultimasOpcoesVisiveis = resultado.opcoesUnicas;
-        coordsOpcao = resultado.coords;
+        opcaoSelecionada = resultado.coords;
 
-        if (!coordsOpcao) {
+        if (!opcaoSelecionada) {
             await page.waitForTimeout(250);
         }
     }
 
-    if (!coordsOpcao) {
+    if (!opcaoSelecionada) {
         const listaLida =
             ultimasOpcoesVisiveis.length > 0
                 ? ultimasOpcoesVisiveis.join(' | ')
@@ -592,9 +692,45 @@ async function preencherCampoDropdownModal(
         );
     }
 
-    console.log(`[CAMPO] ${textoPlaceholder}: opção localizada.`);
-    await page.mouse.click(coordsOpcao.x, coordsOpcao.y);
-    await page.waitForTimeout(450);
+    // Valida no instante exato do clique que o alvo ainda está no topo (nunca no backdrop do modal)
+    const clicouSeguro = await page.evaluate(
+        ({ x, y }) => {
+            const marcado = document.querySelector(
+                '[data-clincare-opcao-alvo="1"]'
+            ) as HTMLElement | null;
+            const topo = document.elementFromPoint(x, y);
+
+            if (
+                marcado &&
+                topo &&
+                (topo === marcado || marcado.contains(topo) || topo.contains(marcado))
+            ) {
+                return 'mouse';
+            }
+
+            if (marcado) {
+                marcado.click();
+                return 'dom';
+            }
+
+            return 'cancelado';
+        },
+        { x: opcaoSelecionada.x, y: opcaoSelecionada.y }
+    );
+
+    if (clicouSeguro === 'mouse') {
+        await page.mouse.click(opcaoSelecionada.x, opcaoSelecionada.y);
+    } else if (clicouSeguro === 'cancelado') {
+        throw new Error(
+            `Lista de "${textoPlaceholder}" fechou antes de confirmar a opção "${opcaoSelecionada.bruto}".`
+        );
+    }
+
+    console.log(
+        `[CAMPO] ${textoPlaceholder}: opção localizada ("${opcaoSelecionada.bruto}").`
+    );
+
+    await aguardarEstabilizacaoModal(page, opcoes?.pausaPosSelecaoMs ?? 600);
 }
 
 async function criarReservaNoClinCare(
@@ -663,7 +799,10 @@ async function criarReservaNoClinCare(
         page,
         'Selecione o profissional',
         [nomeProfExatoClinCare, ag.professor_nome],
-        primeiroNomeProf
+        {
+            textoBusca: primeiroNomeProf,
+            pausaPosSelecaoMs: 650,
+        }
     );
 
     // 4. Paciente -> RESERVADO APP
@@ -671,26 +810,45 @@ async function criarReservaNoClinCare(
         page,
         'Selecione o paciente',
         [PACIENTE_RESERVADO_NOME],
-        'RESERVADO'
+        {
+            textoBusca: 'RESERVADO',
+            pausaPosSelecaoMs: 650,
+        }
     );
 
-    // 5. Serviço (ex.: Aulas)
-    await preencherCampoDropdownModal(page, 'Selecione o serviço', [
-        servicoPadrao,
-        'Aulas',
-        ag.materia,
-        'Reforço',
-        'Aula',
-    ]);
+    // 5. Serviço (ex.: Aulas / matéria) — aguarda carregamento das salas vinculadas
+    await preencherCampoDropdownModal(
+        page,
+        'Selecione o serviço',
+        [servicoPadrao, 'Aulas', ag.materia, 'Reforço', 'Aula'],
+        {
+            pausaPosSelecaoMs: 900,
+        }
+    );
 
-    // 6. Sala
-    await preencherCampoDropdownModal(page, 'Selecione a sala', [
-        salaPadrao,
-        ag.unidade_nome,
-        'Sala',
-    ]);
+    // 6. Sala (Unidade) — pausa extra para a verificação de sala compartilhada ("travadinha") do ClinCare
+    await preencherCampoDropdownModal(
+        page,
+        'Selecione a sala',
+        [salaPadrao, ag.unidade_nome, 'Sala'],
+        {
+            permitirUnicaOpcaoFallback: true,
+            pausaPosSelecaoMs: 1600,
+        }
+    );
 
-    const modalRect = await obterCaixaModalAgendamento(page);
+    // Caso o ClinCare exiba algum aviso/confirmação sobre sala compartilhada por outros alunos, confirma
+    const btnConfirmarSala = page
+        .locator(
+            'button:visible:has-text("Confirmar"), button:visible:has-text("Sim"), button:visible:has-text("Continuar")'
+        )
+        .first();
+    if (await btnConfirmarSala.isVisible({ timeout: 500 }).catch(() => false)) {
+        await btnConfirmarSala.click();
+        await aguardarEstabilizacaoModal(page, 600);
+    }
+
+    const modalRect = await obterCaixaModalAgendamento(page, 2500);
     if (!modalRect) {
         throw new Error('Modal fechou antes de preencher data e horário.');
     }
@@ -742,7 +900,6 @@ async function criarReservaNoClinCare(
         if (infoData.isDateType) {
             await page.locator('input:focus').fill(ag.data).catch(() => null);
         } else if (infoData.usaEspacosNaBarra) {
-            // Campo mascarado "99 / 99 / 9999": limpa e digita apenas os 8 dígitos
             await page.keyboard.press('Control+A').catch(() => null);
             await page.keyboard.press('Backspace').catch(() => null);
             await page.keyboard.press('Home').catch(() => null);
@@ -755,11 +912,10 @@ async function criarReservaNoClinCare(
         }
 
         await page.waitForTimeout(250);
-        // Fecha o calendário flutuante clicando no título do modal
+        // Fecha o calendário flutuante clicando no cabeçalho interno do modal
         await page.mouse.click(modalRect.left + 80, modalRect.top + 24);
         await page.waitForTimeout(300);
 
-        // Verifica se ainda ficou "Data inválida"; se sim, preenche via setNativeValue
         const dataAindaInvalida = await page.evaluate(
             ({ box, valorFormatado }) => {
                 const textoModal = document.body.innerText || '';
@@ -868,16 +1024,15 @@ async function criarReservaNoClinCare(
 
     await page.mouse.click(coordsSalvar.x, coordsSalvar.y);
 
-    // Aguarda até 12s o salvamento concluir e o modal fechar (o botão vira spinner enquanto salva)
+    // Aguarda até 12s o salvamento concluir e o modal fechar (inclui possível segunda "travadinha" ao salvar sala compartilhada)
     for (let tentativa = 0; tentativa < 24; tentativa++) {
         await page.waitForTimeout(500);
 
-        const modalAindaAberto = await obterCaixaModalAgendamento(page);
+        const modalAindaAberto = await obterCaixaModalAgendamento(page, 0);
         if (!modalAindaAberto) {
             return;
         }
 
-        // Caso abra confirmação de conflito de horário, confirma
         const btnConfirmar = page
             .locator(
                 'button:visible:has-text("Confirmar"), button:visible:has-text("Sim"), button:visible:has-text("Continuar")'
@@ -888,7 +1043,7 @@ async function criarReservaNoClinCare(
         }
     }
 
-    const aindaAberto = await obterCaixaModalAgendamento(page);
+    const aindaAberto = await obterCaixaModalAgendamento(page, 0);
     if (aindaAberto) {
         const diagnostico = await page.evaluate((box) => {
             const alertas = Array.from(
