@@ -627,14 +627,22 @@ async function criarReservaNoClinCare(
 
     // 9. Salvar ("CRIAR ATENDIMENTO")
     const btnCriar = page
-        .locator(
-            'button:has-text("CRIAR ATENDIMENTO"), button:has-text("Criar atendimento")'
-        )
-        .last();
-    await btnCriar.click({ force: true });
+        .locator('button:visible')
+        .filter({ hasText: /criar atendimento/i })
+        .first();
+
+    await btnCriar.waitFor({ state: 'visible', timeout: 5000 });
+    await btnCriar.scrollIntoViewIfNeeded().catch(() => null);
+    await btnCriar.click();
     await page.waitForTimeout(2500);
 
-    const aindaAberto = await tituloModal.isVisible().catch(() => false);
+    const aindaAberto = await page
+        .locator('button:visible')
+        .filter({ hasText: /criar atendimento/i })
+        .first()
+        .isVisible()
+        .catch(() => false);
+
     if (aindaAberto) {
         throw new Error(
             'Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO (verifique se houve choque de horário ou campo obrigatório pendente).'
