@@ -439,21 +439,32 @@ async function preencherCampoDropdownModal(
             await page.keyboard.press('Control+A').catch(() => null);
             await page.keyboard.press('Backspace').catch(() => null);
             await inputFocado.pressSequentially(textoBusca, { delay: 45 });
-            await page.waitForTimeout(1200);
+            await page.waitForTimeout(1000);
         }
     } else {
-        await page.waitForTimeout(600);
+        await page.waitForTimeout(500);
     }
 
-    // 2. Busca as opções abertas logo abaixo do campo (mantendo X dentro do modal)
+    // 2. Busca as opções abertas na camada superior do modal
     const prefsNorm = preferencias
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
 
     let coordsOpcao: { x: number; y: number } | null = null;
+    let ultimasOpcoesVisiveis: string[] = [];
+    let tentativas = 0;
     const limiteEspera = Date.now() + 10000;
+
     while (Date.now() < limiteEspera && !coordsOpcao) {
-        coordsOpcao = await page.evaluate(
+        tentativas++;
+
+        // Se após ~2s nenhuma lista abriu (ex.: 1º clique só fechou o dropdown anterior), clica novamente no campo
+        if (tentativas === 8 && ultimasOpcoesVisiveis.length === 0) {
+            await page.mouse.click(coordsCampo.x, coordsCampo.y);
+            await page.waitForTimeout(400);
+        }
+
+        const resultado = await page.evaluate(
             ({ prefs, box, campoY }) => {
                 const ignorar = new Set([
                     'novo agendamento',
@@ -474,7 +485,7 @@ async function preencherCampoDropdownModal(
                     'bloqueio de agenda',
                 ]);
 
-                const candidatos: { x: number; y: number; txt: string }[] = [];
+                const candidatos: { x: number; y: number; txt: string; bruto: string }[] = [];
                 const nos = Array.from(
                     document.querySelectorAll('li, [role="option"], button, div, span')
                 );
@@ -484,37 +495,38 @@ async function preencherCampoDropdownModal(
                     if (htmlEl.children.length > 3) continue;
 
                     const r = htmlEl.getBoundingClientRect();
-                    if (r.width < 60 || r.width > 650 || r.height < 18 || r.height > 75) {
+                    if (r.width < 25 || r.width > 650 || r.height < 16 || r.height > 80) {
                         continue;
                     }
 
                     const cx = r.left + r.width / 2;
                     const cy = r.top + r.height / 2;
 
-                    // Garante que está alinhado horizontalmente ao modal e abaixo do campo clicado
                     if (
                         cx < box.left + 8 ||
                         cx > box.right - 8 ||
-                        cy <= campoY + 12 ||
+                        cy <= campoY + 10 ||
                         cy > window.innerHeight - 10
                     ) {
                         continue;
                     }
 
-                    // Somente opções de uma lista aberta; nunca conteúdo genérico do fundo.
                     const lista = htmlEl.closest(
-                        '[role="listbox"], [role="menu"], ul, [class*="dropdown"], [class*="overflow-y-auto"], [class*="overflow-auto"]'
+                        '[role="listbox"], [role="menu"], ul, [class*="dropdown"], [class*="overflow-y-auto"], [class*="overflow-auto"], [class*="max-h"], [class*="shadow"]'
                     );
                     if (!lista && htmlEl.getAttribute('role') !== 'option') continue;
+
                     const estilo = window.getComputedStyle(htmlEl);
                     if (estilo.visibility !== 'visible' || estilo.display === 'none') continue;
-                    if (htmlEl.closest('[aria-hidden="true"], [inert]')) continue;
+                    if (htmlEl.closest('[aria-hidden="true"], [inert], [aria-disabled="true"], [disabled]')) continue;
+
                     const topo = document.elementFromPoint(cx, cy);
-                    if (!topo || (topo !== htmlEl && !htmlEl.contains(topo))) continue;
-                    if (htmlEl.closest('[aria-disabled="true"], [disabled]')) continue;
+                    if (!topo || (topo !== htmlEl && !htmlEl.contains(topo) && !topo.contains(htmlEl))) {
+                        continue;
+                    }
 
                     const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
-                    if (!bruto || bruto.length > 85) continue;
+                    if (!bruto || bruto.length > 90) continue;
 
                     const t = bruto
                         .replace(/^(\d+\s*\.\s*)+/, '')
@@ -527,38 +539,60 @@ async function preencherCampoDropdownModal(
 
                     if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
 
-                    candidatos.push({ x: cx, y: cy, txt: t });
+                    candidatos.push({ x: cx, y: cy, txt: t, bruto });
                 }
 
-                // Exige texto exato normalizado. Agrupa pai/filho da mesma opção.
-                for (const pref of prefs) {
-                    const correspondentes = candidatos.filter((c) => c.txt === pref);
-                    const linhas: typeof candidatos = [];
-                    for (const item of correspondentes) {
-                        if (!linhas.some((outro) => Math.abs(outro.y - item.y) < 8)) {
-                            linhas.push(item);
-                        }
+                const opcoesUnicas = Array.from(new Set(candidatos.map((c) => c.bruto))).slice(0, 10);
+
+                // 1ª passada: correspondência exata normalizada
+                for (let p = 0; p < prefs.length; p++) {
+                    const pref = prefs[p];
+                    if (!pref) continue;
+                    const exatos = candidatos.filter((c) => c.txt === pref);
+                    if (exatos.length > 0) {
+                        return { coords: { x: exatos[0].x, y: exatos[0].y }, opcoesUnicas };
                     }
-                    if (linhas.length > 1) {
-                        throw new Error('Mais de uma opção corresponde ao texto solicitado. Seleção interrompida.');
-                    }
-                    if (linhas.length === 1) return { x: linhas[0].x, y: linhas[0].y };
                 }
-                return null;
+
+                // 2ª passada: correspondência parcial (ex.: "Química 100'" ou "Sala 01 - Pituba")
+                for (let p = 0; p < prefs.length; p++) {
+                    const pref = prefs[p];
+                    if (!pref) continue;
+                    const parciais = candidatos.filter((c) => c.txt.includes(pref));
+                    if (parciais.length > 0) {
+                        // Se houver variações de duração (ex.: 50' e 100'), prioriza 100
+                        const com100 = parciais.find((c) => c.txt.includes('100'));
+                        const escolhido = com100 || parciais[0];
+                        return { coords: { x: escolhido.x, y: escolhido.y }, opcoesUnicas };
+                    }
+                }
+
+                return { coords: null, opcoesUnicas };
             },
             { prefs: prefsNorm, box: modalRect, campoY: coordsCampo.y }
         );
 
-        if (!coordsOpcao) await page.waitForTimeout(250);
+        ultimasOpcoesVisiveis = resultado.opcoesUnicas;
+        coordsOpcao = resultado.coords;
+
+        if (!coordsOpcao) {
+            await page.waitForTimeout(250);
+        }
     }
 
     if (!coordsOpcao) {
+        const listaLida =
+            ultimasOpcoesVisiveis.length > 0
+                ? ultimasOpcoesVisiveis.join(' | ')
+                : 'nenhuma opção aberta no dropdown';
         throw new Error(
-            `Nenhuma opção exata e visível em "${textoPlaceholder}" após 10s. Esperado: ${preferencias.filter(Boolean).join(" / ")}. Confira o vínculo do professor, serviço e sala na unidade.`
+            `Nenhuma opção correspondente em "${textoPlaceholder}" após 10s. Esperado: ${preferencias
+                .filter(Boolean)
+                .join(' / ')}. Opções visíveis: [${listaLida}].`
         );
     }
 
-    console.log(`[CAMPO] ${textoPlaceholder}: opção exata localizada.`);
+    console.log(`[CAMPO] ${textoPlaceholder}: opção localizada.`);
     await page.mouse.click(coordsOpcao.x, coordsOpcao.y);
     await page.waitForTimeout(450);
 }
