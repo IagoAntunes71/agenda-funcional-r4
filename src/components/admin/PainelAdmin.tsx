@@ -81,6 +81,19 @@ interface ProfessorAdmin {
     ativo: boolean;
 }
 
+interface ResponsavelContaAdmin {
+    id: number;
+    nome: string;
+    telefone: string;
+    telefone_formatado: string;
+    tem_pin: boolean;
+    pin_bloqueado: boolean;
+    conflito_migracao: boolean;
+    conflito_detalhes: string | null;
+    total_aulas: number;
+    filhos: AlunoAdmin[];
+}
+
 interface AlunoAdmin {
     id: number;
     nome_aluno: string;

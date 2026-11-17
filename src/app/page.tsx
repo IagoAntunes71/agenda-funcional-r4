@@ -554,47 +554,35 @@ export default function PaginaAgendamentoReforco() {
     setErroCliente(null);
 
     try {
-      const resCad = await fetch('/api/cliente', {
+      const resConta = await fetch('/api/cliente/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          acao: 'cadastrarAluno',
+          acao: 'cadastrar_conta',
           telefone: telefonePendente,
           responsavelNome: nomeResp,
           nomeAluno: nomeAl,
           colegioOpcao,
           colegioOutroNome,
           serie: serieAluno,
-        }),
-      });
-      const jsonCad = await resCad.json();
-
-      if (!resCad.ok) {
-        setErroCliente(jsonCad.error || 'Não foi possível salvar o cadastro.');
-        return;
-      }
-
-      const resPin = await fetch('/api/cliente/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          acao: 'criar_pin',
-          telefone: telefonePendente,
           pin: pinInput,
           confirmarPin: confirmarPinInput,
         }),
       });
-      const jsonPin = await resPin.json();
+      const jsonConta = await resConta.json();
 
-      if (!resPin.ok) {
-        setErroCliente(
-            jsonPin.error || 'Cadastro salvo, mas falha ao criar PIN.'
-        );
+      if (!resConta.ok) {
+        if (resConta.status === 409 && jsonConta.status) {
+          setPinInput('');
+          setConfirmarPinInput('');
+          setEtapaLogin(jsonConta.status);
+        }
+        setErroCliente(jsonConta.error || 'Não foi possível salvar o cadastro.');
         return;
       }
 
-      if (jsonPin.limiteSimultaneo) {
-        setLimiteSimultaneo(Number(jsonPin.limiteSimultaneo));
+      if (jsonConta.limiteSimultaneo) {
+        setLimiteSimultaneo(Number(jsonConta.limiteSimultaneo));
       }
 
       setNovoAlunoNome('');

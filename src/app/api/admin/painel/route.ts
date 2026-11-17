@@ -4,7 +4,7 @@ import { verificarAdminAutenticado } from '@/lib/admin-auth';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
 import { CONFIG_SYNC_MODOS } from '@/app/api/admin/sincronizar/route';
-import { garantirColunasSegurancaAlunos } from '@/lib/cliente-auth';
+import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
 import { garantirColunasFilaReserva } from '@/lib/clincare-fila';
 
 export async function GET() {
@@ -17,7 +17,7 @@ export async function GET() {
         const modoChaveMestra = await obterModoChaveMestra();
         const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
 
-        await garantirColunasSegurancaAlunos();
+        await garantirEstruturaContasResponsaveis();
         await garantirColunasFilaReserva();
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
@@ -30,7 +30,8 @@ export async function GET() {
         const [
             unidades,
             professores,
-            alunos,
+            responsaveisRaw,
+            alunosRaw,
             datasLiberadas,
             agendamentos,
             bloqueios,
@@ -63,15 +64,32 @@ export async function GET() {
       `,
             sql`
         SELECT
+          r.id,
+          COALESCE(NULLIF(trim(r.nome), ''), 'Responsável') AS nome,
+          r.telefone,
+          COALESCE(NULLIF(trim(r.telefone_formatado), ''), r.telefone) AS telefone_formatado,
+          (r.pin_hash IS NOT NULL AND trim(r.pin_hash) <> '') AS tem_pin,
+          (r.pin_bloqueado_ate IS NOT NULL AND r.pin_bloqueado_ate > now()) AS pin_bloqueado,
+          COALESCE(r.conflito_migracao, false) AS conflito_migracao,
+          r.conflito_detalhes
+        FROM responsaveis r
+        ORDER BY r.conflito_migracao DESC, COALESCE(NULLIF(trim(r.nome), ''), r.telefone) ASC
+      `,
+            sql`
+        SELECT
           al.id,
+          al.responsavel_id,
           COALESCE(NULLIF(trim(al.nome_aluno), ''), 'Aluno sem nome') AS nome_aluno,
-          COALESCE(NULLIF(trim(al.responsavel_nome), ''), '') AS responsavel_nome,
-          COALESCE(NULLIF(trim(al.telefone), ''), '') AS telefone,
-          COALESCE(NULLIF(trim(al.telefone_formatado), ''), NULLIF(trim(al.telefone), ''), '') AS telefone_formatado,
+          COALESCE(NULLIF(trim(r.nome), ''), NULLIF(trim(al.responsavel_nome), ''), 'Responsável') AS responsavel_nome,
+          COALESCE(NULLIF(trim(r.telefone), ''), NULLIF(trim(al.telefone), ''), '') AS telefone,
+          COALESCE(NULLIF(trim(r.telefone_formatado), ''), NULLIF(trim(al.telefone_formatado), ''), NULLIF(trim(al.telefone), ''), '') AS telefone_formatado,
           COALESCE(NULLIF(trim(al.colegio_nome), ''), '') AS colegio_nome,
           COALESCE(NULLIF(trim(al.serie), ''), '') AS serie,
-          (al.pin_hash IS NOT NULL AND trim(al.pin_hash) <> '') AS tem_pin,
-          (al.pin_bloqueado_ate IS NOT NULL AND al.pin_bloqueado_ate > now()) AS pin_bloqueado,
+          al.ativo,
+          COALESCE((r.pin_hash IS NOT NULL AND trim(r.pin_hash) <> ''), false) AS tem_pin,
+          COALESCE((r.pin_bloqueado_ate IS NOT NULL AND r.pin_bloqueado_ate > now()), false) AS pin_bloqueado,
+          COALESCE(r.conflito_migracao, false) AS conflito_migracao,
+          r.conflito_detalhes,
           (
             SELECT COUNT(*)::int
             FROM agendamentos ag
@@ -79,7 +97,9 @@ export async function GET() {
               AND COALESCE(ag.status, 'confirmado') <> 'cancelado'
           ) AS total_aulas
         FROM alunos al
-        ORDER BY COALESCE(NULLIF(trim(al.responsavel_nome), ''), al.nome_aluno) ASC, al.nome_aluno ASC
+        LEFT JOIN responsaveis r ON r.id = al.responsavel_id
+        WHERE al.ativo = true
+        ORDER BY COALESCE(NULLIF(trim(r.nome), ''), al.nome_aluno) ASC, al.nome_aluno ASC
       `,
             sql`
         SELECT
@@ -118,12 +138,14 @@ export async function GET() {
             ''
           ) AS horario,
           COALESCE(
+            NULLIF(trim(r.nome), ''),
             NULLIF(trim(a.responsavel_nome), ''),
             NULLIF(trim(a.nome_responsavel), ''),
             NULLIF(trim(al.responsavel_nome), ''),
             ''
           ) AS nome_responsavel,
           COALESCE(
+            NULLIF(trim(r.telefone_formatado), ''),
             NULLIF(trim(a.aluno_telefone), ''),
             NULLIF(trim(a.whatsapp_responsavel), ''),
             NULLIF(trim(al.telefone_formatado), ''),
@@ -158,6 +180,7 @@ export async function GET() {
         LEFT JOIN unidades u ON u.id = a.unidade_id
         LEFT JOIN professores p ON p.id = a.professor_id
         LEFT JOIN alunos al ON al.id = a.aluno_id
+        LEFT JOIN responsaveis r ON r.id = al.responsavel_id
         ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
         LIMIT 250
       `,
@@ -185,6 +208,46 @@ export async function GET() {
         WHERE chave IN ('sync_disparo_hoje', 'sync_disparo_semana', 'sync_disparo_mes')
       `,
         ]);
+
+        const alunosLista = alunosRaw as {
+            id: number;
+            responsavel_id: number | null;
+            nome_aluno: string;
+            responsavel_nome: string;
+            telefone: string;
+            telefone_formatado: string;
+            colegio_nome: string;
+            serie: string;
+            tem_pin: boolean;
+            pin_bloqueado: boolean;
+            conflito_migracao: boolean;
+            conflito_detalhes: string | null;
+            total_aulas: number;
+        }[];
+
+        const responsaveisAgrupados = (
+            responsaveisRaw as {
+                id: number;
+                nome: string;
+                telefone: string;
+                telefone_formatado: string;
+                tem_pin: boolean;
+                pin_bloqueado: boolean;
+                conflito_migracao: boolean;
+                conflito_detalhes: string | null;
+            }[]
+        ).map((resp) => {
+            const filhos = alunosLista.filter((al) => al.responsavel_id === resp.id);
+            const totalAulas = filhos.reduce(
+                (acc, f) => acc + Number(f.total_aulas || 0),
+                0
+            );
+            return {
+                ...resp,
+                filhos,
+                total_aulas: totalAulas,
+            };
+        });
 
         const mapaDisparos = new Map<string, string>(
             (disparosRaw as { chave: string; valor: string }[]).map((r) => [
@@ -227,7 +290,8 @@ export async function GET() {
             },
             unidades,
             professores,
-            alunos,
+            responsaveis: responsaveisAgrupados,
+            alunos: alunosLista,
             datasLiberadas,
             agendamentos,
             bloqueios,
