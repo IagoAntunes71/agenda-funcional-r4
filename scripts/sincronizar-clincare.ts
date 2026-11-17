@@ -1551,15 +1551,11 @@ async function varrerMapaParaEncontrarCard(
     return null;
 }
 
-async function aguardarPainelExclusao(
-    page: Page,
-    etapa: 'detalhes' | 'menu' | 'confirmacao'
+async function aguardarPainelReserva(
+    page: Page
 ): Promise<Locator> {
-    const requisitos = {
-        detalhes: ['reservado app', 'profissional', 'editar agendamento', 'dados administrativos'],
-        menu: ['editar agendamento', 'editar agenda', 'remover este atendimento'],
-        confirmacao: ['excluir este agendamento?', 'reservado app', 'cancelar'],
-    }[etapa];
+    const etapa = 'detalhes';
+    const requisitos = ['reservado app', 'profissional', 'editar agendamento', 'dados administrativos'];
     const limite = Date.now() + 12000;
     while (Date.now() < limite) {
         const encontrado = await page.evaluate(({ requisitos, etapa }) => {
@@ -1592,10 +1588,10 @@ async function aguardarPainelExclusao(
         if (encontrado) return page.locator(`[data-r4-painel="${etapa}"]`);
         await page.waitForTimeout(200);
     }
-    throw new Error(`A tela "${etapa}" não apareceu após o clique. Nenhuma exclusão foi confirmada.`);
+    throw new Error(`A tela "${etapa}" não apareceu após o clique. Nenhuma alteração de status foi confirmada.`);
 }
 
-async function clicarAcaoExclusao(painel: Locator, texto: string): Promise<void> {
+async function clicarAcaoStatus(painel: Locator, texto: string): Promise<void> {
     // O Playwright aguarda estabilidade e verifica se o elemento recebe o clique.
     // Nunca usa force, clique duplicado ou coordenadas antigas.
     const nome = new RegExp(`^${texto}$`, 'i');
@@ -1606,12 +1602,12 @@ async function clicarAcaoExclusao(painel: Locator, texto: string): Promise<void>
     }
     const rotulo = painel.getByText(nome).filter({ visible: true });
     if (await rotulo.count() !== 1) {
-        throw new Error(`Ação "${texto}" ausente ou ambígua no painel de exclusão.`);
+        throw new Error(`Ação "${texto}" ausente ou ambígua no painel do atendimento.`);
     }
     await rotulo.click({ timeout: 8000 });
 }
 
-function validarDadosExclusao(
+function validarDadosCancelamento(
     textoPainel: string,
     ag: ReservaFilaRow,
     nomeClinCare?: string
@@ -1622,14 +1618,14 @@ function validarDadosExclusao(
     const [ano, mes, dia] = ag.data.split('-');
     const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
     const data = new RegExp(`\\b0?${Number(dia)}\\s+${meses[Number(mes) - 1]}[a-z]*\\s+${ano}\\b`);
-    if (!data.test(texto)) throw new Error(`Data do painel não corresponde a ${ag.data}. Exclusão interrompida.`);
+    if (!data.test(texto)) throw new Error(`Data do painel não corresponde a ${ag.data}. Cancelamento interrompido.`);
     const hora = ag.hora_inicio.slice(0, 5);
     if (!new RegExp(`\\b${hora}\\b`).test(texto)) throw new Error(`Horário do painel não corresponde a ${hora}.`);
     if (nomeClinCare) {
         // A grade pode abreviar o sobrenome, mas o painel deve trazer o nome completo.
         const linhas = textoPainel.split('\n');
         if (!linhas.some(l => normalizarTexto(l) === normalizarTexto(nomeClinCare))) {
-            throw new Error(`O profissional do painel não corresponde ao perfil "${nomeClinCare}". Nenhuma exclusão foi feita.`);
+            throw new Error(`O profissional do painel não corresponde ao perfil "${nomeClinCare}". Nenhum status foi alterado.`);
         }
         const minutos = Number(hora.slice(0, 2)) * 60 + Number(hora.slice(3)) + 100;
         const fim = `${String(Math.floor(minutos / 60) % 24).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`;
@@ -1639,27 +1635,77 @@ function validarDadosExclusao(
     }
 }
 
-async function executarExclusaoEmTresTelas(
+async function lerStatusAtendimento(painel: Locator): Promise<string | null> {
+    const status = painel.getByText(
+        /^(Agendado|Confirmado|Realizado|Desmarcado com cobrança|Desmarcado sem cobrança|Cancelado|Remanejado)$/i
+    ).filter({ visible: true });
+    // Com o menu aberto há várias opções; isso não confirma o status selecionado.
+    if (await status.count() !== 1) return null;
+    return normalizarTexto(await status.innerText());
+}
+
+async function aguardarMenuStatus(page: Page): Promise<Locator> {
+    const limite = Date.now() + 10000;
+    while (Date.now() < limite) {
+        const achou = await page.evaluate(() => {
+            const antigos = document.querySelectorAll('[data-r4-menu-status]');
+            for (let i = 0; i < antigos.length; i++) antigos[i].removeAttribute('data-r4-menu-status');
+            const nos = Array.from(document.querySelectorAll('div, ul, [role="menu"], [role="listbox"]')) as HTMLElement[];
+            let alvo: HTMLElement | null = null;
+            let area = Infinity;
+            for (let i = 0; i < nos.length; i++) {
+                const el = nos[i];
+                const r = el.getBoundingClientRect();
+                const st = getComputedStyle(el);
+                if (r.width < 120 || r.width > 600 || r.height < 100 ||
+                    st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') continue;
+                const texto = (el.innerText || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ').toLowerCase();
+                if (!texto.includes('agendado') || !texto.includes('realizado') ||
+                    !texto.includes('cancelado') || !texto.includes('remanejado')) continue;
+                if (r.width * r.height < area) { alvo = el; area = r.width * r.height; }
+            }
+            if (!alvo) return false;
+            alvo.setAttribute('data-r4-menu-status', '1');
+            return true;
+        });
+        if (achou) return page.locator('[data-r4-menu-status="1"]');
+        await page.waitForTimeout(200);
+    }
+    throw new Error('O menu de status não abriu após clicar no status do atendimento.');
+}
+
+async function alterarStatusParaCancelado(
     page: Page,
     ag: ReservaFilaRow,
     nomeClinCare: string
 ): Promise<void> {
-    const detalhes = await aguardarPainelExclusao(page, 'detalhes');
-    validarDadosExclusao(await detalhes.innerText(), ag, nomeClinCare);
-    console.log(`[CANCELAR RESERVA #${ag.id}] Detalhes conferidos: paciente, professor, data e intervalo.`);
-    await clicarAcaoExclusao(detalhes, 'Editar Agendamento');
-
-    const menu = await aguardarPainelExclusao(page, 'menu');
-    console.log(`[CANCELAR RESERVA #${ag.id}] Menu Editar Agendamento visível.`);
-    await clicarAcaoExclusao(menu, 'Excluir agendamento');
-
-    const confirmacao = await aguardarPainelExclusao(page, 'confirmacao');
-    validarDadosExclusao(await confirmacao.innerText(), ag);
-    console.log(`[CANCELAR RESERVA #${ag.id}] Pergunta "Excluir este agendamento?" visível e conferida.`);
-    await clicarAcaoExclusao(confirmacao, 'EXCLUIR');
-    await confirmacao.getByText('Excluir este agendamento?', { exact: true })
-        .waitFor({ state: 'hidden', timeout: 12000 });
-    console.log(`[CANCELAR RESERVA #${ag.id}] Confirmação fechou; verificando remoção na grade.`);
+    const painel = await aguardarPainelReserva(page);
+    validarDadosCancelamento(await painel.innerText(), ag, nomeClinCare);
+    const atual = await lerStatusAtendimento(painel);
+    if (atual === 'cancelado') {
+        console.log(`[CANCELAR RESERVA #${ag.id}] Atendimento já está Cancelado; verificando após recarregar.`);
+        return;
+    }
+    if (atual !== 'agendado' && atual !== 'confirmado') {
+        throw new Error(`Status atual "${atual || 'não identificado'}" não permite cancelamento automático. Confira o atendimento.`);
+    }
+    console.log(`[CANCELAR RESERVA #${ag.id}] Dados conferidos. Alterando ${atual} para Cancelado.`);
+    await clicarAcaoStatus(painel, atual);
+    const menu = await aguardarMenuStatus(page);
+    // Correspondência exata: não seleciona Desmarcado com/sem cobrança.
+    await clicarAcaoStatus(menu, 'Cancelado');
+    await menu.waitFor({ state: 'hidden', timeout: 10000 });
+    const limite = Date.now() + 10000;
+    while (Date.now() < limite) {
+        const atualizado = await aguardarPainelReserva(page);
+        if (await lerStatusAtendimento(atualizado) === 'cancelado') {
+            console.log(`[CANCELAR RESERVA #${ag.id}] Cancelado exibido no painel; verificando persistência.`);
+            return;
+        }
+        await page.waitForTimeout(250);
+    }
+    throw new Error('O painel não exibiu Cancelado após a seleção. Operação não confirmada.');
 }
 
 async function obterNomeProfessorParaCancelamento(
@@ -1750,17 +1796,17 @@ async function cancelarReservaNoClinCare(
     console.log(`[CANCELAR RESERVA #${ag.id}] Reserva localizada no mapa de ${unidadeEncontrada.nome}; unidade cadastrada no Agenda R4: ${ag.unidade_nome}.`);
 
     console.log(
-        `[CANCELAR RESERVA #${ag.id}] Card localizado: "${card.resumo}". Iniciando exclusão em 3 etapas...`
+        `[CANCELAR RESERVA #${ag.id}] Card localizado: "${card.resumo}". Iniciando alteração de status para Cancelado...`
     );
 
     // O marcador foi definido durante a busca. O clique acompanha a posição atual.
     await page.locator('[data-clincare-card-alvo="1"]').click({ timeout: 8000 });
-    await executarExclusaoEmTresTelas(page, ag, nomeClinCare);
+    await alterarStatusParaCancelado(page, ag, nomeClinCare);
 
     await aguardarEstabilizacaoModal(page, 1800);
 
-    // Recarrega o mesmo mapa para verificar se a reserva ainda é detectada.
-    const aindaExiste = await varrerMapaParaEncontrarCard(
+    // Confirma o status persistido após uma nova navegação. O bloco deve continuar existindo.
+    const reservaRecarregada = await varrerMapaParaEncontrarCard(
         page,
         urlUtilizada,
         hhmm,
@@ -1771,11 +1817,17 @@ async function cancelarReservaNoClinCare(
         }
     );
 
-    if (aindaExiste) {
-        throw new Error(
-            `Bloco "${PACIENTE_RESERVADO_NOME}" (${hhmm}) ainda permanece na agenda após confirmar EXCLUIR.`
-        );
+    if (!reservaRecarregada) {
+        throw new Error('Não foi possível reabrir a reserva após mudar o status. Confira o filtro de cancelados do mapa; o desaparecimento do bloco não foi considerado sucesso.');
     }
+    await page.locator('[data-clincare-card-alvo="1"]').click({ timeout: 8000 });
+    const painelRecarregado = await aguardarPainelReserva(page);
+    validarDadosCancelamento(await painelRecarregado.innerText(), ag, nomeClinCare);
+    const statusPersistido = await lerStatusAtendimento(painelRecarregado);
+    if (statusPersistido !== 'cancelado') {
+        throw new Error(`Após recarregar, o atendimento está "${statusPersistido || 'não identificado'}", não Cancelado.`);
+    }
+    console.log(`[CANCELAR RESERVA #${ag.id}] Status Cancelado confirmado após recarregar o ClinCare.`);
 }
 
 async function processarFilaReservas(
@@ -1858,7 +1910,7 @@ async function processarFilaReservas(
               clincare_reserva_erro = NULL
           WHERE id = ${item.id}
         `;
-                console.log(`[RESERVA #${item.id}] Bloco RESERVADO removido no clin.care.`);
+                console.log(`[RESERVA #${item.id}] Status Cancelado confirmado no clin.care (atendimento preservado).`);
             } catch (err) {
                 const msg = err instanceof Error ? err.message : 'Erro desconhecido';
                 console.error(`[RESERVA #${item.id}] Falha ao cancelar no clin.care:`, msg);
@@ -2730,4 +2782,5 @@ main().catch((err) => {
     console.error('Falha na sincronização com clin.care:', err);
     process.exit(1);
 });
+
 

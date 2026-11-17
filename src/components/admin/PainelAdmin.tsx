@@ -2382,7 +2382,7 @@ export default function PainelAdmin({
                                                                     className="px-3 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-500/25"
                                                                 >
                                                                     <RefreshCw className="w-3.5 h-3.5" />
-                                                                    {ag.status === 'cancelado' ? 'Repetir remoção no ClinCare' : 'Reenviar Robô'}
+                                                                    {ag.status === 'cancelado' ? 'Repetir cancelamento no ClinCare' : 'Reenviar Robô'}
                                                                 </button>
                                                             )}
 
@@ -4540,3 +4540,4 @@ export default function PainelAdmin({
         </div>
     );
 }
+
