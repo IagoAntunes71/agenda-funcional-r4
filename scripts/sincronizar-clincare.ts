@@ -450,94 +450,115 @@ async function preencherCampoDropdownModal(
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
 
-    const coordsOpcao = await page.evaluate(
-        ({ prefs, box, campoY }) => {
-            const ignorar = new Set([
-                'novo agendamento',
-                'selecione o profissional',
-                'selecione o paciente',
-                'selecione o servico',
-                'selecione a sala',
-                'inicio',
-                'inicio *',
-                'duracao',
-                'duracao *',
-                'hr',
-                'min',
-                'recorrencia',
-                'nao se repete',
-                'criar atendimento',
-                'agendar um evento',
-                'bloqueio de agenda',
-            ]);
+    let coordsOpcao: { x: number; y: number } | null = null;
+    const limiteEspera = Date.now() + 10000;
+    while (Date.now() < limiteEspera && !coordsOpcao) {
+        coordsOpcao = await page.evaluate(
+            ({ prefs, box, campoY }) => {
+                const ignorar = new Set([
+                    'novo agendamento',
+                    'selecione o profissional',
+                    'selecione o paciente',
+                    'selecione o servico',
+                    'selecione a sala',
+                    'inicio',
+                    'inicio *',
+                    'duracao',
+                    'duracao *',
+                    'hr',
+                    'min',
+                    'recorrencia',
+                    'nao se repete',
+                    'criar atendimento',
+                    'agendar um evento',
+                    'bloqueio de agenda',
+                ]);
 
-            const candidatos: { x: number; y: number; txt: string }[] = [];
-            const nos = Array.from(
-                document.querySelectorAll('li, [role="option"], button, div, span')
-            );
+                const candidatos: { x: number; y: number; txt: string }[] = [];
+                const nos = Array.from(
+                    document.querySelectorAll('li, [role="option"], button, div, span')
+                );
 
-            for (let i = 0; i < nos.length; i++) {
-                const htmlEl = nos[i] as HTMLElement;
-                if (htmlEl.children.length > 3) continue;
+                for (let i = 0; i < nos.length; i++) {
+                    const htmlEl = nos[i] as HTMLElement;
+                    if (htmlEl.children.length > 3) continue;
 
-                const r = htmlEl.getBoundingClientRect();
-                if (r.width < 60 || r.width > 650 || r.height < 18 || r.height > 75) {
-                    continue;
-                }
-
-                const cx = r.left + r.width / 2;
-                const cy = r.top + r.height / 2;
-
-                // Garante que está alinhado horizontalmente ao modal e abaixo do campo clicado
-                if (
-                    cx < box.left + 8 ||
-                    cx > box.right - 8 ||
-                    cy <= campoY + 12 ||
-                    cy > window.innerHeight - 10
-                ) {
-                    continue;
-                }
-
-                const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
-                if (!bruto || bruto.length > 85) continue;
-
-                const t = bruto
-                    .replace(/^(\d+\s*\.\s*)+/, '')
-                    .replace(/\./g, ' ')
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .replace(/\s+/g, ' ')
-                    .trim()
-                    .toLowerCase();
-
-                if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
-
-                candidatos.push({ x: cx, y: cy, txt: t });
-            }
-
-            for (let p = 0; p < prefs.length; p++) {
-                const pref = prefs[p];
-                if (!pref) continue;
-                for (let c = 0; c < candidatos.length; c++) {
-                    if (candidatos[c].txt.includes(pref)) {
-                        return { x: candidatos[c].x, y: candidatos[c].y };
+                    const r = htmlEl.getBoundingClientRect();
+                    if (r.width < 60 || r.width > 650 || r.height < 18 || r.height > 75) {
+                        continue;
                     }
-                }
-            }
 
-            return candidatos.length > 0
-                ? { x: candidatos[0].x, y: candidatos[0].y }
-                : null;
-        },
-        { prefs: prefsNorm, box: modalRect, campoY: coordsCampo.y }
-    );
+                    const cx = r.left + r.width / 2;
+                    const cy = r.top + r.height / 2;
+
+                    // Garante que está alinhado horizontalmente ao modal e abaixo do campo clicado
+                    if (
+                        cx < box.left + 8 ||
+                        cx > box.right - 8 ||
+                        cy <= campoY + 12 ||
+                        cy > window.innerHeight - 10
+                    ) {
+                        continue;
+                    }
+
+                    // Somente opções de uma lista aberta; nunca conteúdo genérico do fundo.
+                    const lista = htmlEl.closest(
+                        '[role="listbox"], [role="menu"], ul, [class*="dropdown"], [class*="overflow-y-auto"], [class*="overflow-auto"]'
+                    );
+                    if (!lista && htmlEl.getAttribute('role') !== 'option') continue;
+                    const estilo = window.getComputedStyle(htmlEl);
+                    if (estilo.visibility !== 'visible' || estilo.display === 'none') continue;
+                    if (htmlEl.closest('[aria-hidden="true"], [inert]')) continue;
+                    const topo = document.elementFromPoint(cx, cy);
+                    if (!topo || (topo !== htmlEl && !htmlEl.contains(topo))) continue;
+                    if (htmlEl.closest('[aria-disabled="true"], [disabled]')) continue;
+
+                    const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
+                    if (!bruto || bruto.length > 85) continue;
+
+                    const t = bruto
+                        .replace(/^(\d+\s*\.\s*)+/, '')
+                        .replace(/\./g, ' ')
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .toLowerCase();
+
+                    if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
+
+                    candidatos.push({ x: cx, y: cy, txt: t });
+                }
+
+                // Exige texto exato normalizado. Agrupa pai/filho da mesma opção.
+                for (const pref of prefs) {
+                    const correspondentes = candidatos.filter((c) => c.txt === pref);
+                    const linhas: typeof candidatos = [];
+                    for (const item of correspondentes) {
+                        if (!linhas.some((outro) => Math.abs(outro.y - item.y) < 8)) {
+                            linhas.push(item);
+                        }
+                    }
+                    if (linhas.length > 1) {
+                        throw new Error('Mais de uma opção corresponde ao texto solicitado. Seleção interrompida.');
+                    }
+                    if (linhas.length === 1) return { x: linhas[0].x, y: linhas[0].y };
+                }
+                return null;
+            },
+            { prefs: prefsNorm, box: modalRect, campoY: coordsCampo.y }
+        );
+
+        if (!coordsOpcao) await page.waitForTimeout(250);
+    }
 
     if (!coordsOpcao) {
         throw new Error(
-            `Nenhuma opção encontrada ao abrir "${textoPlaceholder}" (busca: "${textoBusca || ''}").`
+            `Nenhuma opção exata e visível em "${textoPlaceholder}" após 10s. Esperado: ${preferencias.filter(Boolean).join(" / ")}. Confira o vínculo do professor, serviço e sala na unidade.`
         );
     }
 
+    console.log(`[CAMPO] ${textoPlaceholder}: opção exata localizada.`);
     await page.mouse.click(coordsOpcao.x, coordsOpcao.y);
     await page.waitForTimeout(450);
 }
@@ -607,7 +628,7 @@ async function criarReservaNoClinCare(
     await preencherCampoDropdownModal(
         page,
         'Selecione o profissional',
-        [nomeProfExatoClinCare, ag.professor_nome, primeiroNomeProf],
+        [nomeProfExatoClinCare, ag.professor_nome],
         primeiroNomeProf
     );
 
@@ -615,7 +636,7 @@ async function criarReservaNoClinCare(
     await preencherCampoDropdownModal(
         page,
         'Selecione o paciente',
-        [PACIENTE_RESERVADO_NOME, 'RESERVADO', PACIENTE_RESERVADO_ID],
+        [PACIENTE_RESERVADO_NOME],
         'RESERVADO'
     );
 
