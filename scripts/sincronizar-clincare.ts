@@ -321,21 +321,17 @@ async function preencherCampoDropdownModal(
 ): Promise<boolean> {
     const alvoNorm = normalizarTexto(textoPlaceholder);
 
-    // 1. Localiza o campo diretamente na tela (input ou texto do placeholder) e clica no centro dele
+    // 1. Localiza o campo diretamente na tela e clica no centro dele
     const coordsCampo = await page.evaluate((alvo) => {
-        const norm = (s: string) =>
-            s
+        const inputs = Array.from(document.querySelectorAll('input'));
+        for (let i = inputs.length - 1; i >= 0; i--) {
+            const inp = inputs[i];
+            const ph = (inp.getAttribute('placeholder') || '')
                 .normalize('NFD')
                 .replace(/[\u0300-\u036f]/g, '')
                 .replace(/\s+/g, ' ')
                 .trim()
                 .toLowerCase();
-
-        // Tenta primeiro por input[placeholder]
-        const inputs = Array.from(document.querySelectorAll('input'));
-        for (let i = inputs.length - 1; i >= 0; i--) {
-            const inp = inputs[i];
-            const ph = norm(inp.getAttribute('placeholder') || '');
             if (ph && ph.includes(alvo)) {
                 const r = inp.getBoundingClientRect();
                 if (r.width > 40 && r.height > 15) {
@@ -344,12 +340,16 @@ async function preencherCampoDropdownModal(
             }
         }
 
-        // Tenta por texto visível (span, div, button, label)
         const todos = Array.from(document.querySelectorAll('*'));
         for (let i = todos.length - 1; i >= 0; i--) {
             const el = todos[i] as HTMLElement;
             if (el.children.length > 1) continue;
-            const txt = norm(el.innerText || el.textContent || '');
+            const txt = (el.innerText || el.textContent || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
             if (txt === alvo || (txt.length <= 45 && txt.includes(alvo))) {
                 const r = el.getBoundingClientRect();
                 if (r.width > 30 && r.height > 12) {
@@ -415,16 +415,6 @@ async function preencherCampoDropdownModal(
             'r4 ensina',
         ]);
 
-        const norm = (s: string) =>
-            s
-                .replace(/^(\d+\s*\.\s*)+/, '')
-                .replace(/\./g, ' ')
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .toLowerCase();
-
         const candidatos: { x: number; y: number; txt: string }[] = [];
         const nos = Array.from(
             document.querySelectorAll('li, [role="option"], button, div, span')
@@ -442,7 +432,15 @@ async function preencherCampoDropdownModal(
             const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
             if (!bruto || bruto.length > 85) continue;
 
-            const t = norm(bruto);
+            const t = bruto
+                .replace(/^(\d+\s*\.\s*)+/, '')
+                .replace(/\./g, ' ')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+
             if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
 
             candidatos.push({
@@ -453,9 +451,8 @@ async function preencherCampoDropdownModal(
         }
 
         for (const pref of prefs) {
-            const alvo = norm(pref);
-            if (!alvo) continue;
-            const achado = candidatos.find((c) => c.txt.includes(alvo));
+            if (!pref) continue;
+            const achado = candidatos.find((c) => c.txt.includes(pref));
             if (achado) return { x: achado.x, y: achado.y };
         }
 
@@ -617,7 +614,7 @@ async function criarReservaNoClinCare(
         await selecionarValorSelect(selects.nth(offset + 0), [hh, String(Number(hh))]);
         await selecionarValorSelect(selects.nth(offset + 1), [mm, String(Number(mm))]);
         await selecionarValorSelect(selects.nth(offset + 2), ['1', '01']);
-        await selecionarValorSelect(selects.nth(3), ['40']);
+        await selecionarValorSelect(selects.nth(offset + 3), ['40']);
     }
 
     // 9. Salvar ("CRIAR ATENDIMENTO")
