@@ -315,128 +315,157 @@ async function selecionarValorSelect(
 
 async function preencherCampoDropdownModal(
     page: Page,
-    modal: Locator,
     textoPlaceholder: string,
     preferencias: string[],
     textoBusca?: string
 ): Promise<boolean> {
-    const inputDireto = modal
-        .locator(`input[placeholder*="${textoPlaceholder}" i]`)
-        .first();
-    const textoGatilho = modal
-        .getByText(textoPlaceholder, { exact: false })
-        .first();
+    const alvoNorm = normalizarTexto(textoPlaceholder);
 
-    const temInputDireto = await inputDireto
-        .isVisible({ timeout: 1500 })
-        .catch(() => false);
-    const temTextoGatilho = await textoGatilho
-        .isVisible({ timeout: 1500 })
-        .catch(() => false);
+    // 1. Localiza o campo diretamente na tela (input ou texto do placeholder) e clica no centro dele
+    const coordsCampo = await page.evaluate((alvo) => {
+        const norm = (s: string) =>
+            s
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
 
-    if (!temInputDireto && !temTextoGatilho) {
+        // Tenta primeiro por input[placeholder]
+        const inputs = Array.from(document.querySelectorAll('input'));
+        for (let i = inputs.length - 1; i >= 0; i--) {
+            const inp = inputs[i];
+            const ph = norm(inp.getAttribute('placeholder') || '');
+            if (ph && ph.includes(alvo)) {
+                const r = inp.getBoundingClientRect();
+                if (r.width > 40 && r.height > 15) {
+                    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                }
+            }
+        }
+
+        // Tenta por texto visível (span, div, button, label)
+        const todos = Array.from(document.querySelectorAll('*'));
+        for (let i = todos.length - 1; i >= 0; i--) {
+            const el = todos[i] as HTMLElement;
+            if (el.children.length > 1) continue;
+            const txt = norm(el.innerText || el.textContent || '');
+            if (txt === alvo || (txt.length <= 45 && txt.includes(alvo))) {
+                const r = el.getBoundingClientRect();
+                if (r.width > 30 && r.height > 12) {
+                    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                }
+            }
+        }
+
+        return null;
+    }, alvoNorm);
+
+    if (!coordsCampo) {
         return false;
     }
 
-    if (temInputDireto) {
-        await inputDireto.click({ force: true });
-    } else {
-        await textoGatilho.click({ force: true });
-    }
+    await page.mouse.click(coordsCampo.x, coordsCampo.y);
     await page.waitForTimeout(450);
 
     if (textoBusca) {
         const inputFocado = page.locator('input:focus').first();
-        const campoParaDigitar = (await inputFocado
-            .isVisible({ timeout: 600 })
-            .catch(() => false))
-            ? inputFocado
-            : inputDireto;
-
         if (
-            (await campoParaDigitar.isVisible({ timeout: 600 }).catch(() => false)) &&
-            (await campoParaDigitar.isEditable().catch(() => false))
+            (await inputFocado.isVisible({ timeout: 700 }).catch(() => false)) &&
+            (await inputFocado.isEditable().catch(() => false))
         ) {
-            await campoParaDigitar.fill('');
-            await campoParaDigitar.pressSequentially(textoBusca, { delay: 45 });
-            await page.waitForTimeout(1000);
+            await inputFocado.fill('');
+            await inputFocado.pressSequentially(textoBusca, { delay: 45 });
+            await page.waitForTimeout(1100);
         }
     } else {
         await page.waitForTimeout(550);
     }
 
-    const termosIgnorar = new Set([
-        'novo agendamento',
-        'selecione o profissional',
-        'selecione o paciente',
-        'selecione o servico',
-        'selecione a sala',
-        'inicio',
-        'inicio *',
-        'duracao',
-        'duracao *',
-        'hr',
-        'min',
-        'recorrencia',
-        'nao se repete',
-        'criar atendimento',
-        'agendar um evento',
-        'bloqueio de agenda',
-        'menu da r4 ensina',
-        'criar agendamento',
-        'novo paciente',
-        'nova espera',
-        'fatura de entrada',
-        'fatura de saida',
-        'editar perfil',
-        'r4 ensina',
-    ]);
+    // 2. Procura a opção desejada na lista aberta e clica nas coordenadas dela
+    const prefsNorm = preferencias
+        .map((p) => normalizarTexto(p))
+        .filter(Boolean);
 
-    const candidatos = page.locator(
-        '[role="option"], [role="listbox"] li, [role="listbox"] div, [role="listbox"] button, ul li, div[class*="overflow"] div, div[class*="max-h"] div, div[class*="shadow"] div, div[class*="z-"] div'
-    );
+    const coordsOpcao = await page.evaluate((prefs) => {
+        const ignorar = new Set([
+            'novo agendamento',
+            'selecione o profissional',
+            'selecione o paciente',
+            'selecione o servico',
+            'selecione a sala',
+            'inicio',
+            'inicio *',
+            'duracao',
+            'duracao *',
+            'hr',
+            'min',
+            'recorrencia',
+            'nao se repete',
+            'criar atendimento',
+            'agendar um evento',
+            'bloqueio de agenda',
+            'menu da r4 ensina',
+            'criar agendamento',
+            'novo paciente',
+            'nova espera',
+            'fatura de entrada',
+            'fatura de saida',
+            'editar perfil',
+            'r4 ensina',
+        ]);
 
-    const total = await candidatos.count();
+        const norm = (s: string) =>
+            s
+                .replace(/^(\d+\s*\.\s*)+/, '')
+                .replace(/\./g, ' ')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
 
-    for (const pref of preferencias) {
-        const alvo = normalizarTexto(pref);
-        if (!alvo) continue;
-        for (let i = 0; i < total; i++) {
-            const item = candidatos.nth(i);
-            if (!(await item.isVisible().catch(() => false))) continue;
+        const candidatos: { x: number; y: number; txt: string }[] = [];
+        const nos = Array.from(
+            document.querySelectorAll('li, [role="option"], button, div, span')
+        );
 
-            const filhos = await item.locator('*').count().catch(() => 0);
-            if (filhos > 4) continue;
-
-            const txtBruto = ((await item.innerText().catch(() => '')) || '').trim();
-            if (!txtBruto || txtBruto.length > 90) continue;
-
-            const txt = normalizarTexto(txtBruto);
-            if (!txt || termosIgnorar.has(txt)) continue;
-
-            if (txt.includes(alvo)) {
-                await item.click({ force: true });
-                await page.waitForTimeout(450);
-                return true;
+        for (const el of nos) {
+            const htmlEl = el as HTMLElement;
+            if (htmlEl.children.length > 3) continue;
+            const r = htmlEl.getBoundingClientRect();
+            if (r.width < 60 || r.width > 650 || r.height < 18 || r.height > 75) {
+                continue;
             }
+            if (r.top < 0 || r.bottom > window.innerHeight) continue;
+
+            const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
+            if (!bruto || bruto.length > 85) continue;
+
+            const t = norm(bruto);
+            if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
+
+            candidatos.push({
+                x: r.left + r.width / 2,
+                y: r.top + r.height / 2,
+                txt: t,
+            });
         }
-    }
 
-    // Fallback: seleciona a primeira opção válida visível no dropdown aberto
-    for (let i = 0; i < total; i++) {
-        const item = candidatos.nth(i);
-        if (!(await item.isVisible().catch(() => false))) continue;
+        for (const pref of prefs) {
+            const alvo = norm(pref);
+            if (!alvo) continue;
+            const achado = candidatos.find((c) => c.txt.includes(alvo));
+            if (achado) return { x: achado.x, y: achado.y };
+        }
 
-        const filhos = await item.locator('*').count().catch(() => 0);
-        if (filhos > 4) continue;
+        return candidatos.length > 0
+            ? { x: candidatos[0].x, y: candidatos[0].y }
+            : null;
+    }, prefsNorm);
 
-        const txtBruto = ((await item.innerText().catch(() => '')) || '').trim();
-        if (txtBruto.length < 2 || txtBruto.length > 90) continue;
-
-        const txt = normalizarTexto(txtBruto);
-        if (!txt || termosIgnorar.has(txt) || /^\d+$/.test(txt)) continue;
-
-        await item.click({ force: true });
+    if (coordsOpcao) {
+        await page.mouse.click(coordsOpcao.x, coordsOpcao.y);
         await page.waitForTimeout(450);
         return true;
     }
@@ -457,7 +486,7 @@ async function criarReservaNoClinCare(
 
     let nomeProfExatoClinCare = ag.professor_nome;
 
-    // 1. Se tiver o UUID do professor, abre o perfil dele para ler o nome exato (ex.: "1.Antonio.Eduardo")
+    // 1. Abre o perfil do professor para ler o nome exato cadastrado (ex.: "1.Antonio.Eduardo")
     if (ag.professor_clin_care_id) {
         const urlProf = `${baseUrl}/painel/profissionais/${ag.professor_clin_care_id}`;
         console.log(
@@ -504,33 +533,31 @@ async function criarReservaNoClinCare(
 
     const tituloModal = page.locator('text="Novo Agendamento"').first();
     await tituloModal.waitFor({ state: 'visible', timeout: 8000 });
-
-    // Seleciona o container completo que engloba o título e o botão de salvar
-    const modal = page
-        .locator(
-            'div:has-text("Novo Agendamento"):has(button:has-text("CRIAR ATENDIMENTO"))'
-        )
-        .last();
+    await page.waitForTimeout(800);
 
     // 3. Profissional
     const primeiroNomeProf = ag.professor_nome.split(' ')[0] || ag.professor_nome;
     const selecionouProf = await preencherCampoDropdownModal(
         page,
-        modal,
         'Selecione o profissional',
         [nomeProfExatoClinCare, ag.professor_nome, primeiroNomeProf],
         primeiroNomeProf
     );
     if (!selecionouProf) {
+        const camposVisiveis = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('input'))
+                .map((i) => i.getAttribute('placeholder') || i.name || i.type)
+                .filter(Boolean)
+                .join(' | ')
+        );
         throw new Error(
-            `Não foi possível selecionar o profissional "${nomeProfExatoClinCare}".`
+            `Campo profissional não localizado para "${nomeProfExatoClinCare}". Inputs visíveis: [${camposVisiveis}]`
         );
     }
 
     // 4. Paciente -> RESERVADO APP
     const selecionouPaciente = await preencherCampoDropdownModal(
         page,
-        modal,
         'Selecione o paciente',
         [PACIENTE_RESERVADO_NOME, 'RESERVADO', PACIENTE_RESERVADO_ID],
         'RESERVADO'
@@ -541,12 +568,11 @@ async function criarReservaNoClinCare(
         );
     }
 
-    // 5. Serviço (ex.: Aulas / matéria)
+    // 5. Serviço (ex.: Aulas)
     const selecionouServico = await preencherCampoDropdownModal(
         page,
-        modal,
         'Selecione o serviço',
-        [servicoPadrao, ag.materia, 'Aulas', 'Reforço', 'Aula']
+        [servicoPadrao, 'Aulas', ag.materia, 'Reforço', 'Aula']
     );
     if (!selecionouServico) {
         throw new Error('Não foi possível selecionar um serviço obrigatório.');
@@ -555,7 +581,6 @@ async function criarReservaNoClinCare(
     // 6. Sala
     const selecionouSala = await preencherCampoDropdownModal(
         page,
-        modal,
         'Selecione a sala',
         [salaPadrao, ag.unidade_nome, 'Sala']
     );
@@ -563,15 +588,21 @@ async function criarReservaNoClinCare(
         throw new Error('Não foi possível selecionar uma sala obrigatória.');
     }
 
-    // 7. Data de início (DD/MM/YYYY ou YYYY-MM-DD conforme o tipo do input)
-    const inputData = modal
-        .locator('input[type="date"], input[placeholder*="/" i], input[value*="/202"]')
-        .first();
+    // 7. Data de início (DD/MM/YYYY)
+    const dataBR = formatarDataBR(ag.data);
+    const inputData = page
+        .locator('input[placeholder*="/" i], input[value*="/202"], input[type="date"]')
+        .last();
     if (await inputData.isVisible({ timeout: 1500 }).catch(() => false)) {
         const tipoInput = (await inputData.getAttribute('type')) || '';
-        await inputData.fill(
-            tipoInput === 'date' ? ag.data : formatarDataBR(ag.data)
-        );
+        const valorDesejado = tipoInput === 'date' ? ag.data : dataBR;
+        await inputData.click({ force: true });
+        await inputData.fill(valorDesejado);
+        const valorAtual = await inputData.inputValue().catch(() => '');
+        if (valorAtual !== valorDesejado) {
+            await page.keyboard.press('Control+A').catch(() => null);
+            await page.keyboard.type(valorDesejado, { delay: 30 }).catch(() => null);
+        }
     }
 
     // 8. Horário de início e Duração (1 hr 40 min = 100 min)
@@ -579,31 +610,29 @@ async function criarReservaNoClinCare(
     const hh = hhRaw.padStart(2, '0');
     const mm = mmRaw.padStart(2, '0');
 
-    const selects = modal.locator('select');
+    const selects = page.locator('select');
     const totalSelects = await selects.count();
     if (totalSelects >= 4) {
-        await selecionarValorSelect(selects.nth(0), [hh, String(Number(hh))]);
-        await selecionarValorSelect(selects.nth(1), [mm, String(Number(mm))]);
-        await selecionarValorSelect(selects.nth(2), ['1', '01']);
+        const offset = totalSelects - 4;
+        await selecionarValorSelect(selects.nth(offset + 0), [hh, String(Number(hh))]);
+        await selecionarValorSelect(selects.nth(offset + 1), [mm, String(Number(mm))]);
+        await selecionarValorSelect(selects.nth(offset + 2), ['1', '01']);
         await selecionarValorSelect(selects.nth(3), ['40']);
     }
 
     // 9. Salvar ("CRIAR ATENDIMENTO")
-    const btnCriar = modal
+    const btnCriar = page
         .locator(
             'button:has-text("CRIAR ATENDIMENTO"), button:has-text("Criar atendimento")'
         )
-        .first();
-    await btnCriar.click();
+        .last();
+    await btnCriar.click({ force: true });
     await page.waitForTimeout(2500);
 
     const aindaAberto = await tituloModal.isVisible().catch(() => false);
     if (aindaAberto) {
-        const textoModal = await modal.innerText().catch(() => '');
         throw new Error(
-            `Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO: ${textoModal
-                .replace(/\s+/g, ' ')
-                .slice(0, 140)}`
+            'Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO (verifique se houve choque de horário ou campo obrigatório pendente).'
         );
     }
 }
