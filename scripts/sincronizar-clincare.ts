@@ -100,6 +100,7 @@ function obterConfiguracaoModo(): {
 function normalizarTexto(texto: string): string {
     return texto
         .replace(/^(\d+\s*\.\s*)+/, '')
+        .replace(/['′"´`]/g, '')
         .replace(/\./g, ' ')
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
@@ -389,6 +390,7 @@ async function preencherCampoDropdownModal(
     preferencias: string[],
     opcoes?: {
         textoBusca?: string;
+        preferirDuracao100?: boolean;
         permitirUnicaOpcaoFallback?: boolean;
         pausaPosSelecaoMs?: number;
     }
@@ -480,33 +482,32 @@ async function preencherCampoDropdownModal(
             await page.keyboard.press('Control+A').catch(() => null);
             await page.keyboard.press('Backspace').catch(() => null);
             await inputFocado.pressSequentially(textoBusca, { delay: 45 });
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(900);
         }
     } else {
-        await page.waitForTimeout(550);
+        await page.waitForTimeout(500);
     }
 
-    // 2. Busca as opções abertas na camada superior do modal, garantindo que o clique nunca atinja o backdrop
+    // 2. Busca as opções abertas na camada superior do modal (com rolagem automática se a lista for longa)
     const prefsNorm = preferencias
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
 
     let opcaoSelecionada: { x: number; y: number; bruto: string } | null = null;
-    let ultimasOpcoesVisiveis: string[] = [];
+    const historicoOpcoesVistas = new Set<string>();
     let tentativas = 0;
     const limiteEspera = Date.now() + 10000;
 
     while (Date.now() < limiteEspera && !opcaoSelecionada) {
         tentativas++;
 
-        if (tentativas === 8 && ultimasOpcoesVisiveis.length === 0) {
+        if (tentativas === 7 && historicoOpcoesVistas.size === 0) {
             await page.mouse.click(coordsCampo.x, coordsCampo.y);
             await page.waitForTimeout(450);
         }
 
         const resultado = await page.evaluate(
-            ({ prefs, box, campoY, permitirUnica }) => {
-                // Limpa marcação anterior
+            ({ prefs, box, campoY, preferir100, permitirUnica, deveRolar }) => {
                 const marcados = document.querySelectorAll('[data-clincare-opcao-alvo]');
                 for (let m = 0; m < marcados.length; m++) {
                     marcados[m].removeAttribute('data-clincare-opcao-alvo');
@@ -531,10 +532,24 @@ async function preencherCampoDropdownModal(
                     'bloqueio de agenda',
                     'carregando',
                     'buscando',
+                    'meeting_room',
+                    'meeting room',
+                    'person',
+                    'medical_services',
+                    'medical services',
+                    'add_circle',
+                    'add circle',
+                    'close',
+                    'schedule',
+                    'event',
+                    'search',
+                    'expand_more',
+                    'keyboard_arrow_down',
                 ]);
 
                 const candidatos: {
                     el: HTMLElement;
+                    listaEl: HTMLElement | null;
                     x: number;
                     y: number;
                     txt: string;
@@ -548,6 +563,13 @@ async function preencherCampoDropdownModal(
                 for (let i = 0; i < nos.length; i++) {
                     const htmlEl = nos[i] as HTMLElement;
                     if (htmlEl.children.length > 3) continue;
+                    if (
+                        htmlEl.closest(
+                            '.material-icons, .material-icons-outlined, .material-symbols-outlined, [aria-hidden="true"], [inert], [aria-disabled="true"], [disabled]'
+                        )
+                    ) {
+                        continue;
+                    }
 
                     const r = htmlEl.getBoundingClientRect();
                     if (r.width < 25 || r.width > 650 || r.height < 16 || r.height > 80) {
@@ -557,7 +579,6 @@ async function preencherCampoDropdownModal(
                     const cx = r.left + r.width / 2;
                     const cy = r.top + r.height / 2;
 
-                    // Mantém estritamente dentro dos limites horizontais e verticais do modal
                     if (
                         cx < box.left + 8 ||
                         cx > box.right - 8 ||
@@ -570,18 +591,11 @@ async function preencherCampoDropdownModal(
 
                     const lista = htmlEl.closest(
                         '[role="listbox"], [role="menu"], ul, [class*="dropdown"], [class*="overflow-y-auto"], [class*="overflow-auto"], [class*="max-h"], [class*="shadow"]'
-                    );
+                    ) as HTMLElement | null;
                     if (!lista && htmlEl.getAttribute('role') !== 'option') continue;
 
                     const estilo = window.getComputedStyle(htmlEl);
                     if (estilo.visibility !== 'visible' || estilo.display === 'none') continue;
-                    if (
-                        htmlEl.closest(
-                            '[aria-hidden="true"], [inert], [aria-disabled="true"], [disabled]'
-                        )
-                    ) {
-                        continue;
-                    }
 
                     const topo = document.elementFromPoint(cx, cy);
                     if (
@@ -596,6 +610,7 @@ async function preencherCampoDropdownModal(
 
                     const t = bruto
                         .replace(/^(\d+\s*\.\s*)+/, '')
+                        .replace(/['′"´`]/g, '')
                         .replace(/\./g, ' ')
                         .normalize('NFD')
                         .replace(/[\u0300-\u036f]/g, '')
@@ -603,45 +618,115 @@ async function preencherCampoDropdownModal(
                         .trim()
                         .toLowerCase();
 
-                    if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
+                    if (
+                        !t ||
+                        ignorar.has(t) ||
+                        /^\d+$/.test(t) ||
+                        t.includes('agendar um evento') ||
+                        t.includes('bloqueio de agenda') ||
+                        t.includes('criar atendimento')
+                    ) {
+                        continue;
+                    }
 
-                    candidatos.push({ el: htmlEl, x: cx, y: cy, txt: t, bruto });
+                    candidatos.push({
+                        el: htmlEl,
+                        listaEl: lista,
+                        x: cx,
+                        y: cy,
+                        txt: t,
+                        bruto,
+                    });
                 }
 
                 const opcoesUnicas = Array.from(
                     new Set(candidatos.map((c) => c.bruto))
-                ).slice(0, 10);
+                );
 
                 let escolhido: (typeof candidatos)[number] | null = null;
 
-                // 1ª passada: correspondência exata normalizada
-                for (let p = 0; p < prefs.length && !escolhido; p++) {
-                    const pref = prefs[p];
-                    if (!pref) continue;
-                    const exatos = candidatos.filter((c) => c.txt === pref);
-                    if (exatos.length > 0) {
-                        escolhido = exatos[0];
+                if (preferir100) {
+                    // Para serviços: foco estrito em 100 minutos (ex.: "Química 100'"), evitando 50' e priorizando sem "X"
+                    for (let p = 0; p < prefs.length && !escolhido; p++) {
+                        const pref = prefs[p];
+                        if (!pref) continue;
+                        const baseSem100 = pref.replace(/\s*100\s*$/, '').trim();
+
+                        // 1. Exato sem X (ex.: "quimica 100" -> "Química 100'")
+                        const exato = candidatos.find(
+                            (c) =>
+                                c.txt === `${baseSem100} 100` ||
+                                c.txt === pref
+                        );
+                        if (exato) {
+                            escolhido = exato;
+                            break;
+                        }
+
+                        // 2. Começa com "<matéria> 100" sem "x" (ex.: "Química 100 min")
+                        const com100SemX = candidatos.find(
+                            (c) =>
+                                c.txt.includes(baseSem100) &&
+                                /\b100\b/.test(c.txt) &&
+                                !/\bx\b/.test(c.txt)
+                        );
+                        if (com100SemX) {
+                            escolhido = com100SemX;
+                            break;
+                        }
+
+                        // 3. Qualquer variação de 100 min da matéria (caso só exista com "X")
+                        const com100Qualquer = candidatos.find(
+                            (c) => c.txt.includes(baseSem100) && /\b100\b/.test(c.txt)
+                        );
+                        if (com100Qualquer) {
+                            escolhido = com100Qualquer;
+                            break;
+                        }
+                    }
+                } else {
+                    // 1ª passada: correspondência exata normalizada
+                    for (let p = 0; p < prefs.length && !escolhido; p++) {
+                        const pref = prefs[p];
+                        if (!pref) continue;
+                        const exatos = candidatos.filter((c) => c.txt === pref);
+                        if (exatos.length > 0) {
+                            escolhido = exatos[0];
+                        }
+                    }
+
+                    // 2ª passada: correspondência parcial
+                    for (let p = 0; p < prefs.length && !escolhido; p++) {
+                        const pref = prefs[p];
+                        if (!pref) continue;
+                        const parciais = candidatos.filter((c) => c.txt.includes(pref));
+                        if (parciais.length > 0) {
+                            escolhido = parciais[0];
+                        }
                     }
                 }
 
-                // 2ª passada: correspondência parcial (ex.: "Química 100'" ou "Unidade Pituba")
-                for (let p = 0; p < prefs.length && !escolhido; p++) {
-                    const pref = prefs[p];
-                    if (!pref) continue;
-                    const parciais = candidatos.filter((c) => c.txt.includes(pref));
-                    if (parciais.length > 0) {
-                        const com100 = parciais.find((c) => c.txt.includes('100'));
-                        escolhido = com100 || parciais[0];
-                    }
-                }
-
-                // 3ª passada (opcional, ex.: sala única vinculada ao professor): se só existir 1 opção real
+                // Fallback quando há apenas 1 opção real vinculada (ex.: sala única)
                 if (!escolhido && permitirUnica && opcoesUnicas.length === 1) {
                     escolhido = candidatos[0];
                 }
 
+                // Se ainda não achou e o dropdown tem barra de rolagem (ex.: Matemática -> Química), rola para baixo
+                let rolouLista = false;
+                if (!escolhido && deveRolar && candidatos.length > 0) {
+                    const containerScroll = candidatos.find(
+                        (c) => c.listaEl && c.listaEl.scrollHeight > c.listaEl.clientHeight + 8
+                    )?.listaEl;
+
+                    if (containerScroll) {
+                        const antes = containerScroll.scrollTop;
+                        containerScroll.scrollTop += 220;
+                        rolouLista = containerScroll.scrollTop !== antes;
+                    }
+                }
+
                 if (!escolhido) {
-                    return { coords: null, opcoesUnicas };
+                    return { coords: null, opcoesUnicas, rolouLista };
                 }
 
                 escolhido.el.scrollIntoView({ block: 'nearest' });
@@ -656,34 +741,39 @@ async function preencherCampoDropdownModal(
                     cyFinal < box.top + 6 ||
                     cyFinal > box.bottom - 6
                 ) {
-                    return { coords: null, opcoesUnicas };
+                    return { coords: null, opcoesUnicas, rolouLista: false };
                 }
 
                 return {
                     coords: { x: cxFinal, y: cyFinal, bruto: escolhido.bruto },
                     opcoesUnicas,
+                    rolouLista: false,
                 };
             },
             {
                 prefs: prefsNorm,
                 box: modalRect,
                 campoY: coordsCampo.y,
+                preferir100: Boolean(opcoes?.preferirDuracao100),
                 permitirUnica: Boolean(opcoes?.permitirUnicaOpcaoFallback),
+                deveRolar: tentativas >= 2,
             }
         );
 
-        ultimasOpcoesVisiveis = resultado.opcoesUnicas;
+        for (const itemVisivel of resultado.opcoesUnicas) {
+            historicoOpcoesVistas.add(itemVisivel);
+        }
         opcaoSelecionada = resultado.coords;
 
         if (!opcaoSelecionada) {
-            await page.waitForTimeout(250);
+            await page.waitForTimeout(resultado.rolouLista ? 350 : 250);
         }
     }
 
     if (!opcaoSelecionada) {
         const listaLida =
-            ultimasOpcoesVisiveis.length > 0
-                ? ultimasOpcoesVisiveis.join(' | ')
+            historicoOpcoesVistas.size > 0
+                ? Array.from(historicoOpcoesVistas).slice(0, 15).join(' | ')
                 : 'nenhuma opção aberta no dropdown';
         throw new Error(
             `Nenhuma opção correspondente em "${textoPlaceholder}" após 10s. Esperado: ${preferencias
@@ -816,12 +906,22 @@ async function criarReservaNoClinCare(
         }
     );
 
-    // 5. Serviço (ex.: Aulas / matéria) — aguarda carregamento das salas vinculadas
+    // 5. Serviço -> sempre prioriza "<Matéria> 100'" (nunca 50' e evitando "100' X" quando houver padrão)
     await preencherCampoDropdownModal(
         page,
         'Selecione o serviço',
-        [servicoPadrao, 'Aulas', ag.materia, 'Reforço', 'Aula'],
+        [
+            `${ag.materia} 100`,
+            ag.materia,
+            servicoPadrao,
+            'Acompanhamento Escolar 100',
+            'Aulas',
+            'Reforço',
+            'Aula',
+        ],
         {
+            textoBusca: ag.materia,
+            preferirDuracao100: true,
             pausaPosSelecaoMs: 900,
         }
     );
@@ -1024,7 +1124,7 @@ async function criarReservaNoClinCare(
 
     await page.mouse.click(coordsSalvar.x, coordsSalvar.y);
 
-    // Aguarda até 12s o salvamento concluir e o modal fechar (inclui possível segunda "travadinha" ao salvar sala compartilhada)
+    // Aguarda até 12s o salvamento concluir e o modal fechar
     for (let tentativa = 0; tentativa < 24; tentativa++) {
         await page.waitForTimeout(500);
 
