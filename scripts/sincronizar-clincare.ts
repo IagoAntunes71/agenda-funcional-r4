@@ -640,20 +640,48 @@ async function criarReservaNoClinCare(
         throw new Error('Modal fechou antes de preencher data e horário.');
     }
 
-    // 7. Data de início (DD/MM/YYYY)
+    // 7. Data de início estritamente dentro do modal
     const dataBR = formatarDataBR(ag.data);
-    const inputData = page
-        .locator(
-            'input[placeholder*="/" i], input[value*="/202"], input[type="date"]'
-        )
-        .last();
-    if (await inputData.isVisible({ timeout: 1500 }).catch(() => false)) {
-        const tipoInput = (await inputData.getAttribute('type')) || '';
-        const valorDesejado = tipoInput === 'date' ? ag.data : dataBR;
-        await inputData.click({ force: true });
+    const coordsData = await page.evaluate((box) => {
+        const inputs = Array.from(document.querySelectorAll('input'));
+        for (let i = 0; i < inputs.length; i++) {
+            const inp = inputs[i];
+            const r = inp.getBoundingClientRect();
+            const cx = r.left + r.width / 2;
+            const cy = r.top + r.height / 2;
+            if (
+                r.width < 60 ||
+                cx < box.left ||
+                cx > box.right ||
+                cy < box.top ||
+                cy > box.bottom
+            ) {
+                continue;
+            }
+            const val = inp.value || '';
+            const ph = inp.getAttribute('placeholder') || '';
+            if (
+                inp.type === 'date' ||
+                /\d{2}\/\d{2}\/\d{4}/.test(val) ||
+                ph.includes('/')
+            ) {
+                return { x: cx, y: cy, isDateType: inp.type === 'date' };
+            }
+        }
+        return null;
+    }, modalRect);
+
+    if (coordsData) {
+        const valorDesejado = coordsData.isDateType ? ag.data : dataBR;
+        await page.mouse.click(coordsData.x, coordsData.y);
+        await page.waitForTimeout(200);
         await page.keyboard.press('Control+A').catch(() => null);
         await page.keyboard.press('Backspace').catch(() => null);
-        await inputData.pressSequentially(valorDesejado, { delay: 35 });
+        await page.keyboard.type(valorDesejado, { delay: 35 });
+        await page.waitForTimeout(250);
+        // Clica no cabeçalho do modal para fechar o calendário flutuante sem fechar o modal
+        await page.mouse.click(modalRect.left + 80, modalRect.top + 24);
+        await page.waitForTimeout(300);
     }
 
     // 8. Horário de início (0, 1) e Duração 1h 40min (2, 3) nos selects dentro do modal
@@ -686,7 +714,7 @@ async function criarReservaNoClinCare(
         await selecionarValorSelect(selectsModal[3], ['40']);
     }
 
-    // 9. Salvar ("CRIAR ATENDIMENTO") clicando diretamente no botão dentro do modal
+    // 9. Salvar ("CRIAR ATENDIMENTO")
     const coordsSalvar = await page.evaluate((box) => {
         const botoes = Array.from(document.querySelectorAll('button'));
         for (let i = 0; i < botoes.length; i++) {
@@ -715,13 +743,54 @@ async function criarReservaNoClinCare(
     }
 
     await page.mouse.click(coordsSalvar.x, coordsSalvar.y);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(1800);
+
+    // Caso abra confirmação de conflito de horário, confirma
+    const btnConfirmar = page
+        .locator(
+            'button:visible:has-text("Confirmar"), button:visible:has-text("Sim"), button:visible:has-text("Continuar")'
+        )
+        .first();
+    if (await btnConfirmar.isVisible({ timeout: 800 }).catch(() => false)) {
+        await btnConfirmar.click();
+        await page.waitForTimeout(1800);
+    }
 
     const aindaAberto = await obterCaixaModalAgendamento(page);
     if (aindaAberto) {
-        throw new Error(
-            'Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO (verifique se houve choque de horário ou campo obrigatório pendente).'
-        );
+        const diagnostico = await page.evaluate((box) => {
+            const alertas = Array.from(
+                document.querySelectorAll(
+                    '[role="alert"], .Toastify, [class*="toast" i], [class*="alert" i]'
+                )
+            )
+                .map((el) => (el as HTMLElement).innerText?.trim() || '')
+                .filter(Boolean)
+                .join(' | ');
+
+            const textosModal: string[] = [];
+            const nos = Array.from(document.querySelectorAll('*'));
+            for (let i = 0; i < nos.length; i++) {
+                const el = nos[i] as HTMLElement;
+                if (el.children.length > 0) continue;
+                const r = el.getBoundingClientRect();
+                if (
+                    r.left >= box.left &&
+                    r.right <= box.right &&
+                    r.top >= box.top &&
+                    r.bottom <= box.bottom
+                ) {
+                    const t = (el.innerText || el.textContent || '').trim();
+                    if (t && t.length <= 80) textosModal.push(t);
+                }
+            }
+
+            return `Alertas: [${alertas || 'nenhum'}] | Campos no modal: [${Array.from(
+                new Set(textosModal)
+            ).join(' ; ')}]`;
+        }, aindaAberto);
+
+        throw new Error(`Modal não fechou após CRIAR ATENDIMENTO. ${diagnostico}`);
     }
 }
 
