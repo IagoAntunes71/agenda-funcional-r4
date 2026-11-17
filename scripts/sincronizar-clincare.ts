@@ -1325,9 +1325,7 @@ async function localizarCardReservadoNaGrade(
                 const bateProfessor = Boolean(
                     colDona &&
                     profAlvo &&
-                    (colDona.nome === profAlvo ||
-                        colDona.nome.includes(profAlvo) ||
-                        profAlvo.includes(colDona.nome))
+                    colDona.nome === profAlvo
                 );
 
                 candidatos.push({
@@ -1809,60 +1807,92 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
     );
 }
 
-async function cancelarReservaNoClinCare(
+async function obterNomeProfessorParaCancelamento(
     page: Page,
     baseUrl: string,
     ag: ReservaFilaRow
+): Promise<string> {
+    if (!ag.professor_clin_care_id) {
+        throw new Error('Professor sem ID ClinCare. Corrija o vínculo antes de cancelar.');
+    }
+    // Usa o perfil identificado pelo UUID, como na criação da reserva.
+    // O nome do mapa pode ser abreviado: Daniel Mororo -> 2.Daniel M.
+    await page.goto(`${baseUrl}/painel/profissionais/${ag.professor_clin_care_id}`, {
+        waitUntil: 'domcontentloaded', timeout: 30000,
+    });
+    const limite = Date.now() + 10000;
+    while (Date.now() < limite) {
+        const nome = await page.evaluate(() => {
+            const raiz = document.querySelector('main') || document.body;
+            const headings = Array.from(raiz.querySelectorAll('h1, h2, h3'));
+            for (let i = 0; i < headings.length; i++) {
+                const t = (headings[i].textContent || '').trim();
+                if (t.length >= 3 && t.length <= 70 &&
+                    !/^(profissionais|dados pessoais|r4 ensina|formul[aá]rios|carregando)/i.test(t)) {
+                    return t;
+                }
+            }
+            return '';
+        });
+        if (nome) return nome;
+        await page.waitForTimeout(300);
+    }
+    throw new Error('Não foi possível ler o nome no perfil do professor no ClinCare.');
+}
+
+function ordenarUnidadesParaCancelamento(
+    ag: ReservaFilaRow,
+    unidades: UnidadeRow[]
+): UnidadeRow[] {
+    const preferida: UnidadeRow = {
+        id: ag.unidade_id,
+        nome: ag.unidade_nome,
+        clin_care_id: ag.unidade_clin_care_id,
+    };
+    const resultado: UnidadeRow[] = [];
+    const ids = new Set<string>();
+    for (const unidade of [preferida, ...unidades]) {
+        if (!unidade.clin_care_id || unidade.clin_care_id.startsWith('id-') ||
+            ids.has(unidade.clin_care_id)) continue;
+        ids.add(unidade.clin_care_id);
+        resultado.push(unidade);
+    }
+    return resultado;
+}
+
+async function cancelarReservaNoClinCare(
+    page: Page,
+    baseUrl: string,
+    ag: ReservaFilaRow,
+    unidades: UnidadeRow[]
 ): Promise<void> {
     const hhmm = ag.hora_inicio.slice(0, 5);
-    const urlComUnidade = `${baseUrl}/painel/mapa-agenda?date=${ag.data}&unitId=${ag.unidade_clin_care_id}`;
-    const urlSemUnidade = `${baseUrl}/painel/mapa-agenda?date=${ag.data}`;
+    const nomeClinCare = await obterNomeProfessorParaCancelamento(page, baseUrl, ag);
+    console.log(`[CANCELAR RESERVA #${ag.id}] Nome no perfil ClinCare: "${nomeClinCare}".`);
 
-    console.log(
-        `[CANCELAR RESERVA #${ag.id}] Buscando bloco "${PACIENTE_RESERVADO_NOME}" (${hhmm}) em ${urlComUnidade}...`
-    );
-
-    let urlUtilizada = urlComUnidade;
-    let card = await varrerMapaParaEncontrarCard(
-        page,
-        urlComUnidade,
-        hhmm,
-        ag.professor_nome,
-        {
-            unidadeId: ag.unidade_clin_care_id,
-            unidadeNome: ag.unidade_nome,
+    // Sala do atendimento e unidade do mapa são conceitos diferentes.
+    // A unidade cadastrada no Agenda R4 é somente a primeira tentativa.
+    const unidadesBusca = ordenarUnidadesParaCancelamento(ag, unidades);
+    let unidadeEncontrada: UnidadeRow | null = null;
+    let urlUtilizada = '';
+    let card: { x: number; y: number; resumo: string } | null = null;
+    for (const unidade of unidadesBusca) {
+        const urlMapa = `${baseUrl}/painel/mapa-agenda?date=${ag.data}&unitId=${unidade.clin_care_id}`;
+        console.log(`[CANCELAR RESERVA #${ag.id}] Buscando em ${unidade.nome}, ${ag.data}, ${hhmm}.`);
+        card = await varrerMapaParaEncontrarCard(page, urlMapa, hhmm, nomeClinCare, {
+            unidadeId: unidade.clin_care_id,
+            unidadeNome: unidade.nome,
+        });
+        if (card) {
+            unidadeEncontrada = unidade;
+            urlUtilizada = urlMapa;
+            break;
         }
-    );
-
-    if (!card) {
-        urlUtilizada = urlSemUnidade;
-        card = await varrerMapaParaEncontrarCard(
-            page,
-            urlSemUnidade,
-            hhmm,
-            ag.professor_nome,
-            {
-                unidadeId: ag.unidade_clin_care_id,
-                unidadeNome: ag.unidade_nome,
-            }
-        );
     }
-
-    if (!card) {
-        const diagnostico = await page
-            .evaluate(() => {
-                const reservados = Array.from(document.querySelectorAll('div, article, section'))
-                    .map((el) => (el as HTMLElement).innerText?.trim() || '')
-                    .filter((t) => t.length > 0 && t.length <= 160 && /reservado/i.test(t))
-                    .map((t) => t.replace(/\s+/g, ' '));
-                return Array.from(new Set(reservados)).slice(0, 8).join(' | ');
-            })
-            .catch(() => '');
-
-        throw new Error(
-            `Bloco "${PACIENTE_RESERVADO_NOME}" às ${hhmm} para ${ag.professor_nome} (${ag.unidade_nome}) não encontrado no mapa-agenda em ${ag.data}. Reservados visíveis: [${diagnostico || 'nenhum'}].`
-        );
+    if (!card || !unidadeEncontrada) {
+        throw new Error(`Reserva de "${nomeClinCare}" às ${hhmm} em ${ag.data} não encontrada nas unidades: ${unidadesBusca.map(u => u.nome).join(', ')}. Confira o perfil e as unidades cadastradas.`);
     }
+    console.log(`[CANCELAR RESERVA #${ag.id}] Reserva localizada no mapa de ${unidadeEncontrada.nome}; unidade cadastrada no Agenda R4: ${ag.unidade_nome}.`);
 
     console.log(
         `[CANCELAR RESERVA #${ag.id}] Card localizado: "${card.resumo}". Iniciando exclusão em 3 etapas...`
@@ -1914,10 +1944,10 @@ async function cancelarReservaNoClinCare(
         page,
         urlUtilizada,
         hhmm,
-        ag.professor_nome,
+        nomeClinCare,
         {
-            unidadeId: ag.unidade_clin_care_id,
-            unidadeNome: ag.unidade_nome,
+            unidadeId: unidadeEncontrada.clin_care_id,
+            unidadeNome: unidadeEncontrada.nome,
         }
     );
 
@@ -1931,7 +1961,8 @@ async function cancelarReservaNoClinCare(
 async function processarFilaReservas(
     sql: NeonQueryFunction<false, false>,
     page: Page,
-    baseUrl: string
+    baseUrl: string,
+    unidades: UnidadeRow[]
 ) {
     // Diagnóstico sem nomes ou dados de pacientes. Não altera registros antigos.
     const canceladosForaDaFila = await sql`
@@ -2000,7 +2031,7 @@ async function processarFilaReservas(
     for (const item of pendentes) {
         if (item.status === 'cancelado') {
             try {
-                await cancelarReservaNoClinCare(page, baseUrl, item);
+                await cancelarReservaNoClinCare(page, baseUrl, item, unidades);
                 await sql`
           UPDATE agendamentos
           SET clincare_reserva_status = 'cancelado_clincare',
@@ -2737,7 +2768,7 @@ async function main() {
     try {
         await realizarLogin(page, clinCareBaseUrl, clinCareEmail, clinCarePassword);
 
-        await processarFilaReservas(sql, page, clinCareBaseUrl);
+        await processarFilaReservas(sql, page, clinCareBaseUrl, unidades);
 
         if (configModo.modo === 'reservas') {
             return;
