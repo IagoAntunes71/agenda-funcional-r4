@@ -23,7 +23,6 @@ export async function GET() {
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
         await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
-        await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
         await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`;
 
@@ -66,30 +65,33 @@ export async function GET() {
         SELECT
           r.id,
           COALESCE(NULLIF(trim(r.nome), ''), 'Responsável') AS nome,
-          r.telefone,
-          COALESCE(NULLIF(trim(r.telefone_formatado), ''), r.telefone) AS telefone_formatado,
+          COALESCE(NULLIF(trim(r.telefone), ''), '') AS telefone,
+          COALESCE(NULLIF(trim(r.telefone_formatado), ''), NULLIF(trim(r.telefone), ''), '') AS telefone_formatado,
           (r.pin_hash IS NOT NULL AND trim(r.pin_hash) <> '') AS tem_pin,
           (r.pin_bloqueado_ate IS NOT NULL AND r.pin_bloqueado_ate > now()) AS pin_bloqueado,
           COALESCE(r.conflito_migracao, false) AS conflito_migracao,
           r.conflito_detalhes
         FROM responsaveis r
-        ORDER BY r.conflito_migracao DESC, COALESCE(NULLIF(trim(r.nome), ''), r.telefone) ASC
+        ORDER BY r.nome ASC, r.id ASC
       `,
             sql`
         SELECT
           al.id,
           al.responsavel_id,
           COALESCE(NULLIF(trim(al.nome_aluno), ''), 'Aluno sem nome') AS nome_aluno,
-          COALESCE(NULLIF(trim(r.nome), ''), NULLIF(trim(al.responsavel_nome), ''), 'Responsável') AS responsavel_nome,
-          COALESCE(NULLIF(trim(r.telefone), ''), NULLIF(trim(al.telefone), ''), '') AS telefone,
-          COALESCE(NULLIF(trim(r.telefone_formatado), ''), NULLIF(trim(al.telefone_formatado), ''), NULLIF(trim(al.telefone), ''), '') AS telefone_formatado,
+          COALESCE(NULLIF(trim(r.nome), ''), NULLIF(trim(al.responsavel_nome), ''), '') AS responsavel_nome,
+          COALESCE(NULLIF(trim(al.telefone), ''), '') AS telefone,
+          COALESCE(NULLIF(trim(al.telefone_formatado), ''), NULLIF(trim(al.telefone), ''), '') AS telefone_formatado,
           COALESCE(NULLIF(trim(al.colegio_nome), ''), '') AS colegio_nome,
           COALESCE(NULLIF(trim(al.serie), ''), '') AS serie,
-          al.ativo,
-          COALESCE((r.pin_hash IS NOT NULL AND trim(r.pin_hash) <> ''), false) AS tem_pin,
-          COALESCE((r.pin_bloqueado_ate IS NOT NULL AND r.pin_bloqueado_ate > now()), false) AS pin_bloqueado,
-          COALESCE(r.conflito_migracao, false) AS conflito_migracao,
-          r.conflito_detalhes,
+          (
+            (r.pin_hash IS NOT NULL AND trim(r.pin_hash) <> '')
+            OR (al.pin_hash IS NOT NULL AND trim(al.pin_hash) <> '')
+          ) AS tem_pin,
+          (
+            (r.pin_bloqueado_ate IS NOT NULL AND r.pin_bloqueado_ate > now())
+            OR (al.pin_bloqueado_ate IS NOT NULL AND al.pin_bloqueado_ate > now())
+          ) AS pin_bloqueado,
           (
             SELECT COUNT(*)::int
             FROM agendamentos ag
@@ -98,8 +100,8 @@ export async function GET() {
           ) AS total_aulas
         FROM alunos al
         LEFT JOIN responsaveis r ON r.id = al.responsavel_id
-        WHERE al.ativo = true
-        ORDER BY COALESCE(NULLIF(trim(r.nome), ''), al.nome_aluno) ASC, al.nome_aluno ASC
+        WHERE COALESCE(al.ativo, true) = true
+        ORDER BY COALESCE(NULLIF(trim(r.nome), ''), NULLIF(trim(al.responsavel_nome), ''), al.nome_aluno) ASC, al.nome_aluno ASC
       `,
             sql`
         SELECT
@@ -138,16 +140,16 @@ export async function GET() {
             ''
           ) AS horario,
           COALESCE(
-            NULLIF(trim(r.nome), ''),
             NULLIF(trim(a.responsavel_nome), ''),
             NULLIF(trim(a.nome_responsavel), ''),
+            NULLIF(trim(r.nome), ''),
             NULLIF(trim(al.responsavel_nome), ''),
             ''
           ) AS nome_responsavel,
           COALESCE(
-            NULLIF(trim(r.telefone_formatado), ''),
             NULLIF(trim(a.aluno_telefone), ''),
             NULLIF(trim(a.whatsapp_responsavel), ''),
+            NULLIF(trim(r.telefone_formatado), ''),
             NULLIF(trim(al.telefone_formatado), ''),
             NULLIF(trim(al.telefone), ''),
             ''
@@ -209,7 +211,7 @@ export async function GET() {
       `,
         ]);
 
-        const alunosLista = alunosRaw as {
+        const listaAlunos = alunosRaw as {
             id: number;
             responsavel_id: number | null;
             nome_aluno: string;
@@ -220,12 +222,10 @@ export async function GET() {
             serie: string;
             tem_pin: boolean;
             pin_bloqueado: boolean;
-            conflito_migracao: boolean;
-            conflito_detalhes: string | null;
             total_aulas: number;
         }[];
 
-        const responsaveisAgrupados = (
+        const listaResponsaveis = (
             responsaveisRaw as {
                 id: number;
                 nome: string;
@@ -237,15 +237,15 @@ export async function GET() {
                 conflito_detalhes: string | null;
             }[]
         ).map((resp) => {
-            const filhos = alunosLista.filter((al) => al.responsavel_id === resp.id);
+            const filhos = listaAlunos.filter((al) => al.responsavel_id === resp.id);
             const totalAulas = filhos.reduce(
                 (acc, f) => acc + Number(f.total_aulas || 0),
                 0
             );
             return {
                 ...resp,
-                filhos,
                 total_aulas: totalAulas,
+                filhos,
             };
         });
 
@@ -290,8 +290,8 @@ export async function GET() {
             },
             unidades,
             professores,
-            responsaveis: responsaveisAgrupados,
-            alunos: alunosLista,
+            responsaveis: listaResponsaveis,
+            alunos: listaAlunos,
             datasLiberadas,
             agendamentos,
             bloqueios,

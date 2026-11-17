@@ -96,16 +96,55 @@ export function resumirSeriesCurto(series: string[]): string {
     return `${nomesCurtos[0]} até ${nomesCurtos[nomesCurtos.length - 1]} (${nomesCurtos.length})`;
 }
 
-export function normalizarTelefone(bruto: string): string {
+function limparDigitosTelefone(bruto: string): string {
     let digitos = String(bruto || '').replace(/\D/g, '');
+    if (digitos.startsWith('0')) {
+        digitos = digitos.replace(/^0+/, '');
+    }
     if ((digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55')) {
         digitos = digitos.slice(2);
     }
     return digitos;
 }
 
+/**
+ * Converte celulares brasileiros de 10 dígitos (sem o 9) para o padrão
+ * canônico de 11 dígitos (com o 9), preservando telefones fixos (10 dígitos).
+ */
+export function normalizarTelefone(bruto: string): string {
+    const digitos = limparDigitosTelefone(bruto);
+    if (digitos.length === 10 && ['6', '7', '8', '9'].includes(digitos[2])) {
+        return `${digitos.slice(0, 2)}9${digitos.slice(2)}`;
+    }
+    return digitos;
+}
+
+/**
+ * Retorna as variantes equivalentes de um celular (com 9 e sem 9)
+ * para reconhecer cadastros antigos e novos indistintamente.
+ */
+export function gerarVariantesTelefone(bruto: string): string[] {
+    const digitos = limparDigitosTelefone(bruto);
+    if (!digitos) return [];
+
+    if (digitos.length === 11 && digitos[2] === '9') {
+        const semNove = `${digitos.slice(0, 2)}${digitos.slice(3)}`;
+        return [digitos, semNove];
+    }
+
+    if (digitos.length === 10 && ['6', '7', '8', '9'].includes(digitos[2])) {
+        const comNove = `${digitos.slice(0, 2)}9${digitos.slice(2)}`;
+        return [comNove, digitos];
+    }
+
+    return [digitos];
+}
+
+/**
+ * Formata visualmente sem injetar o 9 durante a digitação no input.
+ */
 export function formatarTelefone(bruto: string): string {
-    const d = normalizarTelefone(bruto);
+    const d = limparDigitosTelefone(bruto);
     if (d.length === 11) {
         return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
     }

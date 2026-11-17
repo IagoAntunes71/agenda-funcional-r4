@@ -13,7 +13,7 @@ export async function GET() {
     }
 
     const familia = await buscarFamiliaPorTelefone(sessao.telefone);
-    if (!familia.responsavelId) {
+    if (!familia.responsavelId && familia.alunos.length === 0) {
         const res = NextResponse.json({ autenticado: false });
         res.cookies.delete(COOKIE_SESSAO_CLIENTE);
         return res;
@@ -21,9 +21,11 @@ export async function GET() {
 
     return NextResponse.json({
         autenticado: true,
-        responsavelId: familia.responsavelId,
         telefone: sessao.telefone,
-        responsavelNome: familia.responsavelNome,
+        responsavelNome:
+            familia.responsavelNome ||
+            familia.alunos[0]?.responsavel_nome ||
+            'Responsável',
         alunos: familia.alunos,
         limiteSimultaneo: LIMITE_AGENDAMENTOS_SIMULTANEOS,
     });

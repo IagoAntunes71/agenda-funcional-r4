@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
+import {
+    gerarVariantesTelefone,
+    normalizarTelefone,
+} from '@/lib/cliente-helpers';
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const whatsapp = searchParams.get('whatsapp') || '';
-    const apenasNumeros = whatsapp.replace(/\D/g, '');
+    const telefoneNorm = normalizarTelefone(whatsapp);
+    const variantes = gerarVariantesTelefone(whatsapp);
 
-    if (apenasNumeros.length < 10) {
+    if (telefoneNorm.length < 10 || variantes.length === 0) {
         return NextResponse.json({ encontrado: false });
     }
 
@@ -14,7 +19,11 @@ export async function GET(req: NextRequest) {
         const registros = await sql`
       SELECT nome_responsavel, nome_aluno, colegio_aluno, serie_aluno
       FROM agendamentos
-      WHERE regexp_replace(whatsapp_responsavel, '\D', '', 'g') = ${apenasNumeros}
+      WHERE regexp_replace(
+        regexp_replace(COALESCE(aluno_telefone, whatsapp_responsavel, ''), '\D', '', 'g'),
+        '^55(?=\d{10,11}$)',
+        ''
+      ) = ANY(${variantes}::text[])
       ORDER BY criado_em DESC
       LIMIT 20
     `;

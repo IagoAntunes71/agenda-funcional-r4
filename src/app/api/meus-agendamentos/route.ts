@@ -4,13 +4,18 @@ import {
     dispararRoboReservaClinCare,
     garantirColunasFilaReserva,
 } from '@/lib/clincare-fila';
+import {
+    gerarVariantesTelefone,
+    normalizarTelefone,
+} from '@/lib/cliente-helpers';
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const whatsapp = searchParams.get('whatsapp') || '';
-    const apenasNumeros = whatsapp.replace(/\D/g, '');
+    const telefoneNorm = normalizarTelefone(whatsapp);
+    const variantes = gerarVariantesTelefone(whatsapp);
 
-    if (apenasNumeros.length < 10) {
+    if (telefoneNorm.length < 10 || variantes.length === 0) {
         return NextResponse.json({ agendamentos: [] });
     }
 
@@ -31,7 +36,11 @@ export async function GET(req: NextRequest) {
       FROM agendamentos a
       JOIN unidades u ON u.id = a.unidade_id
       JOIN professores p ON p.id = a.professor_id
-      WHERE regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g') = ${apenasNumeros}
+      WHERE regexp_replace(
+        regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
+        '^55(?=\d{10,11}$)',
+        ''
+      ) = ANY(${variantes}::text[])
         AND a.data >= (now() AT TIME ZONE 'America/Bahia')::date
       ORDER BY a.data ASC, COALESCE(a.hora_inicio, a.horario) ASC
       LIMIT 20
@@ -52,9 +61,11 @@ export async function PATCH(req: NextRequest) {
         await garantirColunasFilaReserva();
 
         const { id, whatsapp } = await req.json();
-        const apenasNumeros = String(whatsapp || '').replace(/\D/g, '');
+        const whatsappRaw = String(whatsapp || '');
+        const telefoneNorm = normalizarTelefone(whatsappRaw);
+        const variantes = gerarVariantesTelefone(whatsappRaw);
 
-        if (!id || apenasNumeros.length < 10) {
+        if (!id || telefoneNorm.length < 10 || variantes.length === 0) {
             return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 });
         }
 
@@ -67,7 +78,11 @@ export async function PATCH(req: NextRequest) {
           ELSE 'cancelado_clincare'
         END
       WHERE id = ${Number(id)}
-        AND regexp_replace(COALESCE(aluno_telefone, whatsapp_responsavel, ''), '\D', '', 'g') = ${apenasNumeros}
+        AND regexp_replace(
+          regexp_replace(COALESCE(aluno_telefone, whatsapp_responsavel, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantes}::text[])
         AND status = 'confirmado'
       RETURNING id, clincare_reserva_status
     `) as { id: number; clincare_reserva_status: string }[];

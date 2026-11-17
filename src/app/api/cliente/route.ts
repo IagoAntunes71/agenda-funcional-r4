@@ -2,16 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
     formatarTelefone,
+    gerarVariantesTelefone,
     normalizarTelefone,
 } from '@/lib/cliente-helpers';
-import {
-    garantirEstruturaContasResponsaveis,
-    lerSessaoCliente,
-} from '@/lib/cliente-auth';
-import {
-    dispararRoboReservaClinCare,
-    garantirColunasFilaReserva,
-} from '@/lib/clincare-fila';
+import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
 
 export async function garantirTabelasClientesEColegios() {
     await sql`
@@ -38,21 +32,17 @@ export async function garantirTabelasClientesEColegios() {
     )
   `;
 
-    await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
+    await garantirEstruturaContasResponsaveis();
 
     await sql`
     CREATE INDEX IF NOT EXISTS idx_alunos_telefone
     ON alunos (telefone)
   `;
-
-    await garantirEstruturaContasResponsaveis();
 }
 
-async function buscarProximasAulasDaConta(
-    responsavelId: number,
-    telefone: string
-) {
-    if (!responsavelId || !telefone) return [];
+async function buscarProximasAulasPorTelefone(telefoneBruto: string) {
+    const variantes = gerarVariantesTelefone(telefoneBruto);
+    if (variantes.length === 0) return [];
 
     try {
         const rows = await sql`
@@ -109,16 +99,19 @@ async function buscarProximasAulasDaConta(
       WHERE COALESCE(a.status, 'confirmado') = 'confirmado'
         AND ((a.data + COALESCE(a.hora_fim, a.hora_inicio, a.horario, '20:50'::time)) AT TIME ZONE 'America/Bahia') >= NOW()
         AND (
-          a.aluno_id IN (
-            SELECT id FROM alunos WHERE responsavel_id = ${responsavelId}
-          )
-          OR (
-            a.aluno_id IS NULL
-            AND regexp_replace(
-              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
+          regexp_replace(
+            regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
+            '^55(?=\d{10,11}$)',
+            ''
+          ) = ANY(${variantes}::text[])
+          OR a.aluno_id IN (
+            SELECT id
+            FROM alunos
+            WHERE regexp_replace(
+              regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
               '^55(?=\d{10,11}$)',
               ''
-            ) = ${telefone}
+            ) = ANY(${variantes}::text[])
           )
         )
       ORDER BY a.data ASC, COALESCE(a.hora_inicio, a.horario) ASC
@@ -134,10 +127,9 @@ export async function GET(req: NextRequest) {
         await garantirTabelasClientesEColegios();
 
         const { searchParams } = new URL(req.url);
-        const telefoneParam = normalizarTelefone(
-            searchParams.get('telefone') || ''
-        );
-        const sessao = await lerSessaoCliente();
+        const telefoneRaw = searchParams.get('telefone') || '';
+        const telefone = normalizarTelefone(telefoneRaw);
+        const variantes = gerarVariantesTelefone(telefoneRaw);
 
         const colegiosOficiais = (await sql`
       SELECT id, nome
@@ -146,8 +138,7 @@ export async function GET(req: NextRequest) {
       ORDER BY nome ASC
     `) as { id: number; nome: string }[];
 
-        // Consulta inicial pública apenas para listar colégios
-        if (!telefoneParam && !sessao) {
+        if (!telefone || variantes.length === 0) {
             return NextResponse.json(
                 {
                     telefone: '',
@@ -161,72 +152,86 @@ export async function GET(req: NextRequest) {
             );
         }
 
-        if (!sessao) {
-            return NextResponse.json(
-                { error: 'Autenticação necessária para consultar os dados da conta.' },
-                { status: 401 }
-            );
-        }
-
-        if (telefoneParam && telefoneParam !== sessao.telefone) {
-            return NextResponse.json(
-                { error: 'Acesso negado aos dados de outro número.' },
-                { status: 403 }
-            );
-        }
-
-        const contas = (await sql`
-      SELECT
-        id,
-        telefone,
-        COALESCE(NULLIF(trim(telefone_formatado), ''), telefone) AS telefone_formatado,
-        COALESCE(NULLIF(trim(nome), ''), 'Responsável') AS nome
-      FROM responsaveis
-      WHERE id = ${sessao.responsavelId}
-      LIMIT 1
-    `) as {
-            id: number;
-            telefone: string;
-            telefone_formatado: string;
-            nome: string;
-        }[];
-
-        if (contas.length === 0) {
-            return NextResponse.json(
-                { error: 'Conta do responsável não encontrada.' },
-                { status: 404 }
-            );
-        }
-
-        const conta = contas[0];
-
-        const [alunosRaw, proximasAulas] = await Promise.all([
+        const [respRows, alunosRaw, proximasAulas] = await Promise.all([
+            sql`
+        SELECT id, nome
+        FROM responsaveis
+        WHERE regexp_replace(
+          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantes}::text[])
+        ORDER BY id ASC
+        LIMIT 1
+      `,
             sql`
         SELECT
           id,
           telefone,
           telefone_formatado,
-          ${conta.nome}::text AS responsavel_nome,
+          responsavel_nome,
           nome_aluno,
           colegio_id,
           colegio_nome,
           serie
         FROM alunos
-        WHERE responsavel_id = ${conta.id}
+        WHERE regexp_replace(
+          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantes}::text[])
           AND ativo = true
         ORDER BY id ASC
       `,
-            buscarProximasAulasDaConta(conta.id, conta.telefone),
+            buscarProximasAulasPorTelefone(telefoneRaw),
         ]);
+
+        const respLista = respRows as { id: number; nome: string }[];
+        const alunos = alunosRaw as {
+            id: number;
+            telefone: string;
+            telefone_formatado: string | null;
+            responsavel_nome: string | null;
+            nome_aluno: string;
+            colegio_id: number | null;
+            colegio_nome: string;
+            serie: string;
+        }[];
+
+        let responsavelNome =
+            respLista[0]?.nome?.trim() ||
+            alunos
+                .find((a) => a.responsavel_nome && a.responsavel_nome.trim())
+                ?.responsavel_nome?.trim() ||
+            '';
+
+        if (!responsavelNome) {
+            try {
+                const historico = (await sql`
+          SELECT COALESCE(NULLIF(trim(responsavel_nome), ''), NULLIF(trim(nome_responsavel), '')) AS resp
+          FROM agendamentos
+          WHERE regexp_replace(
+            regexp_replace(COALESCE(aluno_telefone, whatsapp_responsavel, ''), '\D', '', 'g'),
+            '^55(?=\d{10,11}$)',
+            ''
+          ) = ANY(${variantes}::text[])
+            AND COALESCE(NULLIF(trim(responsavel_nome), ''), NULLIF(trim(nome_responsavel), '')) IS NOT NULL
+          ORDER BY criado_em DESC
+          LIMIT 1
+        `) as { resp: string | null }[];
+
+                responsavelNome = historico[0]?.resp?.trim() || '';
+            } catch {
+                responsavelNome = '';
+            }
+        }
 
         return NextResponse.json(
             {
-                responsavelId: conta.id,
-                telefone: conta.telefone,
-                telefoneFormatado:
-                    conta.telefone_formatado || formatarTelefone(conta.telefone),
-                responsavelNome: conta.nome,
-                alunos: alunosRaw,
+                telefone,
+                telefoneFormatado: formatarTelefone(telefone),
+                responsavelNome,
+                alunos,
                 proximasAulas,
                 colegios: colegiosOficiais,
             },
@@ -235,7 +240,7 @@ export async function GET(req: NextRequest) {
     } catch (error) {
         console.error('Erro ao consultar cliente/alunos:', error);
         return NextResponse.json(
-            { error: 'Não foi possível carregar os dados da conta.' },
+            { error: 'Não foi possível carregar os dados do número informado.' },
             { status: 500 }
         );
     }
@@ -244,52 +249,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         await garantirTabelasClientesEColegios();
-        await garantirColunasFilaReserva();
 
-        const sessao = await lerSessaoCliente();
-        if (!sessao) {
-            return NextResponse.json(
-                {
-                    error:
-                        'Sessão expirada ou não autenticada. Entre com seu WhatsApp e PIN para continuar.',
-                },
-                { status: 401 }
-            );
-        }
-
-        const contas = (await sql`
-      SELECT
-        id,
-        telefone,
-        COALESCE(NULLIF(trim(telefone_formatado), ''), telefone) AS telefone_formatado,
-        COALESCE(NULLIF(trim(nome), ''), 'Responsável') AS nome
-      FROM responsaveis
-      WHERE id = ${sessao.responsavelId}
-      LIMIT 1
-    `) as {
-            id: number;
-            telefone: string;
-            telefone_formatado: string;
-            nome: string;
-        }[];
-
-        if (contas.length === 0) {
-            return NextResponse.json(
-                { error: 'Conta do responsável não encontrada.' },
-                { status: 404 }
-            );
-        }
-
-        const conta = contas[0];
         const body = await req.json();
         const acao = String(body?.acao || 'cadastrarAluno');
 
         if (acao === 'cancelarAgendamento') {
             const agendamentoId = Number(body?.agendamentoId || 0);
+            const telefoneRaw = String(body?.telefone || '');
+            const telefone = normalizarTelefone(telefoneRaw);
+            const variantes = gerarVariantesTelefone(telefoneRaw);
 
-            if (!agendamentoId) {
+            if (!agendamentoId || telefone.length < 10 || variantes.length === 0) {
                 return NextResponse.json(
-                    { error: 'Agendamento inválido para cancelamento.' },
+                    { error: 'Dados inválidos para cancelar o agendamento.' },
                     { status: 400 }
                 );
             }
@@ -298,7 +270,6 @@ export async function POST(req: NextRequest) {
         SELECT
           a.id,
           COALESCE(a.status, 'confirmado') AS status,
-          COALESCE(a.clincare_reserva_status, 'pendente') AS clincare_reserva_status,
           EXTRACT(
             EPOCH FROM (
               ((a.data + COALESCE(a.hora_inicio, a.horario, '14:10'::time)) AT TIME ZONE 'America/Bahia')
@@ -308,27 +279,27 @@ export async function POST(req: NextRequest) {
         FROM agendamentos a
         WHERE a.id = ${agendamentoId}
           AND (
-            a.aluno_id IN (SELECT id FROM alunos WHERE responsavel_id = ${conta.id})
-            OR (
-              a.aluno_id IS NULL
-              AND regexp_replace(
-                regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
+            regexp_replace(
+              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
+              '^55(?=\d{10,11}$)',
+              ''
+            ) = ANY(${variantes}::text[])
+            OR a.aluno_id IN (
+              SELECT id
+              FROM alunos
+              WHERE regexp_replace(
+                regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
                 '^55(?=\d{10,11}$)',
                 ''
-              ) = ${conta.telefone}
+              ) = ANY(${variantes}::text[])
             )
           )
         LIMIT 1
-      `) as {
-                id: number;
-                status: string;
-                clincare_reserva_status: string;
-                horas_restantes: number;
-            }[];
+      `) as { id: number; status: string; horas_restantes: number }[];
 
             if (registros.length === 0) {
                 return NextResponse.json(
-                    { error: 'Agendamento não encontrado para esta conta.' },
+                    { error: 'Agendamento não encontrado para este WhatsApp.' },
                     { status: 404 }
                 );
             }
@@ -351,28 +322,13 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            const atualizados = (await sql`
+            await sql`
         UPDATE agendamentos
-        SET
-          status = 'cancelado',
-          clincare_reserva_status = CASE
-            WHEN COALESCE(clincare_reserva_status, '') IN ('reservado', 'reservando') THEN 'cancelar_pendente'
-            ELSE 'cancelado_clincare'
-          END,
-          clincare_reserva_erro = NULL
+        SET status = 'cancelado'
         WHERE id = ${agendamentoId}
-          AND status = 'confirmado'
-        RETURNING clincare_reserva_status
-      `) as { clincare_reserva_status: string }[];
+      `;
 
-            if (atualizados[0]?.clincare_reserva_status === 'cancelar_pendente') {
-                await dispararRoboReservaClinCare(agendamentoId);
-            }
-
-            const proximasAulas = await buscarProximasAulasDaConta(
-                conta.id,
-                conta.telefone
-            );
+            const proximasAulas = await buscarProximasAulasPorTelefone(telefoneRaw);
 
             return NextResponse.json({
                 sucesso: true,
@@ -381,26 +337,51 @@ export async function POST(req: NextRequest) {
         }
 
         if (acao === 'salvarResponsavel') {
+            const telefoneRaw = String(body?.telefone || '');
+            const telefone = normalizarTelefone(telefoneRaw);
+            const variantes = gerarVariantesTelefone(telefoneRaw);
             const responsavelNome = String(body?.responsavelNome || '').trim();
 
-            if (responsavelNome.length < 2) {
+            if (
+                telefone.length < 10 ||
+                telefone.length > 11 ||
+                !responsavelNome ||
+                variantes.length === 0
+            ) {
                 return NextResponse.json(
-                    { error: 'Informe o nome completo do responsável.' },
+                    { error: 'Informe o nome do responsável e um WhatsApp válido.' },
                     { status: 400 }
                 );
             }
 
+            const telFmt = formatarTelefone(telefone);
+
             await sql`
         UPDATE responsaveis
-        SET nome = ${responsavelNome},
-            atualizado_em = now()
-        WHERE id = ${conta.id}
+        SET
+          nome = ${responsavelNome},
+          telefone = ${telefone},
+          telefone_formatado = ${telFmt},
+          atualizado_em = now()
+        WHERE regexp_replace(
+          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantes}::text[])
       `;
 
             await sql`
         UPDATE alunos
-        SET responsavel_nome = ${responsavelNome}
-        WHERE responsavel_id = ${conta.id}
+        SET
+          responsavel_nome = ${responsavelNome},
+          telefone = ${telefone},
+          telefone_formatado = ${telFmt}
+        WHERE regexp_replace(
+          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantes}::text[])
+          AND ativo = true
       `;
 
             return NextResponse.json({
@@ -411,34 +392,36 @@ export async function POST(req: NextRequest) {
 
         if (acao === 'removerAluno') {
             const alunoId = Number(body?.alunoId || 0);
+            const telefoneRaw = String(body?.telefone || '');
+            const telefone = normalizarTelefone(telefoneRaw);
+            const variantes = gerarVariantesTelefone(telefoneRaw);
 
-            if (!alunoId) {
+            if (!alunoId || !telefone || variantes.length === 0) {
                 return NextResponse.json(
-                    { error: 'Aluno inválido para remoção.' },
+                    { error: 'Dados inválidos para remover aluno.' },
                     { status: 400 }
                 );
             }
 
-            const removidos = await sql`
+            await sql`
         UPDATE alunos
         SET ativo = false
         WHERE id = ${alunoId}
-          AND responsavel_id = ${conta.id}
-          AND ativo = true
-        RETURNING id
+          AND regexp_replace(
+            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+            '^55(?=\d{10,11}$)',
+            ''
+          ) = ANY(${variantes}::text[])
       `;
 
-            if (removidos.length === 0) {
-                return NextResponse.json(
-                    { error: 'Aluno não encontrado nesta conta.' },
-                    { status: 404 }
-                );
-            }
-
             const restantes = await sql`
-        SELECT id, telefone, telefone_formatado, ${conta.nome}::text AS responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
+        SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
         FROM alunos
-        WHERE responsavel_id = ${conta.id}
+        WHERE regexp_replace(
+          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantes}::text[])
           AND ativo = true
         ORDER BY id ASC
       `;
@@ -448,12 +431,21 @@ export async function POST(req: NextRequest) {
 
         if (acao === 'editarAluno') {
             const alunoId = Number(body?.alunoId || 0);
+            const telefoneRaw = String(body?.telefone || '');
+            const telefone = normalizarTelefone(telefoneRaw);
+            const variantes = gerarVariantesTelefone(telefoneRaw);
             const nomeAluno = String(body?.nomeAluno || '').trim();
             const colegioOpcao = String(body?.colegioOpcao || '').trim();
             const colegioOutroNome = String(body?.colegioOutroNome || '').trim();
             const serie = String(body?.serie || '').trim();
 
-            if (!alunoId || nomeAluno.length < 2 || !serie) {
+            if (
+                !alunoId ||
+                telefone.length < 10 ||
+                !nomeAluno ||
+                !serie ||
+                variantes.length === 0
+            ) {
                 return NextResponse.json(
                     { error: 'Preencha todos os dados para atualizar o aluno.' },
                     { status: 400 }
@@ -505,30 +497,34 @@ export async function POST(req: NextRequest) {
                 colegioNomeFinal = colRows[0].nome;
             }
 
-            const editados = await sql`
+            const telFmt = formatarTelefone(telefone);
+
+            await sql`
         UPDATE alunos
         SET
           nome_aluno = ${nomeAluno},
           colegio_id = ${colegioIdFinal},
           colegio_nome = ${colegioNomeFinal},
-          serie = ${serie}
+          serie = ${serie},
+          telefone = ${telefone},
+          telefone_formatado = ${telFmt}
         WHERE id = ${alunoId}
-          AND responsavel_id = ${conta.id}
+          AND regexp_replace(
+            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+            '^55(?=\d{10,11}$)',
+            ''
+          ) = ANY(${variantes}::text[])
           AND ativo = true
-        RETURNING id
       `;
 
-            if (editados.length === 0) {
-                return NextResponse.json(
-                    { error: 'Aluno não encontrado nesta conta.' },
-                    { status: 404 }
-                );
-            }
-
             const todosAlunos = await sql`
-        SELECT id, telefone, telefone_formatado, ${conta.nome}::text AS responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
+        SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
         FROM alunos
-        WHERE responsavel_id = ${conta.id}
+        WHERE regexp_replace(
+          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantes}::text[])
           AND ativo = true
         ORDER BY id ASC
       `;
@@ -539,14 +535,27 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // Cadastrar novo filho na conta autenticada
-        const responsavelNomeInformado = String(body?.responsavelNome || '').trim();
+        // Cadastro de novo aluno (vinculando à conta única do responsável)
+        const telefoneRaw = String(body?.telefone || '');
+        const telefone = normalizarTelefone(telefoneRaw);
+        const variantes = gerarVariantesTelefone(telefoneRaw);
+        const responsavelNome = String(body?.responsavelNome || '').trim();
         const nomeAluno = String(body?.nomeAluno || '').trim();
         const colegioOpcao = String(body?.colegioOpcao || '').trim();
         const colegioOutroNome = String(body?.colegioOutroNome || '').trim();
         const serie = String(body?.serie || '').trim();
 
-        if (nomeAluno.length < 2 || !serie) {
+        if (telefone.length < 10 || telefone.length > 11 || variantes.length === 0) {
+            return NextResponse.json(
+                {
+                    error:
+                        'Informe um número de WhatsApp válido com DDD (ex: 71 99999-9999).',
+                },
+                { status: 400 }
+            );
+        }
+
+        if (!nomeAluno || !serie) {
             return NextResponse.json(
                 { error: 'Preencha o nome completo do aluno e a série.' },
                 { status: 400 }
@@ -613,17 +622,48 @@ export async function POST(req: NextRequest) {
             colegioNomeFinal = colRows[0].nome;
         }
 
-        const nomeRespFinal = responsavelNomeInformado || conta.nome;
-        const telFormatado =
-            conta.telefone_formatado || formatarTelefone(conta.telefone);
+        const telFormatado = formatarTelefone(telefone);
 
-        if (responsavelNomeInformado && responsavelNomeInformado !== conta.nome) {
-            await sql`
-        UPDATE responsaveis
-        SET nome = ${responsavelNomeInformado},
-            atualizado_em = now()
-        WHERE id = ${conta.id}
-      `;
+        // Localiza ou cria a conta única do responsável (com 9 ou sem 9)
+        const respExistente = (await sql`
+      SELECT id, nome, pin_hash
+      FROM responsaveis
+      WHERE regexp_replace(
+        regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+        '^55(?=\d{10,11}$)',
+        ''
+      ) = ANY(${variantes}::text[])
+      ORDER BY id ASC
+      LIMIT 1
+    `) as { id: number; nome: string; pin_hash: string | null }[];
+
+        let responsavelIdFinal: number;
+        let pinHerdado: string | null = null;
+        let nomeRespFinal = responsavelNome;
+
+        if (respExistente.length > 0) {
+            responsavelIdFinal = respExistente[0].id;
+            pinHerdado = respExistente[0].pin_hash || null;
+            if (!nomeRespFinal) {
+                nomeRespFinal = respExistente[0].nome;
+            } else {
+                await sql`
+          UPDATE responsaveis
+          SET nome = ${nomeRespFinal},
+              telefone = ${telefone},
+              telefone_formatado = ${telFormatado},
+              atualizado_em = now()
+          WHERE id = ${responsavelIdFinal}
+        `;
+            }
+        } else {
+            const novoResp = (await sql`
+        INSERT INTO responsaveis (telefone, telefone_formatado, nome)
+        VALUES (${telefone}, ${telFormatado}, ${nomeRespFinal || 'Responsável'})
+        RETURNING id, nome
+      `) as { id: number; nome: string }[];
+            responsavelIdFinal = novoResp[0].id;
+            nomeRespFinal = novoResp[0].nome;
         }
 
         const inserido = (await sql`
@@ -636,17 +676,19 @@ export async function POST(req: NextRequest) {
         colegio_id,
         colegio_nome,
         serie,
+        pin_hash,
         ativo
       )
       VALUES (
-        ${conta.id},
-        ${conta.telefone},
+        ${responsavelIdFinal},
+        ${telefone},
         ${telFormatado},
-        ${nomeRespFinal},
+        ${nomeRespFinal || null},
         ${nomeAluno},
         ${colegioIdFinal},
         ${colegioNomeFinal},
         ${serie},
+        ${pinHerdado},
         true
       )
       RETURNING id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
@@ -661,10 +703,26 @@ export async function POST(req: NextRequest) {
             serie: string;
         }[];
 
+        await sql`
+      UPDATE alunos
+      SET
+        responsavel_id = ${responsavelIdFinal},
+        telefone = ${telefone},
+        telefone_formatado = ${telFormatado},
+        responsavel_nome = COALESCE(NULLIF(${nomeRespFinal}, ''), responsavel_nome),
+        pin_hash = COALESCE(NULLIF(trim(pin_hash), ''), ${pinHerdado})
+      WHERE regexp_replace(
+        regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+        '^55(?=\d{10,11}$)',
+        ''
+      ) = ANY(${variantes}::text[])
+        AND ativo = true
+    `;
+
         const todosAlunos = await sql`
-      SELECT id, telefone, telefone_formatado, ${nomeRespFinal}::text AS responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
+      SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
       FROM alunos
-      WHERE responsavel_id = ${conta.id}
+      WHERE responsavel_id = ${responsavelIdFinal}
         AND ativo = true
       ORDER BY id ASC
     `;
@@ -679,9 +737,9 @@ export async function POST(req: NextRequest) {
             { status: 201 }
         );
     } catch (error) {
-        console.error('Erro ao processar operação do cliente:', error);
+        console.error('Erro ao cadastrar aluno:', error);
         return NextResponse.json(
-            { error: 'Não foi possível concluir a operação.' },
+            { error: 'Não foi possível salvar o cadastro do aluno.' },
             { status: 500 }
         );
     }

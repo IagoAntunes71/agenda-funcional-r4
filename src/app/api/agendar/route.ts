@@ -12,7 +12,10 @@ import {
     gerarTodosSlotsProfessor,
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
-import { normalizarTelefone } from '@/lib/cliente-helpers';
+import {
+    gerarVariantesTelefone,
+    normalizarTelefone,
+} from '@/lib/cliente-helpers';
 import { notificarGrupoNovoAgendamento } from '@/lib/whatsapp-notificacao';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import {
@@ -94,7 +97,9 @@ export async function POST(req: NextRequest) {
         const data = String(body?.data || '').trim();
         const horaInicio = String(body?.horaInicio || '').trim();
         const alunoNome = String(body?.alunoNome || '').trim();
-        const alunoTelefone = normalizarTelefone(String(body?.alunoTelefone || ''));
+        const alunoTelefoneRaw = String(body?.alunoTelefone || '');
+        const alunoTelefone = normalizarTelefone(alunoTelefoneRaw);
+        const variantesTelefone = gerarVariantesTelefone(alunoTelefoneRaw);
         const colegioNome = String(body?.colegioNome || '').trim();
         const serie = String(body?.serie || '').trim();
         const responsavelNome = String(body?.responsavelNome || '').trim();
@@ -107,7 +112,8 @@ export async function POST(req: NextRequest) {
             !data ||
             !horaInicio ||
             !alunoNome ||
-            !alunoTelefone
+            !alunoTelefone ||
+            variantesTelefone.length === 0
         ) {
             return NextResponse.json(
                 { error: 'Dados incompletos para confirmar a aula.' },
@@ -233,7 +239,11 @@ export async function POST(req: NextRequest) {
           (${alunoId}::int IS NOT NULL AND a.aluno_id = ${alunoId})
           OR (
             lower(trim(COALESCE(a.aluno_nome, a.nome_aluno, ''))) = lower(trim(${alunoNome}))
-            AND regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g') = ${alunoTelefone}
+            AND regexp_replace(
+              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
+              '^55(?=\d{10,11}$)',
+              ''
+            ) = ANY(${variantesTelefone}::text[])
           )
         )
       LIMIT 1
@@ -248,24 +258,21 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        let responsavelFinal = responsavelNome;
-        if (!responsavelFinal && alunoTelefone) {
+        let responsavelFinal = responsavelNome || familia.responsavelNome || '';
+        if (!responsavelFinal && variantesTelefone.length > 0) {
             const respRows = (await sql`
         SELECT responsavel_nome
         FROM alunos
-        WHERE telefone = ${alunoTelefone}
+        WHERE regexp_replace(
+          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+          '^55(?=\d{10,11}$)',
+          ''
+        ) = ANY(${variantesTelefone}::text[])
           AND NULLIF(trim(responsavel_nome), '') IS NOT NULL
         ORDER BY id DESC
         LIMIT 1
       `) as { responsavel_nome: string }[];
             responsavelFinal = respRows[0]?.responsavel_nome?.trim() || '';
-        } else if (responsavelFinal && alunoTelefone) {
-            await sql`
-        UPDATE alunos
-        SET responsavel_nome = ${responsavelFinal}
-        WHERE telefone = ${alunoTelefone}
-          AND COALESCE(trim(responsavel_nome), '') = ''
-      `;
         }
 
         const bloqueiosProf = (await sql`
@@ -377,10 +384,10 @@ export async function POST(req: NextRequest) {
 
         const agendamentoId = inserido[0]?.id;
 
-        // Dispara imediatamente o robô no GitHub Actions para reservar como RESERVADO APP
         if (unidadeTemClinCare && agendamentoId) {
             await dispararRoboReservaClinCare(agendamentoId);
         }
+
         const notif = await notificarGrupoNovoAgendamento({
             id: agendamentoId,
             unidade: nomeUnidade,

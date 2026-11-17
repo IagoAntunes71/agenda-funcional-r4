@@ -3,6 +3,7 @@ import { sql } from '@/lib/db';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
 import {
     garantirEstruturaContasResponsaveis,
+    gerarVariantesTelefone,
     normalizarTelefone,
 } from '@/lib/cliente-auth';
 import { formatarTelefone } from '@/lib/cliente-helpers';
@@ -17,95 +18,121 @@ export async function PATCH(req: NextRequest) {
         await garantirEstruturaContasResponsaveis();
 
         const body = await req.json();
-        const acao = String(body?.acao || 'editar_aluno');
+        const acao = String(body?.acao || '');
 
-        // Edição direta da conta do responsável (nome, WhatsApp único e resolução de conflito de migração)
+        // AÇÃO 1: Editar conta única do responsável (e unificar caso o novo telefone já exista)
         if (acao === 'editar_responsavel') {
             const responsavelId = Number(body?.responsavel_id || 0);
-            const nomeResp = String(body?.nome || '').trim();
-            const telefoneNorm = normalizarTelefone(String(body?.telefone || ''));
-            const resolverConflito = body?.resolver_conflito === true;
+            const nome = String(body?.nome || '').trim();
+            const telefoneRaw = String(body?.telefone || '');
+            const telefoneNorm = normalizarTelefone(telefoneRaw);
+            const variantes = gerarVariantesTelefone(telefoneRaw);
+            const resolverConflito = Boolean(body?.resolver_conflito);
 
             if (!responsavelId) {
                 return NextResponse.json(
-                    { error: 'ID da conta do responsável inválido.' },
+                    { error: 'ID do responsável inválido.' },
                     { status: 400 }
                 );
             }
 
-            if (nomeResp.length < 2) {
+            if (nome.length < 2) {
                 return NextResponse.json(
                     { error: 'Informe o nome completo do responsável.' },
                     { status: 400 }
                 );
             }
 
-            if (telefoneNorm.length < 10 || telefoneNorm.length > 11) {
+            if (
+                telefoneNorm.length < 10 ||
+                telefoneNorm.length > 11 ||
+                variantes.length === 0
+            ) {
                 return NextResponse.json(
                     { error: 'Informe um número de WhatsApp válido com DDD.' },
                     { status: 400 }
                 );
             }
 
-            const atuais = (await sql`
-        SELECT id, telefone
+            const atualRows = (await sql`
+        SELECT id, pin_hash
         FROM responsaveis
         WHERE id = ${responsavelId}
         LIMIT 1
-      `) as { id: number; telefone: string }[];
+      `) as { id: number; pin_hash: string | null }[];
 
-            if (atuais.length === 0) {
+            if (atualRows.length === 0) {
                 return NextResponse.json(
-                    { error: 'Conta do responsável não encontrada.' },
+                    { error: 'Conta de responsável não encontrada.' },
                     { status: 404 }
                 );
             }
 
-            const telefoneMudou = atuais[0].telefone !== telefoneNorm;
+            const telFmt = formatarTelefone(telefoneNorm);
 
-            if (telefoneMudou) {
-                const conflitoTel = (await sql`
-          SELECT id, nome
-          FROM responsaveis
-          WHERE telefone = ${telefoneNorm}
-            AND id <> ${responsavelId}
-          LIMIT 1
-        `) as { id: number; nome: string }[];
+            // Verifica se já existe OUTRA conta usando este mesmo número (com 9 ou sem 9)
+            const destinoRows = (await sql`
+        SELECT id, pin_hash
+        FROM responsaveis
+        WHERE id <> ${responsavelId}
+          AND regexp_replace(
+            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+            '^55(?=\d{10,11}$)',
+            ''
+          ) = ANY(${variantes}::text[])
+        ORDER BY id ASC
+        LIMIT 1
+      `) as { id: number; pin_hash: string | null }[];
 
-                if (conflitoTel.length > 0) {
-                    return NextResponse.json(
-                        {
-                            error: `O WhatsApp ${formatarTelefone(
-                                telefoneNorm
-                            )} já pertence à conta de "${
-                                conflitoTel[0].nome
-                            }". Não é permitido duplicar o número entre contas diferentes.`,
-                        },
-                        { status: 409 }
-                    );
-                }
+            if (destinoRows.length > 0) {
+                const destinoId = destinoRows[0].id;
+                const pinFinal =
+                    destinoRows[0].pin_hash || atualRows[0].pin_hash || null;
+
+                await sql`
+          UPDATE responsaveis
+          SET
+            nome = ${nome},
+            telefone = ${telefoneNorm},
+            telefone_formatado = ${telFmt},
+            pin_hash = ${pinFinal},
+            conflito_migracao = false,
+            conflito_detalhes = NULL,
+            atualizado_em = now()
+          WHERE id = ${destinoId}
+        `;
+
+                await sql`
+          UPDATE alunos
+          SET
+            responsavel_id = ${destinoId},
+            responsavel_nome = ${nome},
+            telefone = ${telefoneNorm},
+            telefone_formatado = ${telFmt},
+            pin_hash = COALESCE(${pinFinal}, pin_hash)
+          WHERE responsavel_id IN (${responsavelId}, ${destinoId})
+        `;
+
+                await sql`
+          DELETE FROM responsaveis
+          WHERE id = ${responsavelId}
+        `;
+
+                return NextResponse.json({
+                    sucesso: true,
+                    mensagem:
+                        'Contas unificadas com sucesso no WhatsApp informado.',
+                });
             }
-
-            const telFormatado = formatarTelefone(telefoneNorm);
 
             await sql`
         UPDATE responsaveis
         SET
-          nome = ${nomeResp},
+          nome = ${nome},
           telefone = ${telefoneNorm},
-          telefone_formatado = ${telFormatado},
-          sessao_versao = CASE
-            WHEN ${telefoneMudou} THEN COALESCE(sessao_versao, 1) + 1
-            ELSE COALESCE(sessao_versao, 1)
-          END,
-          conflito_migracao = CASE
-            WHEN ${resolverConflito} THEN false
-            ELSE conflito_migracao
-          END,
-          conflito_detalhes = CASE
-            WHEN ${resolverConflito} THEN NULL
-            ELSE conflito_detalhes
-          END,
+          telefone_formatado = ${telFmt},
+          conflito_migracao = CASE WHEN ${resolverConflito} THEN false ELSE conflito_migracao END,
+          conflito_detalhes = CASE WHEN ${resolverConflito} THEN NULL ELSE conflito_detalhes END,
           atualizado_em = now()
         WHERE id = ${responsavelId}
       `;
@@ -113,25 +140,27 @@ export async function PATCH(req: NextRequest) {
             await sql`
         UPDATE alunos
         SET
-          responsavel_nome = ${nomeResp},
+          responsavel_nome = ${nome},
           telefone = ${telefoneNorm},
-          telefone_formatado = ${telFormatado}
+          telefone_formatado = ${telFmt}
         WHERE responsavel_id = ${responsavelId}
       `;
 
             return NextResponse.json({
                 sucesso: true,
-                mensagem: 'Dados da conta do responsável atualizados com sucesso.',
+                mensagem: 'Conta do responsável atualizada com sucesso.',
             });
         }
 
-        // Edição de um filho (e opcionalmente dados do responsável, bloqueando duplicidade de WhatsApp)
+        // AÇÃO 2: Editar dados individuais de um filho/aluno
         const id = Number(body?.id || 0);
         const nomeAluno = String(body?.nome_aluno || '').trim();
         const responsavelNome = String(body?.responsavel_nome || '').trim();
-        const telefoneNorm = normalizarTelefone(String(body?.telefone || ''));
+        const telefoneRaw = String(body?.telefone || '');
+        const telefoneNorm = normalizarTelefone(telefoneRaw);
         const colegioNome = String(body?.colegio_nome || '').trim();
         const serie = String(body?.serie || '').trim();
+        const atualizarIrmaos = body?.atualizar_irmaos !== false;
 
         if (!id) {
             return NextResponse.json(
@@ -168,65 +197,10 @@ export async function PATCH(req: NextRequest) {
             );
         }
 
-        const responsavelId = existentes[0].responsavel_id;
+        const telefoneAntigoBruto = String(existentes[0].telefone || '');
+        const telefoneAntigoNorm = normalizarTelefone(telefoneAntigoBruto);
+        const variantesAntigas = gerarVariantesTelefone(telefoneAntigoBruto);
         const telefoneFormatado = formatarTelefone(telefoneNorm);
-
-        if (responsavelId) {
-            const contaAtual = (await sql`
-        SELECT id, telefone, nome
-        FROM responsaveis
-        WHERE id = ${responsavelId}
-        LIMIT 1
-      `) as { id: number; telefone: string; nome: string }[];
-
-            const telAntigo = contaAtual[0]?.telefone || '';
-            const telefoneMudou = telAntigo !== telefoneNorm;
-
-            if (telefoneMudou) {
-                const outraConta = (await sql`
-          SELECT id, nome
-          FROM responsaveis
-          WHERE telefone = ${telefoneNorm}
-            AND id <> ${responsavelId}
-          LIMIT 1
-        `) as { id: number; nome: string }[];
-
-                if (outraConta.length > 0) {
-                    return NextResponse.json(
-                        {
-                            error: `O número ${telefoneFormatado} já está vinculado à conta de "${outraConta[0].nome}". Para evitar misturar famílias acidentalmente, não é permitido usar um WhatsApp já cadastrado.`,
-                        },
-                        { status: 409 }
-                    );
-                }
-            }
-
-            const nomeRespFinal =
-                responsavelNome || contaAtual[0]?.nome || 'Responsável';
-
-            await sql`
-        UPDATE responsaveis
-        SET
-          nome = ${nomeRespFinal},
-          telefone = ${telefoneNorm},
-          telefone_formatado = ${telefoneFormatado},
-          sessao_versao = CASE
-            WHEN ${telefoneMudou} THEN COALESCE(sessao_versao, 1) + 1
-            ELSE COALESCE(sessao_versao, 1)
-          END,
-          atualizado_em = now()
-        WHERE id = ${responsavelId}
-      `;
-
-            await sql`
-        UPDATE alunos
-        SET
-          responsavel_nome = ${nomeRespFinal},
-          telefone = ${telefoneNorm},
-          telefone_formatado = ${telefoneFormatado}
-        WHERE responsavel_id = ${responsavelId}
-      `;
-        }
 
         await sql`
       UPDATE alunos
@@ -240,9 +214,41 @@ export async function PATCH(req: NextRequest) {
       WHERE id = ${id}
     `;
 
+        if (
+            atualizarIrmaos &&
+            variantesAntigas.length > 0 &&
+            telefoneAntigoNorm !== telefoneNorm
+        ) {
+            await sql`
+        UPDATE alunos
+        SET
+          telefone = ${telefoneNorm},
+          telefone_formatado = ${telefoneFormatado},
+          responsavel_nome = COALESCE(NULLIF(${responsavelNome}, ''), responsavel_nome)
+        WHERE id <> ${id}
+          AND regexp_replace(
+            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
+            '^55(?=\d{10,11}$)',
+            ''
+          ) = ANY(${variantesAntigas}::text[])
+      `;
+
+            if (existentes[0].responsavel_id) {
+                await sql`
+          UPDATE responsaveis
+          SET
+            telefone = ${telefoneNorm},
+            telefone_formatado = ${telefoneFormatado},
+            nome = COALESCE(NULLIF(${responsavelNome}, ''), nome),
+            atualizado_em = now()
+          WHERE id = ${existentes[0].responsavel_id}
+        `;
+            }
+        }
+
         return NextResponse.json({
             sucesso: true,
-            mensagem: 'Dados atualizados com sucesso.',
+            mensagem: 'Dados do aluno atualizados com sucesso.',
         });
     } catch (error) {
         console.error('Erro ao editar aluno/responsável no admin:', error);
@@ -260,46 +266,43 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
-        await garantirEstruturaContasResponsaveis();
-
         const { searchParams } = new URL(req.url);
+        const responsavelId = Number(searchParams.get('responsavelId') || 0);
         const id = Number(searchParams.get('id') || 0);
-        const responsavelIdParam = Number(searchParams.get('responsavelId') || 0);
 
-        // Excluir uma conta inteira (apenas se desejar remover responsável e filhos sem perder histórico de aulas)
-        if (responsavelIdParam > 0) {
+        // Excluir conta inteira do responsável (preservando histórico de agendamentos)
+        if (responsavelId > 0) {
             await sql`
         UPDATE agendamentos
         SET aluno_id = NULL
         WHERE aluno_id IN (
-          SELECT id FROM alunos WHERE responsavel_id = ${responsavelIdParam}
+          SELECT id FROM alunos WHERE responsavel_id = ${responsavelId}
         )
       `;
 
             await sql`
         DELETE FROM alunos
-        WHERE responsavel_id = ${responsavelIdParam}
+        WHERE responsavel_id = ${responsavelId}
       `;
 
             await sql`
         DELETE FROM responsaveis
-        WHERE id = ${responsavelIdParam}
+        WHERE id = ${responsavelId}
       `;
 
             return NextResponse.json({
                 sucesso: true,
-                mensagem: 'Conta do responsável excluída (histórico de aulas preservado).',
+                mensagem: 'Conta do responsável excluída com sucesso.',
             });
         }
 
         if (!id) {
             return NextResponse.json(
-                { error: 'ID do aluno inválido.' },
+                { error: 'ID inválido para exclusão.' },
                 { status: 400 }
             );
         }
 
-        // Preserva o histórico de agendamentos antigos desvinculando a FK antes de excluir o filho
         await sql`
       UPDATE agendamentos
       SET aluno_id = NULL
@@ -316,7 +319,7 @@ export async function DELETE(req: NextRequest) {
             mensagem: 'Cadastro do aluno excluído com sucesso.',
         });
     } catch (error) {
-        console.error('Erro ao excluir aluno:', error);
+        console.error('Erro ao excluir aluno/conta:', error);
         return NextResponse.json(
             { error: 'Falha ao excluir cadastro.' },
             { status: 500 }
