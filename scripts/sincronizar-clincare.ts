@@ -640,9 +640,12 @@ async function criarReservaNoClinCare(
         throw new Error('Modal fechou antes de preencher data e horário.');
     }
 
-    // 7. Data de início estritamente dentro do modal
+    // 7. Data de início estritamente dentro do modal (respeitando máscara "DD / MM / YYYY")
+    const [anoISO, mesISO, diaISO] = ag.data.split('-');
     const dataBR = formatarDataBR(ag.data);
-    const coordsData = await page.evaluate((box) => {
+    const digitosData = `${diaISO}${mesISO}${anoISO}`;
+
+    const infoData = await page.evaluate((box) => {
         const inputs = Array.from(document.querySelectorAll('input'));
         for (let i = 0; i < inputs.length; i++) {
             const inp = inputs[i];
@@ -662,26 +665,92 @@ async function criarReservaNoClinCare(
             const ph = inp.getAttribute('placeholder') || '';
             if (
                 inp.type === 'date' ||
-                /\d{2}\/\d{2}\/\d{4}/.test(val) ||
+                /\d{2}\s*\/\s*\d{2}\s*\/\s*\d{4}/.test(val) ||
                 ph.includes('/')
             ) {
-                return { x: cx, y: cy, isDateType: inp.type === 'date' };
+                return {
+                    x: r.left + 28,
+                    y: cy,
+                    iconX: r.right - 16,
+                    isDateType: inp.type === 'date',
+                    usaEspacosNaBarra: val.includes(' / ') || ph.includes(' / '),
+                };
             }
         }
         return null;
     }, modalRect);
 
-    if (coordsData) {
-        const valorDesejado = coordsData.isDateType ? ag.data : dataBR;
-        await page.mouse.click(coordsData.x, coordsData.y);
+    if (infoData) {
+        await page.mouse.click(infoData.x, infoData.y);
         await page.waitForTimeout(200);
-        await page.keyboard.press('Control+A').catch(() => null);
-        await page.keyboard.press('Backspace').catch(() => null);
-        await page.keyboard.type(valorDesejado, { delay: 35 });
+
+        if (infoData.isDateType) {
+            await page.locator('input:focus').fill(ag.data).catch(() => null);
+        } else if (infoData.usaEspacosNaBarra) {
+            // Campo mascarado "99 / 99 / 9999": limpa e digita apenas os 8 dígitos
+            await page.keyboard.press('Control+A').catch(() => null);
+            await page.keyboard.press('Backspace').catch(() => null);
+            await page.keyboard.press('Home').catch(() => null);
+            await page.keyboard.type(digitosData, { delay: 45 });
+        } else {
+            await page.keyboard.press('Control+A').catch(() => null);
+            await page.keyboard.press('Backspace').catch(() => null);
+            await page.keyboard.press('Home').catch(() => null);
+            await page.keyboard.type(dataBR, { delay: 45 });
+        }
+
         await page.waitForTimeout(250);
-        // Clica no cabeçalho do modal para fechar o calendário flutuante sem fechar o modal
+        // Fecha o calendário flutuante clicando no título do modal
         await page.mouse.click(modalRect.left + 80, modalRect.top + 24);
         await page.waitForTimeout(300);
+
+        // Verifica se ainda ficou "Data inválida"; se sim, preenche via setNativeValue
+        const dataAindaInvalida = await page.evaluate(
+            ({ box, valorFormatado }) => {
+                const textoModal = document.body.innerText || '';
+                if (!/data inv[aá]lida/i.test(textoModal)) return false;
+
+                const inputs = Array.from(document.querySelectorAll('input'));
+                for (let i = 0; i < inputs.length; i++) {
+                    const inp = inputs[i];
+                    const r = inp.getBoundingClientRect();
+                    const cx = r.left + r.width / 2;
+                    const cy = r.top + r.height / 2;
+                    if (
+                        r.width >= 60 &&
+                        cx >= box.left &&
+                        cx <= box.right &&
+                        cy >= box.top &&
+                        cy <= box.bottom &&
+                        (inp.value.includes('/') ||
+                            (inp.getAttribute('placeholder') || '').includes('/'))
+                    ) {
+                        const setter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype,
+                            'value'
+                        )?.set;
+                        if (setter) {
+                            setter.call(inp, valorFormatado);
+                            inp.dispatchEvent(new Event('input', { bubbles: true }));
+                            inp.dispatchEvent(new Event('change', { bubbles: true }));
+                            inp.dispatchEvent(new Event('blur', { bubbles: true }));
+                        }
+                        return true;
+                    }
+                }
+                return true;
+            },
+            {
+                box: modalRect,
+                valorFormatado: infoData.usaEspacosNaBarra
+                    ? `${diaISO} / ${mesISO} / ${anoISO}`
+                    : dataBR,
+            }
+        );
+
+        if (dataAindaInvalida) {
+            await page.waitForTimeout(250);
+        }
     }
 
     // 8. Horário de início (0, 1) e Duração 1h 40min (2, 3) nos selects dentro do modal
