@@ -812,17 +812,25 @@ async function criarReservaNoClinCare(
     }
 
     await page.mouse.click(coordsSalvar.x, coordsSalvar.y);
-    await page.waitForTimeout(1800);
 
-    // Caso abra confirmação de conflito de horário, confirma
-    const btnConfirmar = page
-        .locator(
-            'button:visible:has-text("Confirmar"), button:visible:has-text("Sim"), button:visible:has-text("Continuar")'
-        )
-        .first();
-    if (await btnConfirmar.isVisible({ timeout: 800 }).catch(() => false)) {
-        await btnConfirmar.click();
-        await page.waitForTimeout(1800);
+    // Aguarda até 12s o salvamento concluir e o modal fechar (o botão vira spinner enquanto salva)
+    for (let tentativa = 0; tentativa < 24; tentativa++) {
+        await page.waitForTimeout(500);
+
+        const modalAindaAberto = await obterCaixaModalAgendamento(page);
+        if (!modalAindaAberto) {
+            return;
+        }
+
+        // Caso abra confirmação de conflito de horário, confirma
+        const btnConfirmar = page
+            .locator(
+                'button:visible:has-text("Confirmar"), button:visible:has-text("Sim"), button:visible:has-text("Continuar")'
+            )
+            .first();
+        if (await btnConfirmar.isVisible().catch(() => false)) {
+            await btnConfirmar.click();
+        }
     }
 
     const aindaAberto = await obterCaixaModalAgendamento(page);
@@ -837,29 +845,28 @@ async function criarReservaNoClinCare(
                 .filter(Boolean)
                 .join(' | ');
 
-            const textosModal: string[] = [];
-            const nos = Array.from(document.querySelectorAll('*'));
-            for (let i = 0; i < nos.length; i++) {
-                const el = nos[i] as HTMLElement;
-                if (el.children.length > 0) continue;
-                const r = el.getBoundingClientRect();
-                if (
-                    r.left >= box.left &&
-                    r.right <= box.right &&
-                    r.top >= box.top &&
-                    r.bottom <= box.bottom
-                ) {
-                    const t = (el.innerText || el.textContent || '').trim();
-                    if (t && t.length <= 80) textosModal.push(t);
-                }
-            }
+            const inputsModal = Array.from(document.querySelectorAll('input'))
+                .filter((inp) => {
+                    const r = inp.getBoundingClientRect();
+                    const cx = r.left + r.width / 2;
+                    const cy = r.top + r.height / 2;
+                    return (
+                        r.width > 30 &&
+                        cx >= box.left &&
+                        cx <= box.right &&
+                        cy >= box.top &&
+                        cy <= box.bottom
+                    );
+                })
+                .map((inp) => `${inp.placeholder || inp.type || 'input'}="${inp.value}"`)
+                .join(' | ');
 
-            return `Alertas: [${alertas || 'nenhum'}] | Campos no modal: [${Array.from(
-                new Set(textosModal)
-            ).join(' ; ')}]`;
+            return `Alertas: [${alertas || 'nenhum'}] | Inputs: [${inputsModal}]`;
         }, aindaAberto);
 
-        throw new Error(`Modal não fechou após CRIAR ATENDIMENTO. ${diagnostico}`);
+        throw new Error(
+            `Modal não fechou após 12s de CRIAR ATENDIMENTO. ${diagnostico}`
+        );
     }
 }
 
