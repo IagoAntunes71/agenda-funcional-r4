@@ -1241,18 +1241,7 @@ async function localizarCardReservadoNaGrade(
 
     return page.evaluate(
         ({ horaAlvo, profAlvo }) => {
-            const norm = (s: string) =>
-                s
-                    .replace(/^(\d+\s*\.\s*)+/, '')
-                    .replace(/['′"´`]/g, '')
-                    .replace(/\./g, ' ')
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .replace(/\s+/g, ' ')
-                    .trim()
-                    .toLowerCase();
-
-            // 1. Mapeia colunas de professores visíveis para garantir que clicamos no professor certo
+            // IMPORTANTE: não declarar funções auxiliares internas aqui (evita injeção de __name pelo tsx/esbuild)
             const colunas: { nome: string; left: number; right: number }[] = [];
             const folhas = Array.from(document.querySelectorAll('*'));
             for (let i = 0; i < folhas.length; i++) {
@@ -1283,8 +1272,18 @@ async function localizarCardReservadoNaGrade(
                         r.height <= 300
                     ) {
                         if (!colunas.some((c) => Math.abs(c.left - r.left) < 25)) {
+                            const nomeColNorm = nomeCol
+                                .replace(/^(\d+\s*\.\s*)+/, '')
+                                .replace(/['′"´`]/g, '')
+                                .replace(/\./g, ' ')
+                                .normalize('NFD')
+                                .replace(/[\u0300-\u036f]/g, '')
+                                .replace(/\s+/g, ' ')
+                                .trim()
+                                .toLowerCase();
+
                             colunas.push({
-                                nome: norm(nomeCol),
+                                nome: nomeColNorm,
                                 left: r.left,
                                 right: r.right,
                             });
@@ -1295,7 +1294,6 @@ async function localizarCardReservadoNaGrade(
                 }
             }
 
-            // 2. Busca todos os cards visíveis com o horário e "Reservado"
             const candidatos: {
                 x: number;
                 y: number;
@@ -1313,7 +1311,16 @@ async function localizarCardReservadoNaGrade(
                 const textoBruto = (el.innerText || '').trim();
                 if (!textoBruto || textoBruto.length > 260) continue;
 
-                const textoNorm = norm(textoBruto);
+                const textoNorm = textoBruto
+                    .replace(/^(\d+\s*\.\s*)+/, '')
+                    .replace(/['′"´`]/g, '')
+                    .replace(/\./g, ' ')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+
                 if (!textoBruto.includes(horaAlvo) || !textoNorm.includes('reservado')) {
                     continue;
                 }
@@ -1356,7 +1363,6 @@ async function localizarCardReservadoNaGrade(
 
             if (candidatos.length === 0) return null;
 
-            // Prioriza o card alinhado à coluna do professor; em caso de wrappers aninhados, pega o menor (card interno)
             const filtrados = candidatos.some((c) => c.bateProfessor)
                 ? candidatos.filter((c) => c.bateProfessor)
                 : candidatos;
@@ -1425,14 +1431,7 @@ async function clicarCardFluxoExclusao(
     while (Date.now() < limite) {
         const coords = await page.evaluate(
             ({ titulo, subtitulo }) => {
-                const norm = (s: string) =>
-                    s
-                        .normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g, '')
-                        .replace(/\s+/g, ' ')
-                        .trim()
-                        .toLowerCase();
-
+                // IMPORTANTE: não declarar funções auxiliares internas aqui
                 const candidatos: {
                     x: number;
                     y: number;
@@ -1468,7 +1467,13 @@ async function clicarCardFluxoExclusao(
                     const st = window.getComputedStyle(el);
                     if (st.display === 'none' || st.visibility === 'hidden') continue;
 
-                    const txt = norm(el.innerText || el.textContent || '');
+                    const txt = (el.innerText || el.textContent || '')
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .toLowerCase();
+
                     if (!txt || txt.length > 120 || !txt.includes(titulo)) continue;
 
                     const cx = r.left + r.width / 2;
@@ -1499,7 +1504,6 @@ async function clicarCardFluxoExclusao(
 
                 if (candidatos.length === 0) return null;
 
-                // Prioriza o card que contém tanto o título quanto o subtítulo (ex.: "Editar Agendamento" + "Dados administrativos")
                 const comSub = candidatos.filter((c) => c.temSubtitulo);
                 const pool = comSub.length > 0 ? comSub : candidatos;
 
@@ -1534,21 +1538,19 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
 
     while (Date.now() < limite) {
         const coordsExcluir = await page.evaluate(() => {
-            const norm = (s: string) =>
-                s
+            // IMPORTANTE: não declarar funções auxiliares internas aqui
+            let perguntaBottom = -1;
+            const todos = Array.from(document.querySelectorAll('*')) as HTMLElement[];
+            for (let i = 0; i < todos.length; i++) {
+                const el = todos[i];
+                if (el.children.length > 1) continue;
+                const txt = (el.innerText || el.textContent || '')
                     .normalize('NFD')
                     .replace(/[\u0300-\u036f]/g, '')
                     .replace(/\s+/g, ' ')
                     .trim()
                     .toLowerCase();
 
-            // 1. Garante que a Tela 3 ("Excluir este agendamento?") já está visível
-            let perguntaBottom = -1;
-            const todos = Array.from(document.querySelectorAll('*')) as HTMLElement[];
-            for (let i = 0; i < todos.length; i++) {
-                const el = todos[i];
-                if (el.children.length > 1) continue;
-                const txt = norm(el.innerText || el.textContent || '');
                 if (txt.includes('excluir este agendamento')) {
                     const r = el.getBoundingClientRect();
                     if (r.width > 40 && r.height > 12) {
@@ -1560,7 +1562,6 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
 
             if (perguntaBottom < 0) return null;
 
-            // 2. Localiza o botão vermelho "EXCLUIR" abaixo da pergunta (nunca "Cancelar" nem o cabeçalho)
             const botoes = Array.from(
                 document.querySelectorAll('button, [role="button"], a')
             ) as HTMLElement[];
@@ -1574,7 +1575,13 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
                 const st = window.getComputedStyle(b);
                 if (st.display === 'none' || st.visibility === 'hidden') continue;
 
-                const txt = norm(b.innerText || b.textContent || '');
+                const txt = (b.innerText || b.textContent || '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+
                 if (txt === 'excluir') {
                     return {
                         x: r.left + r.width / 2,
