@@ -1222,6 +1222,11 @@ async function localizarCardReservadoNaGrade(
     return page.evaluate(
         ({ horaAlvo, profAlvo }) => {
             // IMPORTANTE: não declarar funções auxiliares internas aqui (evita injeção de __name pelo tsx/esbuild)
+            const antigos = document.querySelectorAll('[data-clincare-card-alvo]');
+            for (let k = 0; k < antigos.length; k++) {
+                antigos[k].removeAttribute('data-clincare-card-alvo');
+            }
+
             const colunas: { nome: string; left: number; right: number }[] = [];
             const folhas = Array.from(document.querySelectorAll('*'));
             for (let i = 0; i < folhas.length; i++) {
@@ -1275,8 +1280,7 @@ async function localizarCardReservadoNaGrade(
             }
 
             const candidatos: {
-                x: number;
-                y: number;
+                el: HTMLElement;
                 area: number;
                 resumo: string;
                 bateProfessor: boolean;
@@ -1305,22 +1309,18 @@ async function localizarCardReservadoNaGrade(
                     continue;
                 }
 
+                const st = window.getComputedStyle(el);
+                if (st.display === 'none' || st.visibility === 'hidden') continue;
+
                 const r = el.getBoundingClientRect();
                 if (r.width < 50 || r.width > 500 || r.height < 18 || r.height > 450) {
                     continue;
                 }
-                if (
-                    r.right < 0 ||
-                    r.left > window.innerWidth ||
-                    r.bottom < 0 ||
-                    r.top > window.innerHeight
-                ) {
+                if (r.right < 0 || r.left > window.innerWidth) {
                     continue;
                 }
 
                 const cx = r.left + r.width / 2;
-                const cy = r.top + r.height / 2;
-
                 const colDona = colunas.find(
                     (c) => cx >= c.left - 15 && cx <= c.right + 15
                 );
@@ -1333,8 +1333,7 @@ async function localizarCardReservadoNaGrade(
                 );
 
                 candidatos.push({
-                    x: cx,
-                    y: cy,
+                    el,
                     area: r.width * r.height,
                     resumo: textoBruto.replace(/\s+/g, ' ').slice(0, 90),
                     bateProfessor,
@@ -1350,7 +1349,15 @@ async function localizarCardReservadoNaGrade(
             filtrados.sort((a, b) => a.area - b.area);
             const alvo = filtrados[0];
 
-            return { x: alvo.x, y: alvo.y, resumo: alvo.resumo };
+            alvo.el.scrollIntoView({ block: 'center', inline: 'center' });
+            alvo.el.setAttribute('data-clincare-card-alvo', '1');
+            const rFinal = alvo.el.getBoundingClientRect();
+
+            return {
+                x: rFinal.left + rFinal.width / 2,
+                y: rFinal.top + rFinal.height / 2,
+                resumo: alvo.resumo,
+            };
         },
         { horaAlvo: hhmm, profAlvo: profNorm }
     );
@@ -1402,12 +1409,15 @@ async function clicarCardFluxoExclusao(
     page: Page,
     tituloAlvo: string,
     subtituloAlvo: string,
-    descricaoEtapa: string
+    descricaoEtapa: string,
+    aoFalharPrimeiraMetade?: () => Promise<void>
 ): Promise<void> {
     const tituloNorm = normalizarTexto(tituloAlvo);
     const subtituloNorm = normalizarTexto(subtituloAlvo);
-    const limite = Date.now() + 8000;
+    const inicio = Date.now();
+    const limite = inicio + 9000;
     let ultimaPosicao: { x: number; y: number } | null = null;
+    let executouFallback = false;
 
     while (Date.now() < limite) {
         const coords = await page.evaluate(
@@ -1513,6 +1523,15 @@ async function clicarCardFluxoExclusao(
             ultimaPosicao = coords;
             await page.waitForTimeout(180);
             continue;
+        }
+
+        if (
+            !executouFallback &&
+            aoFalharPrimeiraMetade &&
+            Date.now() - inicio > 2500
+        ) {
+            executouFallback = true;
+            await aoFalharPrimeiraMetade();
         }
 
         ultimaPosicao = null;
@@ -1634,7 +1653,6 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
             continue;
         }
 
-        // Se após 2,5s a Tela 3 ainda não apareceu, tenta clicar novamente em "Excluir agendamento" na Tela 2
         if (!tentouReclicarTela2 && Date.now() - inicio > 2500) {
             tentouReclicarTela2 = true;
             await clicarCardFluxoExclusao(
@@ -1707,6 +1725,7 @@ async function cancelarReservaNoClinCare(
     );
 
     // Passo 0: Clica no bloco da aula na agenda para abrir a Tela 1
+    await page.waitForTimeout(250);
     await page.mouse.click(card.x, card.y);
     await page.waitForTimeout(650);
 
@@ -1715,7 +1734,19 @@ async function cancelarReservaNoClinCare(
         page,
         'Editar Agendamento',
         'Dados administrativos',
-        'Tela 1 (Detalhes do Agendamento)'
+        'Tela 1 (Detalhes do Agendamento)',
+        async () => {
+            await page.evaluate(() => {
+                const alvo = document.querySelector(
+                    '[data-clincare-card-alvo="1"]'
+                ) as HTMLElement | null;
+                if (alvo) {
+                    alvo.scrollIntoView({ block: 'center', inline: 'center' });
+                    alvo.click();
+                }
+            });
+            await page.waitForTimeout(450);
+        }
     );
     console.log(`[CANCELAR RESERVA #${ag.id}] Tela 1 -> "Editar Agendamento" aberto.`);
 
