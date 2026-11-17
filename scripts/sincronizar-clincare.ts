@@ -1232,67 +1232,454 @@ async function criarReservaNoClinCare(
     }
 }
 
+async function localizarCardReservadoNaGrade(
+    page: Page,
+    hhmm: string,
+    professorNome: string
+): Promise<{ x: number; y: number; resumo: string } | null> {
+    const profNorm = normalizarTexto(professorNome);
+
+    return page.evaluate(
+        ({ horaAlvo, profAlvo }) => {
+            const norm = (s: string) =>
+                s
+                    .replace(/^(\d+\s*\.\s*)+/, '')
+                    .replace(/['′"´`]/g, '')
+                    .replace(/\./g, ' ')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+
+            // 1. Mapeia colunas de professores visíveis para garantir que clicamos no professor certo
+            const colunas: { nome: string; left: number; right: number }[] = [];
+            const folhas = Array.from(document.querySelectorAll('*'));
+            for (let i = 0; i < folhas.length; i++) {
+                const el = folhas[i] as HTMLElement;
+                if (el.children.length > 0) continue;
+                const txt = (el.textContent || '').trim();
+                if (txt !== 'Aulas' && !/^\d+\s*\.\s*[A-Za-zÀ-ÿ]/.test(txt)) continue;
+
+                let pai: HTMLElement | null = el.parentElement;
+                for (let n = 0; n < 5 && pai; n++) {
+                    const r = pai.getBoundingClientRect();
+                    const linhas = (pai.innerText || '')
+                        .split('\n')
+                        .map((l) => l.trim())
+                        .filter(Boolean);
+                    const nomeCol =
+                        linhas.find((l) => /^\d+\s*\.\s*[A-Za-zÀ-ÿ]/.test(l)) ||
+                        (linhas.indexOf('Aulas') > 0
+                            ? linhas[linhas.indexOf('Aulas') - 1]
+                            : '');
+
+                    if (
+                        nomeCol &&
+                        nomeCol.length <= 65 &&
+                        r.width >= 90 &&
+                        r.width <= 500 &&
+                        r.height >= 30 &&
+                        r.height <= 300
+                    ) {
+                        if (!colunas.some((c) => Math.abs(c.left - r.left) < 25)) {
+                            colunas.push({
+                                nome: norm(nomeCol),
+                                left: r.left,
+                                right: r.right,
+                            });
+                        }
+                        break;
+                    }
+                    pai = pai.parentElement;
+                }
+            }
+
+            // 2. Busca todos os cards visíveis com o horário e "Reservado"
+            const candidatos: {
+                x: number;
+                y: number;
+                area: number;
+                resumo: string;
+                bateProfessor: boolean;
+            }[] = [];
+
+            const blocos = Array.from(
+                document.querySelectorAll('div, article, section, button, a')
+            );
+
+            for (let i = 0; i < blocos.length; i++) {
+                const el = blocos[i] as HTMLElement;
+                const textoBruto = (el.innerText || '').trim();
+                if (!textoBruto || textoBruto.length > 260) continue;
+
+                const textoNorm = norm(textoBruto);
+                if (!textoBruto.includes(horaAlvo) || !textoNorm.includes('reservado')) {
+                    continue;
+                }
+
+                const r = el.getBoundingClientRect();
+                if (r.width < 50 || r.width > 500 || r.height < 18 || r.height > 450) {
+                    continue;
+                }
+                if (
+                    r.right < 0 ||
+                    r.left > window.innerWidth ||
+                    r.bottom < 0 ||
+                    r.top > window.innerHeight
+                ) {
+                    continue;
+                }
+
+                const cx = r.left + r.width / 2;
+                const cy = r.top + r.height / 2;
+
+                const colDona = colunas.find(
+                    (c) => cx >= c.left - 15 && cx <= c.right + 15
+                );
+                const bateProfessor = Boolean(
+                    colDona &&
+                    profAlvo &&
+                    (colDona.nome === profAlvo ||
+                        colDona.nome.includes(profAlvo) ||
+                        profAlvo.includes(colDona.nome))
+                );
+
+                candidatos.push({
+                    x: cx,
+                    y: cy,
+                    area: r.width * r.height,
+                    resumo: textoBruto.replace(/\s+/g, ' ').slice(0, 90),
+                    bateProfessor,
+                });
+            }
+
+            if (candidatos.length === 0) return null;
+
+            // Prioriza o card alinhado à coluna do professor; em caso de wrappers aninhados, pega o menor (card interno)
+            const filtrados = candidatos.some((c) => c.bateProfessor)
+                ? candidatos.filter((c) => c.bateProfessor)
+                : candidatos;
+
+            filtrados.sort((a, b) => a.area - b.area);
+            const alvo = filtrados[0];
+
+            return { x: alvo.x, y: alvo.y, resumo: alvo.resumo };
+        },
+        { horaAlvo: hhmm, profAlvo: profNorm }
+    );
+}
+
+async function varrerMapaParaEncontrarCard(
+    page: Page,
+    urlMapa: string,
+    hhmm: string,
+    professorNome: string
+): Promise<{ x: number; y: number; resumo: string } | null> {
+    await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page
+        .locator('text="08:00", text="14:00", text="14:10", text="17:00"')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10000 })
+        .catch(() => null);
+    await page.waitForTimeout(1400);
+
+    for (let passo = 0; passo < 5; passo++) {
+        const encontrado = await localizarCardReservadoNaGrade(
+            page,
+            hhmm,
+            professorNome
+        );
+        if (encontrado) return encontrado;
+
+        const rolou = await page.evaluate(() => {
+            const scrollables = Array.from(document.querySelectorAll('*')).filter(
+                (el) => el.scrollWidth > el.clientWidth + 50
+            );
+            let moveu = false;
+            for (const el of scrollables) {
+                const antes = el.scrollLeft;
+                el.scrollLeft += 1800;
+                if (el.scrollLeft !== antes) moveu = true;
+            }
+            return moveu;
+        });
+
+        if (!rolou) break;
+        await page.waitForTimeout(600);
+    }
+
+    return null;
+}
+
+async function clicarCardFluxoExclusao(
+    page: Page,
+    tituloAlvo: string,
+    subtituloAlvo: string,
+    descricaoEtapa: string
+): Promise<void> {
+    const tituloNorm = normalizarTexto(tituloAlvo);
+    const subtituloNorm = normalizarTexto(subtituloAlvo);
+    const limite = Date.now() + 7000;
+
+    while (Date.now() < limite) {
+        const coords = await page.evaluate(
+            ({ titulo, subtitulo }) => {
+                const norm = (s: string) =>
+                    s
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .toLowerCase();
+
+                const candidatos: {
+                    x: number;
+                    y: number;
+                    area: number;
+                    temSubtitulo: boolean;
+                    ehInterativo: boolean;
+                }[] = [];
+
+                const nos = Array.from(
+                    document.querySelectorAll('button, a, [role="button"], div, span')
+                ) as HTMLElement[];
+
+                for (let i = 0; i < nos.length; i++) {
+                    const el = nos[i];
+                    const r = el.getBoundingClientRect();
+                    if (
+                        r.width < 60 ||
+                        r.width > 720 ||
+                        r.height < 28 ||
+                        r.height > 150
+                    ) {
+                        continue;
+                    }
+                    if (
+                        r.right < 0 ||
+                        r.left > window.innerWidth ||
+                        r.bottom < 0 ||
+                        r.top > window.innerHeight
+                    ) {
+                        continue;
+                    }
+
+                    const st = window.getComputedStyle(el);
+                    if (st.display === 'none' || st.visibility === 'hidden') continue;
+
+                    const txt = norm(el.innerText || el.textContent || '');
+                    if (!txt || txt.length > 120 || !txt.includes(titulo)) continue;
+
+                    const cx = r.left + r.width / 2;
+                    const cy = r.top + r.height / 2;
+
+                    const topo = document.elementFromPoint(cx, cy);
+                    if (
+                        !topo ||
+                        (topo !== el && !el.contains(topo) && !topo.contains(el))
+                    ) {
+                        continue;
+                    }
+
+                    const ehInterativo =
+                        el.tagName === 'BUTTON' ||
+                        el.tagName === 'A' ||
+                        el.getAttribute('role') === 'button' ||
+                        st.cursor === 'pointer';
+
+                    candidatos.push({
+                        x: cx,
+                        y: cy,
+                        area: r.width * r.height,
+                        temSubtitulo: Boolean(subtitulo && txt.includes(subtitulo)),
+                        ehInterativo,
+                    });
+                }
+
+                if (candidatos.length === 0) return null;
+
+                // Prioriza o card que contém tanto o título quanto o subtítulo (ex.: "Editar Agendamento" + "Dados administrativos")
+                const comSub = candidatos.filter((c) => c.temSubtitulo);
+                const pool = comSub.length > 0 ? comSub : candidatos;
+
+                pool.sort((a, b) => {
+                    if (a.ehInterativo !== b.ehInterativo) {
+                        return a.ehInterativo ? -1 : 1;
+                    }
+                    return a.area - b.area;
+                });
+
+                return { x: pool[0].x, y: pool[0].y };
+            },
+            { titulo: tituloNorm, subtitulo: subtituloNorm }
+        );
+
+        if (coords) {
+            await page.mouse.click(coords.x, coords.y);
+            await page.waitForTimeout(750);
+            return;
+        }
+
+        await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+        `Não foi possível localizar "${tituloAlvo}" na ${descricaoEtapa}.`
+    );
+}
+
+async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
+    const limite = Date.now() + 7000;
+
+    while (Date.now() < limite) {
+        const coordsExcluir = await page.evaluate(() => {
+            const norm = (s: string) =>
+                s
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+
+            // 1. Garante que a Tela 3 ("Excluir este agendamento?") já está visível
+            let perguntaBottom = -1;
+            const todos = Array.from(document.querySelectorAll('*')) as HTMLElement[];
+            for (let i = 0; i < todos.length; i++) {
+                const el = todos[i];
+                if (el.children.length > 1) continue;
+                const txt = norm(el.innerText || el.textContent || '');
+                if (txt.includes('excluir este agendamento')) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 40 && r.height > 12) {
+                        perguntaBottom = r.bottom;
+                        break;
+                    }
+                }
+            }
+
+            if (perguntaBottom < 0) return null;
+
+            // 2. Localiza o botão vermelho "EXCLUIR" abaixo da pergunta (nunca "Cancelar" nem o cabeçalho)
+            const botoes = Array.from(
+                document.querySelectorAll('button, [role="button"], a')
+            ) as HTMLElement[];
+
+            for (let i = botoes.length - 1; i >= 0; i--) {
+                const b = botoes[i];
+                const r = b.getBoundingClientRect();
+                if (r.width < 50 || r.height < 24) continue;
+                if (r.top < perguntaBottom) continue;
+
+                const st = window.getComputedStyle(b);
+                if (st.display === 'none' || st.visibility === 'hidden') continue;
+
+                const txt = norm(b.innerText || b.textContent || '');
+                if (txt === 'excluir') {
+                    return {
+                        x: r.left + r.width / 2,
+                        y: r.top + r.height / 2,
+                    };
+                }
+            }
+
+            return null;
+        });
+
+        if (coordsExcluir) {
+            await page.mouse.click(coordsExcluir.x, coordsExcluir.y);
+            return;
+        }
+
+        await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+        'Botão vermelho "EXCLUIR" não encontrado na Tela 3 de confirmação.'
+    );
+}
+
 async function cancelarReservaNoClinCare(
     page: Page,
     baseUrl: string,
     ag: ReservaFilaRow
 ): Promise<void> {
-    const urlMapa = `${baseUrl}/painel/mapa-agenda?date=${ag.data}&unitId=${ag.unidade_clin_care_id}`;
+    const hhmm = ag.hora_inicio.slice(0, 5);
+    const urlComUnidade = `${baseUrl}/painel/mapa-agenda?date=${ag.data}&unitId=${ag.unidade_clin_care_id}`;
+    const urlSemUnidade = `${baseUrl}/painel/mapa-agenda?date=${ag.data}`;
+
     console.log(
-        `[CANCELAR RESERVA #${ag.id}] Buscando bloco RESERVADO APP em ${urlMapa}...`
+        `[CANCELAR RESERVA #${ag.id}] Buscando bloco "${PACIENTE_RESERVADO_NOME}" (${hhmm}) em ${urlComUnidade}...`
     );
 
-    await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page
-        .locator('text="08:00", text="14:00", text="14:10"')
-        .first()
-        .waitFor({ state: 'visible', timeout: 10000 })
-        .catch(() => null);
-    await page.waitForTimeout(1000);
+    let urlUtilizada = urlComUnidade;
+    let card = await varrerMapaParaEncontrarCard(
+        page,
+        urlComUnidade,
+        hhmm,
+        ag.professor_nome
+    );
 
-    const hhmm = ag.hora_inicio.slice(0, 5);
+    if (!card) {
+        urlUtilizada = urlSemUnidade;
+        card = await varrerMapaParaEncontrarCard(
+            page,
+            urlSemUnidade,
+            hhmm,
+            ag.professor_nome
+        );
+    }
 
-    for (let passo = 0; passo < 4; passo++) {
-        const blocoReservado = page
-            .locator(`div:has-text("${hhmm}"):has-text("RESERVADO")`)
-            .last();
+    if (!card) {
+        throw new Error(
+            `Bloco "${PACIENTE_RESERVADO_NOME}" às ${hhmm} para ${ag.professor_nome} não encontrado no mapa-agenda em ${ag.data}.`
+        );
+    }
 
-        if (await blocoReservado.isVisible({ timeout: 1200 }).catch(() => false)) {
-            await blocoReservado.click({ force: true });
-            await page.waitForTimeout(1000);
+    console.log(
+        `[CANCELAR RESERVA #${ag.id}] Card localizado: "${card.resumo}". Iniciando exclusão em 3 etapas...`
+    );
 
-            const btnExcluir = page
-                .locator(
-                    'button:has-text("Cancelar"), button:has-text("Excluir"), button:has-text("Desmarcar"), button:has-text("Remover")'
-                )
-                .first();
+    // Passo 0: Clica no bloco da aula na agenda para abrir a Tela 1
+    await page.mouse.click(card.x, card.y);
+    await page.waitForTimeout(800);
 
-            if (await btnExcluir.isVisible({ timeout: 3000 }).catch(() => false)) {
-                await btnExcluir.click();
-                await page.waitForTimeout(800);
+    // Tela 1: Clica em "Editar Agendamento" ("Dados administrativos")
+    await clicarCardFluxoExclusao(
+        page,
+        'Editar Agendamento',
+        'Dados administrativos',
+        'Tela 1 (Detalhes do Agendamento)'
+    );
+    console.log(`[CANCELAR RESERVA #${ag.id}] Tela 1 -> "Editar Agendamento" aberto.`);
 
-                const btnConfirmar = page
-                    .locator(
-                        'button:has-text("Confirmar"), button:has-text("Sim"), button:has-text("Excluir")'
-                    )
-                    .last();
-                if (await btnConfirmar.isVisible({ timeout: 2000 }).catch(() => false)) {
-                    await btnConfirmar.click();
-                    await page.waitForTimeout(1500);
-                }
-            }
-            return;
-        }
+    // Tela 2: Clica em "Excluir agendamento" ("Remover este atendimento")
+    await clicarCardFluxoExclusao(
+        page,
+        'Excluir agendamento',
+        'Remover este atendimento',
+        'Tela 2 (Menu Editar Agendamento)'
+    );
+    console.log(`[CANCELAR RESERVA #${ag.id}] Tela 2 -> "Excluir agendamento" aberto.`);
 
-        await page.evaluate(() => {
-            const scrollables = Array.from(document.querySelectorAll('*')).filter(
-                (el) => el.scrollWidth > el.clientWidth + 50
-            );
-            for (const el of scrollables) {
-                el.scrollLeft += 1800;
-            }
-        });
-        await page.waitForTimeout(500);
+    // Tela 3: Confirma clicando no botão vermelho "EXCLUIR"
+    await confirmarBotaoExcluirTela3(page);
+    console.log(`[CANCELAR RESERVA #${ag.id}] Tela 3 -> Botão "EXCLUIR" confirmado.`);
+
+    await aguardarEstabilizacaoModal(page, 1800);
+
+    // Recarrega a agenda e valida que o card realmente desapareceu (zero falso positivo)
+    const aindaExiste = await varrerMapaParaEncontrarCard(
+        page,
+        urlUtilizada,
+        hhmm,
+        ag.professor_nome
+    );
+
+    if (aindaExiste) {
+        throw new Error(
+            `Bloco "${PACIENTE_RESERVADO_NOME}" (${hhmm}) ainda permanece na agenda após confirmar EXCLUIR.`
+        );
     }
 }
 
@@ -1348,7 +1735,14 @@ async function processarFilaReservas(
         `;
                 console.log(`[RESERVA #${item.id}] Bloco RESERVADO removido no clin.care.`);
             } catch (err) {
-                console.error(`[RESERVA #${item.id}] Falha ao cancelar no clin.care:`, err);
+                const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+                console.error(`[RESERVA #${item.id}] Falha ao cancelar no clin.care:`, msg);
+                await sql`
+          UPDATE agendamentos
+          SET clincare_reserva_status = 'erro',
+              clincare_reserva_erro = ${msg.slice(0, 300)}
+          WHERE id = ${item.id}
+        `;
             }
             continue;
         }
