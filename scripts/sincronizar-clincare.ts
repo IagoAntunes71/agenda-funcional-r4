@@ -1305,7 +1305,8 @@ async function localizarCardReservadoNaGrade(
                     .trim()
                     .toLowerCase();
 
-                if (!textoBruto.includes(horaAlvo) || !textoNorm.includes('reservado')) {
+                const intervalo = textoBruto.match(/(?:^|\s)(\d{2}:\d{2})\s*[-–—]\s*(\d{2}:\d{2})(?:\s|$)/);
+                if (intervalo?.[1] !== horaAlvo || !/\breservado\s+app\b/.test(textoNorm)) {
                     continue;
                 }
 
@@ -1339,9 +1340,8 @@ async function localizarCardReservadoNaGrade(
 
             if (candidatos.length === 0) return null;
 
-            const filtrados = candidatos.some((c) => c.bateProfessor)
-                ? candidatos.filter((c) => c.bateProfessor)
-                : candidatos;
+            const filtrados = candidatos.filter((c) => c.bateProfessor);
+            if (filtrados.length === 0) return null;
 
             filtrados.sort((a, b) => a.area - b.area);
             const alvo = filtrados[0];
@@ -1933,6 +1933,34 @@ async function processarFilaReservas(
     page: Page,
     baseUrl: string
 ) {
+    // Diagnóstico sem nomes ou dados de pacientes. Não altera registros antigos.
+    const canceladosForaDaFila = await sql`
+      SELECT a.id, a.clincare_reserva_status,
+        CASE
+          WHEN p.id IS NULL THEN 'professor ausente'
+          WHEN u.id IS NULL THEN 'unidade ausente'
+          WHEN u.clin_care_id IS NULL OR u.clin_care_id LIKE 'id-%'
+            THEN 'unidade sem ID ClinCare válido'
+          ELSE 'estado não elegível; use Reenviar robô para esta aula'
+        END AS motivo
+      FROM agendamentos a
+      LEFT JOIN professores p ON p.id = a.professor_id
+      LEFT JOIN unidades u ON u.id = a.unidade_id
+      WHERE a.status = 'cancelado'
+        AND (
+          COALESCE(a.clincare_reserva_status, '') NOT IN ('cancelar_pendente', 'cancelado_clincare')
+          OR (a.clincare_reserva_status = 'cancelar_pendente' AND (
+            p.id IS NULL OR u.id IS NULL OR u.clin_care_id IS NULL
+            OR u.clin_care_id LIKE 'id-%'
+          ))
+        )
+      ORDER BY a.id DESC
+      LIMIT 20
+    `;
+    for (const item of canceladosForaDaFila) {
+        console.warn(`[FILA] Cancelamento #${item.id} fora da fila: estado=${item.clincare_reserva_status ?? 'NULL'}; ${item.motivo}.`);
+    }
+
     const pendentes = (await sql`
     SELECT
       a.id,
@@ -1968,6 +1996,7 @@ async function processarFilaReservas(
 
     console.log(`[RESERVAS] ${pendentes.length} item(ns) na fila para processar...`);
 
+    let falhas = 0;
     for (const item of pendentes) {
         if (item.status === 'cancelado') {
             try {
@@ -1982,6 +2011,7 @@ async function processarFilaReservas(
             } catch (err) {
                 const msg = err instanceof Error ? err.message : 'Erro desconhecido';
                 console.error(`[RESERVA #${item.id}] Falha ao cancelar no clin.care:`, msg);
+                falhas++;
                 await sql`
           UPDATE agendamentos
           SET clincare_reserva_status = 'erro',
@@ -2014,6 +2044,7 @@ async function processarFilaReservas(
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Erro desconhecido';
             console.error(`[RESERVA #${item.id}] Erro:`, msg);
+            falhas++;
             await sql`
         UPDATE agendamentos
         SET clincare_reserva_status = 'erro',
@@ -2021,6 +2052,9 @@ async function processarFilaReservas(
         WHERE id = ${item.id}
       `;
         }
+    }
+    if (falhas > 0) {
+        throw new Error(`[RESERVAS] ${falhas} item(ns) falharam. Confira os erros acima; use Reenviar robô para tentar novamente.`);
     }
 }
 

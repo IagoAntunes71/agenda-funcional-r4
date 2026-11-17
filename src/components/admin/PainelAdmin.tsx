@@ -2353,25 +2353,36 @@ export default function PainelAdmin({
                                                             </button>
                                                         )}
 
-                                                        {ag.status === 'confirmado' &&
-                                                            !ag.sincronizado_clincare &&
-                                                            ag.clincare_reserva_status !== 'reservado' && (
+                                                        {(ag.status === 'cancelado' ||
+                                                            (ag.status === 'confirmado' &&
+                                                                !ag.sincronizado_clincare &&
+                                                                ag.clincare_reserva_status !== 'reservado')) && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={async () => {
-                                                                        await fetch('/api/admin/agendamentos', {
-                                                                            method: 'PATCH',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({
-                                                                                id: ag.id,
-                                                                                reenviar_robo: true,
-                                                                            }),
-                                                                        });
-                                                                        await carregarDados();
+                                                                        try {
+                                                                            const resposta = await fetch('/api/admin/agendamentos', {
+                                                                                method: 'PATCH',
+                                                                                headers: { 'Content-Type': 'application/json' },
+                                                                                body: JSON.stringify({
+                                                                                    id: ag.id,
+                                                                                    reenviar_robo: true,
+                                                                                }),
+                                                                            });
+                                                                            if (!resposta.ok) {
+                                                                                const retorno = await resposta.json().catch(() => ({}));
+                                                                                window.alert(retorno.error || 'Não foi possível acionar o robô.');
+                                                                            }
+                                                                        } catch {
+                                                                            window.alert('Falha de conexão ao acionar o robô.');
+                                                                        } finally {
+                                                                            await carregarDados();
+                                                                        }
                                                                     }}
                                                                     className="px-3 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-500/25"
                                                                 >
-                                                                    <RefreshCw className="w-3.5 h-3.5" /> Reenviar Robô
+                                                                    <RefreshCw className="w-3.5 h-3.5" />
+                                                                    {ag.status === 'cancelado' ? 'Repetir remoção no ClinCare' : 'Reenviar Robô'}
                                                                 </button>
                                                             )}
 

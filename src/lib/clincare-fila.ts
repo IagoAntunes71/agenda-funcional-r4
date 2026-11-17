@@ -19,8 +19,7 @@ export async function dispararRoboReservaClinCare(
         if (agendamentoId) {
             await sql`
         UPDATE agendamentos
-        SET clincare_reserva_status = 'erro',
-            clincare_reserva_erro = ${msg}
+        SET clincare_reserva_erro = ${msg}
         WHERE id = ${agendamentoId}
       `;
         }
@@ -49,8 +48,7 @@ export async function dispararRoboReservaClinCare(
             if (agendamentoId) {
                 await sql`
           UPDATE agendamentos
-          SET clincare_reserva_status = 'erro',
-              clincare_reserva_erro = ${msg}
+          SET clincare_reserva_erro = ${msg}
           WHERE id = ${agendamentoId}
         `;
             }
@@ -64,8 +62,7 @@ export async function dispararRoboReservaClinCare(
         if (agendamentoId) {
             await sql`
         UPDATE agendamentos
-        SET clincare_reserva_status = 'erro',
-            clincare_reserva_erro = ${msg}
+        SET clincare_reserva_erro = ${msg}
         WHERE id = ${agendamentoId}
       `;
         }

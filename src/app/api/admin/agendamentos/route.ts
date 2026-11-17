@@ -20,7 +20,7 @@ export async function PATCH(req: NextRequest) {
         const body = await req.json();
         const id = Number(body?.id || 0);
 
-        if (!id) {
+        if (!Number.isSafeInteger(id) || id <= 0) {
             return NextResponse.json(
                 { error: 'ID do agendamento inválido.' },
                 { status: 400 }
@@ -28,12 +28,23 @@ export async function PATCH(req: NextRequest) {
         }
 
         if (body?.reenviar_robo === true) {
-            await sql`
+            const reenviados = await sql`
         UPDATE agendamentos
-        SET clincare_reserva_status = 'pendente',
+        SET clincare_reserva_status = CASE
+              WHEN status = 'cancelado' THEN 'cancelar_pendente'
+              ELSE 'pendente'
+            END,
             clincare_reserva_erro = NULL
         WHERE id = ${id}
+          AND status IN ('confirmado', 'cancelado')
+        RETURNING id
       `;
+            if (reenviados.length === 0) {
+                return NextResponse.json(
+                    { error: 'Agendamento não encontrado ou já concluído.' },
+                    { status: 409 }
+                );
+            }
             const disparo = await dispararRoboReservaClinCare(id);
             if (!disparo.ok) {
                 return NextResponse.json(
@@ -70,15 +81,29 @@ export async function PATCH(req: NextRequest) {
           SET
             status = 'cancelado',
             clincare_reserva_status = CASE
-              WHEN COALESCE(clincare_reserva_status, '') IN ('reservado', 'reservando') THEN 'cancelar_pendente'
-              ELSE 'cancelado_clincare'
-            END
+              WHEN status = 'cancelado' AND clincare_reserva_status = 'cancelado_clincare'
+                THEN 'cancelado_clincare'
+              ELSE 'cancelar_pendente'
+            END,
+            clincare_reserva_erro = NULL
           WHERE id = ${id}
           RETURNING clincare_reserva_status
         `) as { clincare_reserva_status: string }[];
 
+                if (cancelados.length === 0) {
+                    return NextResponse.json(
+                        { error: 'Agendamento não encontrado.' },
+                        { status: 404 }
+                    );
+                }
                 if (cancelados[0]?.clincare_reserva_status === 'cancelar_pendente') {
-                    await dispararRoboReservaClinCare(id);
+                    const disparo = await dispararRoboReservaClinCare(id);
+                    if (!disparo.ok) {
+                        return NextResponse.json(
+                            { error: disparo.erro || 'Aula cancelada no sistema, mas não foi possível acionar a remoção no ClinCare.' },
+                            { status: 502 }
+                        );
+                    }
                 }
             } else {
                 await sql`
