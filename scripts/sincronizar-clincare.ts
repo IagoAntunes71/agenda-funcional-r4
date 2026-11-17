@@ -321,7 +321,7 @@ async function preencherCampoDropdownModal(
 ): Promise<boolean> {
     const alvoNorm = normalizarTexto(textoPlaceholder);
 
-    // 1. Localiza o campo diretamente na tela e clica no centro dele
+    // 1. Localiza o campo na camada superior (modal) e clica no centro dele
     const coordsCampo = await page.evaluate((alvo) => {
         const inputs = Array.from(document.querySelectorAll('input'));
         for (let i = inputs.length - 1; i >= 0; i--) {
@@ -335,7 +335,12 @@ async function preencherCampoDropdownModal(
             if (ph && ph.includes(alvo)) {
                 const r = inp.getBoundingClientRect();
                 if (r.width > 40 && r.height > 15) {
-                    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                    const cx = r.left + r.width / 2;
+                    const cy = r.top + r.height / 2;
+                    const topEl = document.elementFromPoint(cx, cy);
+                    if (topEl && (inp.contains(topEl) || topEl.contains(inp))) {
+                        return { x: cx, y: cy };
+                    }
                 }
             }
         }
@@ -353,7 +358,12 @@ async function preencherCampoDropdownModal(
             if (txt === alvo || (txt.length <= 45 && txt.includes(alvo))) {
                 const r = el.getBoundingClientRect();
                 if (r.width > 30 && r.height > 12) {
-                    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                    const cx = r.left + r.width / 2;
+                    const cy = r.top + r.height / 2;
+                    const topEl = document.elementFromPoint(cx, cy);
+                    if (topEl && (el.contains(topEl) || topEl.contains(el))) {
+                        return { x: cx, y: cy };
+                    }
                 }
             }
         }
@@ -376,13 +386,13 @@ async function preencherCampoDropdownModal(
         ) {
             await inputFocado.fill('');
             await inputFocado.pressSequentially(textoBusca, { delay: 45 });
-            await page.waitForTimeout(1100);
+            await page.waitForTimeout(1200);
         }
     } else {
         await page.waitForTimeout(550);
     }
 
-    // 2. Procura a opção desejada na lista aberta e clica nas coordenadas dela
+    // 2. Procura a opção desejada apenas entre os elementos visíveis no topo (sem atravessar o modal)
     const prefsNorm = preferencias
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
@@ -420,14 +430,21 @@ async function preencherCampoDropdownModal(
             document.querySelectorAll('li, [role="option"], button, div, span')
         );
 
-        for (const el of nos) {
-            const htmlEl = el as HTMLElement;
+        for (let i = nos.length - 1; i >= 0; i--) {
+            const htmlEl = nos[i] as HTMLElement;
             if (htmlEl.children.length > 3) continue;
             const r = htmlEl.getBoundingClientRect();
             if (r.width < 60 || r.width > 650 || r.height < 18 || r.height > 75) {
                 continue;
             }
             if (r.top < 0 || r.bottom > window.innerHeight) continue;
+
+            const cx = r.left + r.width / 2;
+            const cy = r.top + r.height / 2;
+            const topEl = document.elementFromPoint(cx, cy);
+            if (!topEl || (!htmlEl.contains(topEl) && !topEl.contains(htmlEl))) {
+                continue;
+            }
 
             const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
             if (!bruto || bruto.length > 85) continue;
@@ -443,11 +460,7 @@ async function preencherCampoDropdownModal(
 
             if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
 
-            candidatos.push({
-                x: r.left + r.width / 2,
-                y: r.top + r.height / 2,
-                txt: t,
-            });
+            candidatos.push({ x: cx, y: cy, txt: t });
         }
 
         for (const pref of prefs) {
@@ -541,14 +554,8 @@ async function criarReservaNoClinCare(
         primeiroNomeProf
     );
     if (!selecionouProf) {
-        const camposVisiveis = await page.evaluate(() =>
-            Array.from(document.querySelectorAll('input'))
-                .map((i) => i.getAttribute('placeholder') || i.name || i.type)
-                .filter(Boolean)
-                .join(' | ')
-        );
         throw new Error(
-            `Campo profissional não localizado para "${nomeProfExatoClinCare}". Inputs visíveis: [${camposVisiveis}]`
+            `Não foi possível selecionar o profissional "${nomeProfExatoClinCare}".`
         );
     }
 
@@ -560,8 +567,9 @@ async function criarReservaNoClinCare(
         'RESERVADO'
     );
     if (!selecionouPaciente) {
+        const aberto = await tituloModal.isVisible().catch(() => false);
         throw new Error(
-            `Não foi possível selecionar o paciente "${PACIENTE_RESERVADO_NOME}".`
+            `Não foi possível localizar o campo de paciente "${PACIENTE_RESERVADO_NOME}" (modal aberto: ${aberto}).`
         );
     }
 
