@@ -313,66 +313,118 @@ async function selecionarValorSelect(
     return false;
 }
 
+async function obterCaixaModalAgendamento(
+    page: Page
+): Promise<{ left: number; right: number; top: number; bottom: number } | null> {
+    return page.evaluate(() => {
+        const nos = Array.from(document.querySelectorAll('*'));
+        for (let i = nos.length - 1; i >= 0; i--) {
+            const el = nos[i] as HTMLElement;
+            if (el.children.length > 2) continue;
+            const txt = (el.textContent || '').trim();
+            if (txt !== 'Novo Agendamento') continue;
+
+            let pai: HTMLElement | null = el.parentElement;
+            for (let nivel = 0; nivel < 6 && pai; nivel++) {
+                const r = pai.getBoundingClientRect();
+                if (
+                    r.width >= 300 &&
+                    r.width <= 700 &&
+                    r.height >= 420 &&
+                    r.height <= window.innerHeight
+                ) {
+                    return {
+                        left: r.left,
+                        right: r.right,
+                        top: r.top,
+                        bottom: r.bottom,
+                    };
+                }
+                pai = pai.parentElement;
+            }
+        }
+        return null;
+    });
+}
+
 async function preencherCampoDropdownModal(
     page: Page,
     textoPlaceholder: string,
     preferencias: string[],
     textoBusca?: string
-): Promise<boolean> {
+): Promise<void> {
+    const modalRect = await obterCaixaModalAgendamento(page);
+    if (!modalRect) {
+        throw new Error(
+            `Modal "Novo Agendamento" fechou inesperadamente antes de preencher "${textoPlaceholder}".`
+        );
+    }
+
     const alvoNorm = normalizarTexto(textoPlaceholder);
 
-    // 1. Localiza o campo na camada superior (modal) e clica no centro dele
-    const coordsCampo = await page.evaluate((alvo) => {
-        const inputs = Array.from(document.querySelectorAll('input'));
-        for (let i = inputs.length - 1; i >= 0; i--) {
-            const inp = inputs[i];
-            const ph = (inp.getAttribute('placeholder') || '')
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .toLowerCase();
-            if (ph && ph.includes(alvo)) {
+    // 1. Localiza o campo estritamente dentro da área do modal
+    const coordsCampo = await page.evaluate(
+        ({ alvo, box }) => {
+            const inputs = Array.from(document.querySelectorAll('input'));
+            for (let i = 0; i < inputs.length; i++) {
+                const inp = inputs[i];
+                const ph = (inp.getAttribute('placeholder') || '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+                if (!ph || !ph.includes(alvo)) continue;
+
                 const r = inp.getBoundingClientRect();
-                if (r.width > 40 && r.height > 15) {
-                    const cx = r.left + r.width / 2;
-                    const cy = r.top + r.height / 2;
-                    const topEl = document.elementFromPoint(cx, cy);
-                    if (topEl && (inp.contains(topEl) || topEl.contains(inp))) {
-                        return { x: cx, y: cy };
-                    }
+                const cx = r.left + r.width / 2;
+                const cy = r.top + r.height / 2;
+                if (
+                    r.width > 40 &&
+                    r.height > 15 &&
+                    cx >= box.left &&
+                    cx <= box.right &&
+                    cy >= box.top &&
+                    cy <= box.bottom
+                ) {
+                    return { x: cx, y: cy };
                 }
             }
-        }
 
-        const todos = Array.from(document.querySelectorAll('*'));
-        for (let i = todos.length - 1; i >= 0; i--) {
-            const el = todos[i] as HTMLElement;
-            if (el.children.length > 1) continue;
-            const txt = (el.innerText || el.textContent || '')
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .toLowerCase();
-            if (txt === alvo || (txt.length <= 45 && txt.includes(alvo))) {
+            const todos = Array.from(document.querySelectorAll('*'));
+            for (let i = 0; i < todos.length; i++) {
+                const el = todos[i] as HTMLElement;
+                if (el.children.length > 1) continue;
+                const txt = (el.innerText || el.textContent || '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+                if (txt !== alvo && !(txt.length <= 45 && txt.includes(alvo))) continue;
+
                 const r = el.getBoundingClientRect();
-                if (r.width > 30 && r.height > 12) {
-                    const cx = r.left + r.width / 2;
-                    const cy = r.top + r.height / 2;
-                    const topEl = document.elementFromPoint(cx, cy);
-                    if (topEl && (el.contains(topEl) || topEl.contains(el))) {
-                        return { x: cx, y: cy };
-                    }
+                const cx = r.left + r.width / 2;
+                const cy = r.top + r.height / 2;
+                if (
+                    r.width > 30 &&
+                    r.height > 12 &&
+                    cx >= box.left &&
+                    cx <= box.right &&
+                    cy >= box.top &&
+                    cy <= box.bottom
+                ) {
+                    return { x: cx, y: cy };
                 }
             }
-        }
 
-        return null;
-    }, alvoNorm);
+            return null;
+        },
+        { alvo: alvoNorm, box: modalRect }
+    );
 
     if (!coordsCampo) {
-        return false;
+        throw new Error(`Campo "${textoPlaceholder}" não encontrado dentro do modal.`);
     }
 
     await page.mouse.click(coordsCampo.x, coordsCampo.y);
@@ -384,106 +436,110 @@ async function preencherCampoDropdownModal(
             (await inputFocado.isVisible({ timeout: 700 }).catch(() => false)) &&
             (await inputFocado.isEditable().catch(() => false))
         ) {
-            await inputFocado.fill('');
+            await page.keyboard.press('Control+A').catch(() => null);
+            await page.keyboard.press('Backspace').catch(() => null);
             await inputFocado.pressSequentially(textoBusca, { delay: 45 });
             await page.waitForTimeout(1200);
         }
     } else {
-        await page.waitForTimeout(550);
+        await page.waitForTimeout(600);
     }
 
-    // 2. Procura a opção desejada apenas entre os elementos visíveis no topo (sem atravessar o modal)
+    // 2. Busca as opções abertas logo abaixo do campo (mantendo X dentro do modal)
     const prefsNorm = preferencias
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
 
-    const coordsOpcao = await page.evaluate((prefs) => {
-        const ignorar = new Set([
-            'novo agendamento',
-            'selecione o profissional',
-            'selecione o paciente',
-            'selecione o servico',
-            'selecione a sala',
-            'inicio',
-            'inicio *',
-            'duracao',
-            'duracao *',
-            'hr',
-            'min',
-            'recorrencia',
-            'nao se repete',
-            'criar atendimento',
-            'agendar um evento',
-            'bloqueio de agenda',
-            'menu da r4 ensina',
-            'criar agendamento',
-            'novo paciente',
-            'nova espera',
-            'fatura de entrada',
-            'fatura de saida',
-            'editar perfil',
-            'r4 ensina',
-        ]);
+    const coordsOpcao = await page.evaluate(
+        ({ prefs, box, campoY }) => {
+            const ignorar = new Set([
+                'novo agendamento',
+                'selecione o profissional',
+                'selecione o paciente',
+                'selecione o servico',
+                'selecione a sala',
+                'inicio',
+                'inicio *',
+                'duracao',
+                'duracao *',
+                'hr',
+                'min',
+                'recorrencia',
+                'nao se repete',
+                'criar atendimento',
+                'agendar um evento',
+                'bloqueio de agenda',
+            ]);
 
-        const candidatos: { x: number; y: number; txt: string }[] = [];
-        const nos = Array.from(
-            document.querySelectorAll('li, [role="option"], button, div, span')
+            const candidatos: { x: number; y: number; txt: string }[] = [];
+            const nos = Array.from(
+                document.querySelectorAll('li, [role="option"], button, div, span')
+            );
+
+            for (let i = 0; i < nos.length; i++) {
+                const htmlEl = nos[i] as HTMLElement;
+                if (htmlEl.children.length > 3) continue;
+
+                const r = htmlEl.getBoundingClientRect();
+                if (r.width < 60 || r.width > 650 || r.height < 18 || r.height > 75) {
+                    continue;
+                }
+
+                const cx = r.left + r.width / 2;
+                const cy = r.top + r.height / 2;
+
+                // Garante que está alinhado horizontalmente ao modal e abaixo do campo clicado
+                if (
+                    cx < box.left + 8 ||
+                    cx > box.right - 8 ||
+                    cy <= campoY + 12 ||
+                    cy > window.innerHeight - 10
+                ) {
+                    continue;
+                }
+
+                const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
+                if (!bruto || bruto.length > 85) continue;
+
+                const t = bruto
+                    .replace(/^(\d+\s*\.\s*)+/, '')
+                    .replace(/\./g, ' ')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+
+                if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
+
+                candidatos.push({ x: cx, y: cy, txt: t });
+            }
+
+            for (let p = 0; p < prefs.length; p++) {
+                const pref = prefs[p];
+                if (!pref) continue;
+                for (let c = 0; c < candidatos.length; c++) {
+                    if (candidatos[c].txt.includes(pref)) {
+                        return { x: candidatos[c].x, y: candidatos[c].y };
+                    }
+                }
+            }
+
+            return candidatos.length > 0
+                ? { x: candidatos[0].x, y: candidatos[0].y }
+                : null;
+        },
+        { prefs: prefsNorm, box: modalRect, campoY: coordsCampo.y }
+    );
+
+    if (!coordsOpcao) {
+        throw new Error(
+            `Nenhuma opção encontrada ao abrir "${textoPlaceholder}" (busca: "${textoBusca || ''}").`
         );
-
-        for (let i = nos.length - 1; i >= 0; i--) {
-            const htmlEl = nos[i] as HTMLElement;
-            if (htmlEl.children.length > 3) continue;
-            const r = htmlEl.getBoundingClientRect();
-            if (r.width < 60 || r.width > 650 || r.height < 18 || r.height > 75) {
-                continue;
-            }
-            if (r.top < 0 || r.bottom > window.innerHeight) continue;
-
-            const cx = r.left + r.width / 2;
-            const cy = r.top + r.height / 2;
-            const topEl = document.elementFromPoint(cx, cy);
-            if (!topEl || (!htmlEl.contains(topEl) && !topEl.contains(htmlEl))) {
-                continue;
-            }
-
-            const bruto = (htmlEl.innerText || htmlEl.textContent || '').trim();
-            if (!bruto || bruto.length > 85) continue;
-
-            const t = bruto
-                .replace(/^(\d+\s*\.\s*)+/, '')
-                .replace(/\./g, ' ')
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .toLowerCase();
-
-            if (!t || ignorar.has(t) || /^\d+$/.test(t)) continue;
-
-            candidatos.push({ x: cx, y: cy, txt: t });
-        }
-
-        for (const pref of prefs) {
-            if (!pref) continue;
-            const achado = candidatos.find((c) => c.txt.includes(pref));
-            if (achado) return { x: achado.x, y: achado.y };
-        }
-
-        return candidatos.length > 0
-            ? { x: candidatos[0].x, y: candidatos[0].y }
-            : null;
-    }, prefsNorm);
-
-    if (coordsOpcao) {
-        await page.mouse.click(coordsOpcao.x, coordsOpcao.y);
-        await page.waitForTimeout(450);
-        return true;
     }
 
-    await page.keyboard.press('ArrowDown').catch(() => null);
-    await page.keyboard.press('Enter').catch(() => null);
-    await page.waitForTimeout(400);
-    return true;
+    await page.mouse.click(coordsOpcao.x, coordsOpcao.y);
+    await page.waitForTimeout(450);
 }
 
 async function criarReservaNoClinCare(
@@ -507,17 +563,18 @@ async function criarReservaNoClinCare(
 
         const nomeLido = await page.evaluate(() => {
             const raiz = document.querySelector('main') || document.body;
-            const heading = Array.from(raiz.querySelectorAll('h1, h2, h3'))
-                .map((el) => (el.textContent || '').trim())
-                .find(
-                    (t) =>
-                        t.length >= 3 &&
-                        t.length <= 70 &&
-                        !/^(profissionais|dados pessoais|r4 ensina|formul[aá]rios)/i.test(
-                            t
-                        )
-                );
-            return heading || '';
+            const headings = Array.from(raiz.querySelectorAll('h1, h2, h3'));
+            for (let i = 0; i < headings.length; i++) {
+                const t = (headings[i].textContent || '').trim();
+                if (
+                    t.length >= 3 &&
+                    t.length <= 70 &&
+                    !/^(profissionais|dados pessoais|r4 ensina|formul[aá]rios)/i.test(t)
+                ) {
+                    return t;
+                }
+            }
+            return '';
         });
 
         if (nomeLido) {
@@ -543,106 +600,124 @@ async function criarReservaNoClinCare(
 
     const tituloModal = page.locator('text="Novo Agendamento"').first();
     await tituloModal.waitFor({ state: 'visible', timeout: 8000 });
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(700);
 
     // 3. Profissional
     const primeiroNomeProf = ag.professor_nome.split(' ')[0] || ag.professor_nome;
-    const selecionouProf = await preencherCampoDropdownModal(
+    await preencherCampoDropdownModal(
         page,
         'Selecione o profissional',
         [nomeProfExatoClinCare, ag.professor_nome, primeiroNomeProf],
         primeiroNomeProf
     );
-    if (!selecionouProf) {
-        throw new Error(
-            `Não foi possível selecionar o profissional "${nomeProfExatoClinCare}".`
-        );
-    }
 
     // 4. Paciente -> RESERVADO APP
-    const selecionouPaciente = await preencherCampoDropdownModal(
+    await preencherCampoDropdownModal(
         page,
         'Selecione o paciente',
         [PACIENTE_RESERVADO_NOME, 'RESERVADO', PACIENTE_RESERVADO_ID],
         'RESERVADO'
     );
-    if (!selecionouPaciente) {
-        const aberto = await tituloModal.isVisible().catch(() => false);
-        throw new Error(
-            `Não foi possível localizar o campo de paciente "${PACIENTE_RESERVADO_NOME}" (modal aberto: ${aberto}).`
-        );
-    }
 
     // 5. Serviço (ex.: Aulas)
-    const selecionouServico = await preencherCampoDropdownModal(
-        page,
-        'Selecione o serviço',
-        [servicoPadrao, 'Aulas', ag.materia, 'Reforço', 'Aula']
-    );
-    if (!selecionouServico) {
-        throw new Error('Não foi possível selecionar um serviço obrigatório.');
-    }
+    await preencherCampoDropdownModal(page, 'Selecione o serviço', [
+        servicoPadrao,
+        'Aulas',
+        ag.materia,
+        'Reforço',
+        'Aula',
+    ]);
 
     // 6. Sala
-    const selecionouSala = await preencherCampoDropdownModal(
-        page,
-        'Selecione a sala',
-        [salaPadrao, ag.unidade_nome, 'Sala']
-    );
-    if (!selecionouSala) {
-        throw new Error('Não foi possível selecionar uma sala obrigatória.');
+    await preencherCampoDropdownModal(page, 'Selecione a sala', [
+        salaPadrao,
+        ag.unidade_nome,
+        'Sala',
+    ]);
+
+    const modalRect = await obterCaixaModalAgendamento(page);
+    if (!modalRect) {
+        throw new Error('Modal fechou antes de preencher data e horário.');
     }
 
     // 7. Data de início (DD/MM/YYYY)
     const dataBR = formatarDataBR(ag.data);
     const inputData = page
-        .locator('input[placeholder*="/" i], input[value*="/202"], input[type="date"]')
+        .locator(
+            'input[placeholder*="/" i], input[value*="/202"], input[type="date"]'
+        )
         .last();
     if (await inputData.isVisible({ timeout: 1500 }).catch(() => false)) {
         const tipoInput = (await inputData.getAttribute('type')) || '';
         const valorDesejado = tipoInput === 'date' ? ag.data : dataBR;
         await inputData.click({ force: true });
-        await inputData.fill(valorDesejado);
-        const valorAtual = await inputData.inputValue().catch(() => '');
-        if (valorAtual !== valorDesejado) {
-            await page.keyboard.press('Control+A').catch(() => null);
-            await page.keyboard.type(valorDesejado, { delay: 30 }).catch(() => null);
-        }
+        await page.keyboard.press('Control+A').catch(() => null);
+        await page.keyboard.press('Backspace').catch(() => null);
+        await inputData.pressSequentially(valorDesejado, { delay: 35 });
     }
 
-    // 8. Horário de início e Duração (1 hr 40 min = 100 min)
+    // 8. Horário de início (0, 1) e Duração 1h 40min (2, 3) nos selects dentro do modal
     const [hhRaw, mmRaw] = ag.hora_inicio.slice(0, 5).split(':');
     const hh = hhRaw.padStart(2, '0');
     const mm = mmRaw.padStart(2, '0');
 
-    const selects = page.locator('select');
-    const totalSelects = await selects.count();
-    if (totalSelects >= 4) {
-        const offset = totalSelects - 4;
-        await selecionarValorSelect(selects.nth(offset + 0), [hh, String(Number(hh))]);
-        await selecionarValorSelect(selects.nth(offset + 1), [mm, String(Number(mm))]);
-        await selecionarValorSelect(selects.nth(offset + 2), ['1', '01']);
-        await selecionarValorSelect(selects.nth(offset + 3), ['40']);
+    const todosSelects = page.locator('select');
+    const totalSelects = await todosSelects.count();
+    const selectsModal: Locator[] = [];
+
+    for (let i = 0; i < totalSelects; i++) {
+        const sel = todosSelects.nth(i);
+        const box = await sel.boundingBox().catch(() => null);
+        if (
+            box &&
+            box.x >= modalRect.left &&
+            box.x <= modalRect.right &&
+            box.y >= modalRect.top &&
+            box.y <= modalRect.bottom
+        ) {
+            selectsModal.push(sel);
+        }
     }
 
-    // 9. Salvar ("CRIAR ATENDIMENTO")
-    const btnCriar = page
-        .locator('button:visible')
-        .filter({ hasText: /criar atendimento/i })
-        .first();
+    if (selectsModal.length >= 4) {
+        await selecionarValorSelect(selectsModal[0], [hh, String(Number(hh))]);
+        await selecionarValorSelect(selectsModal[1], [mm, String(Number(mm))]);
+        await selecionarValorSelect(selectsModal[2], ['1', '01']);
+        await selecionarValorSelect(selectsModal[3], ['40']);
+    }
 
-    await btnCriar.waitFor({ state: 'visible', timeout: 5000 });
-    await btnCriar.scrollIntoViewIfNeeded().catch(() => null);
-    await btnCriar.click();
+    // 9. Salvar ("CRIAR ATENDIMENTO") clicando diretamente no botão dentro do modal
+    const coordsSalvar = await page.evaluate((box) => {
+        const botoes = Array.from(document.querySelectorAll('button'));
+        for (let i = 0; i < botoes.length; i++) {
+            const btn = botoes[i];
+            const txt = (btn.innerText || btn.textContent || '').trim().toUpperCase();
+            if (!txt.includes('CRIAR ATENDIMENTO')) continue;
+            const r = btn.getBoundingClientRect();
+            const cx = r.left + r.width / 2;
+            const cy = r.top + r.height / 2;
+            if (
+                r.width > 80 &&
+                r.height > 20 &&
+                cx >= box.left &&
+                cx <= box.right &&
+                cy >= box.top &&
+                cy <= box.bottom
+            ) {
+                return { x: cx, y: cy };
+            }
+        }
+        return null;
+    }, modalRect);
+
+    if (!coordsSalvar) {
+        throw new Error('Botão "CRIAR ATENDIMENTO" não encontrado dentro do modal.');
+    }
+
+    await page.mouse.click(coordsSalvar.x, coordsSalvar.y);
     await page.waitForTimeout(2500);
 
-    const aindaAberto = await page
-        .locator('button:visible')
-        .filter({ hasText: /criar atendimento/i })
-        .first()
-        .isVisible()
-        .catch(() => false);
-
+    const aindaAberto = await obterCaixaModalAgendamento(page);
     if (aindaAberto) {
         throw new Error(
             'Modal permaneceu aberto após clicar em CRIAR ATENDIMENTO (verifique se houve choque de horário ou campo obrigatório pendente).'
