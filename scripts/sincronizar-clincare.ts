@@ -365,7 +365,6 @@ async function aguardarEstabilizacaoModal(
 ): Promise<void> {
     await page.waitForTimeout(tempoBaseMs);
 
-    // Aguarda eventuais indicadores de carregamento ("travadinha" do ClinCare ao validar sala/serviço)
     const limite = Date.now() + 8000;
     while (Date.now() < limite) {
         const carregando = await page.evaluate(() => {
@@ -404,7 +403,6 @@ async function preencherCampoDropdownModal(
 
     const alvoNorm = normalizarTexto(textoPlaceholder);
 
-    // 1. Localiza o campo estritamente dentro da área do modal
     const coordsCampo = await page.evaluate(
         ({ alvo, box }) => {
             const inputs = Array.from(document.querySelectorAll('input'));
@@ -490,7 +488,6 @@ async function preencherCampoDropdownModal(
         await page.waitForTimeout(500);
     }
 
-    // 2. Busca as opções abertas na camada superior do modal (com rolagem e fallback se não houver 100')
     const prefsNorm = preferencias
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
@@ -510,7 +507,6 @@ async function preencherCampoDropdownModal(
             await page.waitForTimeout(450);
         }
 
-        // Se não achou "<Matéria> 100'" nos primeiros 2,5s, limpa o filtro de texto para revelar todas as opções do professor
         if (tentativas === 7 && filtroAtivo && !limpouFiltro) {
             limpouFiltro = true;
             await page.mouse.click(coordsCampo.x, coordsCampo.y);
@@ -526,7 +522,6 @@ async function preencherCampoDropdownModal(
             }
         }
 
-        // Após 5s sem nenhuma opção de 100 min disponível, libera fallback para a variação 50' da matéria (duração será ajustada para 100 min nos selects)
         if (tentativas >= 14) {
             liberarFallback50 = true;
         }
@@ -681,7 +676,6 @@ async function preencherCampoDropdownModal(
                 let escolhido: (typeof candidatos)[number] | null = null;
 
                 if (preferir100) {
-                    // 1º: prioridade estrita em 100 minutos (ex.: "Química 100'")
                     for (let p = 0; p < prefs.length && !escolhido; p++) {
                         const pref = prefs[p];
                         if (!pref) continue;
@@ -717,7 +711,6 @@ async function preencherCampoDropdownModal(
                         }
                     }
 
-                    // 2º: se o professor só tiver serviços de 50' vinculados no ClinCare, aceita a matéria (a duração será forçada para 100 min)
                     if (!escolhido && permitir50) {
                         for (let p = 0; p < prefs.length && !escolhido; p++) {
                             const pref = prefs[p];
@@ -834,7 +827,6 @@ async function preencherCampoDropdownModal(
         );
     }
 
-    // Valida no instante exato do clique que o alvo ainda está no topo (nunca no backdrop do modal)
     const clicouSeguro = await page.evaluate(
         ({ x, y }) => {
             const marcado = document.querySelector(
@@ -885,7 +877,6 @@ async function criarReservaNoClinCare(
 
     let nomeProfExatoClinCare = ag.professor_nome;
 
-    // 1. Abre o perfil do professor para ler o nome exato cadastrado (ex.: "1.Antonio.Eduardo")
     if (ag.professor_clin_care_id) {
         const urlProf = `${baseUrl}/painel/profissionais/${ag.professor_clin_care_id}`;
         console.log(
@@ -921,7 +912,6 @@ async function criarReservaNoClinCare(
         await page.waitForTimeout(1000);
     }
 
-    // 2. Clica no botão fixo "Criar agendamento" no menu lateral esquerdo
     const btnMenuCriar = page
         .locator(
             'a:has-text("Criar agendamento"), button:has-text("Criar agendamento")'
@@ -935,7 +925,6 @@ async function criarReservaNoClinCare(
     await tituloModal.waitFor({ state: 'visible', timeout: 8000 });
     await page.waitForTimeout(700);
 
-    // 3. Profissional
     const primeiroNomeProf = ag.professor_nome.split(' ')[0] || ag.professor_nome;
     await preencherCampoDropdownModal(
         page,
@@ -947,7 +936,6 @@ async function criarReservaNoClinCare(
         }
     );
 
-    // 4. Paciente -> RESERVADO APP
     await preencherCampoDropdownModal(
         page,
         'Selecione o paciente',
@@ -958,7 +946,6 @@ async function criarReservaNoClinCare(
         }
     );
 
-    // 5. Serviço -> prioriza "<Matéria> 100'", com fallback para outros 100' ou variação 50' se não existir 100'
     await preencherCampoDropdownModal(
         page,
         'Selecione o serviço',
@@ -978,7 +965,6 @@ async function criarReservaNoClinCare(
         }
     );
 
-    // 6. Sala (Unidade) — pausa extra para a verificação de sala compartilhada ("travadinha") do ClinCare
     await preencherCampoDropdownModal(
         page,
         'Selecione a sala',
@@ -989,7 +975,6 @@ async function criarReservaNoClinCare(
         }
     );
 
-    // Caso o ClinCare exiba algum aviso/confirmação sobre sala compartilhada por outros alunos, confirma
     const btnConfirmarSala = page
         .locator(
             'button:visible:has-text("Confirmar"), button:visible:has-text("Sim"), button:visible:has-text("Continuar")'
@@ -1005,7 +990,6 @@ async function criarReservaNoClinCare(
         throw new Error('Modal fechou antes de preencher data e horário.');
     }
 
-    // 7. Data de início estritamente dentro do modal (respeitando máscara "DD / MM / YYYY")
     const [anoISO, mesISO, diaISO] = ag.data.split('-');
     const dataBR = formatarDataBR(ag.data);
     const digitosData = `${diaISO}${mesISO}${anoISO}`;
@@ -1064,7 +1048,6 @@ async function criarReservaNoClinCare(
         }
 
         await page.waitForTimeout(250);
-        // Fecha o calendário flutuante clicando no cabeçalho interno do modal
         await page.mouse.click(modalRect.left + 80, modalRect.top + 24);
         await page.waitForTimeout(300);
 
@@ -1116,7 +1099,6 @@ async function criarReservaNoClinCare(
         }
     }
 
-    // 8. Horário de início (0, 1) e Duração 1h 40min (2, 3) nos selects dentro do modal
     const [hhRaw, mmRaw] = ag.hora_inicio.slice(0, 5).split(':');
     const hh = hhRaw.padStart(2, '0');
     const mm = mmRaw.padStart(2, '0');
@@ -1146,7 +1128,6 @@ async function criarReservaNoClinCare(
         await selecionarValorSelect(selectsModal[3], ['40']);
     }
 
-    // 9. Salvar ("CRIAR ATENDIMENTO")
     const coordsSalvar = await page.evaluate((box) => {
         const botoes = Array.from(document.querySelectorAll('button'));
         for (let i = 0; i < botoes.length; i++) {
@@ -1176,7 +1157,6 @@ async function criarReservaNoClinCare(
 
     await page.mouse.click(coordsSalvar.x, coordsSalvar.y);
 
-    // Aguarda até 12s o salvamento concluir e o modal fechar
     for (let tentativa = 0; tentativa < 24; tentativa++) {
         await page.waitForTimeout(500);
 
@@ -1426,7 +1406,8 @@ async function clicarCardFluxoExclusao(
 ): Promise<void> {
     const tituloNorm = normalizarTexto(tituloAlvo);
     const subtituloNorm = normalizarTexto(subtituloAlvo);
-    const limite = Date.now() + 7000;
+    const limite = Date.now() + 8000;
+    let ultimaPosicao: { x: number; y: number } | null = null;
 
     while (Date.now() < limite) {
         const coords = await page.evaluate(
@@ -1451,7 +1432,7 @@ async function clicarCardFluxoExclusao(
                         r.width < 60 ||
                         r.width > 720 ||
                         r.height < 28 ||
-                        r.height > 150
+                        r.height > 160
                     ) {
                         continue;
                     }
@@ -1474,7 +1455,7 @@ async function clicarCardFluxoExclusao(
                         .trim()
                         .toLowerCase();
 
-                    if (!txt || txt.length > 120 || !txt.includes(titulo)) continue;
+                    if (!txt || txt.length > 130 || !txt.includes(titulo)) continue;
 
                     const cx = r.left + r.width / 2;
                     const cy = r.top + r.height / 2;
@@ -1520,12 +1501,22 @@ async function clicarCardFluxoExclusao(
         );
 
         if (coords) {
-            await page.mouse.click(coords.x, coords.y);
-            await page.waitForTimeout(750);
-            return;
+            if (
+                ultimaPosicao &&
+                Math.abs(coords.x - ultimaPosicao.x) <= 3 &&
+                Math.abs(coords.y - ultimaPosicao.y) <= 3
+            ) {
+                await page.mouse.click(coords.x, coords.y);
+                await page.waitForTimeout(550);
+                return;
+            }
+            ultimaPosicao = coords;
+            await page.waitForTimeout(180);
+            continue;
         }
 
-        await page.waitForTimeout(250);
+        ultimaPosicao = null;
+        await page.waitForTimeout(220);
     }
 
     throw new Error(
@@ -1534,7 +1525,10 @@ async function clicarCardFluxoExclusao(
 }
 
 async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
-    const limite = Date.now() + 7000;
+    const inicio = Date.now();
+    const limite = inicio + 9000;
+    let tentouReclicarTela2 = false;
+    let ultimaPosicao: { x: number; y: number } | null = null;
 
     while (Date.now() < limite) {
         const coordsExcluir = await page.evaluate(() => {
@@ -1543,7 +1537,7 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
             const todos = Array.from(document.querySelectorAll('*')) as HTMLElement[];
             for (let i = 0; i < todos.length; i++) {
                 const el = todos[i];
-                if (el.children.length > 1) continue;
+                if (el.children.length > 2) continue;
                 const txt = (el.innerText || el.textContent || '')
                     .normalize('NFD')
                     .replace(/[\u0300-\u036f]/g, '')
@@ -1562,47 +1556,112 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
 
             if (perguntaBottom < 0) return null;
 
-            const botoes = Array.from(
-                document.querySelectorAll('button, [role="button"], a')
+            const candidatos: {
+                x: number;
+                y: number;
+                area: number;
+                ehTagBotao: boolean;
+            }[] = [];
+
+            const elementos = Array.from(
+                document.querySelectorAll('button, [role="button"], a, div, span')
             ) as HTMLElement[];
 
-            for (let i = botoes.length - 1; i >= 0; i--) {
-                const b = botoes[i];
-                const r = b.getBoundingClientRect();
-                if (r.width < 50 || r.height < 24) continue;
-                if (r.top < perguntaBottom) continue;
+            for (let i = 0; i < elementos.length; i++) {
+                const el = elementos[i];
+                const r = el.getBoundingClientRect();
+                if (r.width < 45 || r.width > 460 || r.height < 24 || r.height > 90) {
+                    continue;
+                }
+                if (r.top < perguntaBottom - 10) continue;
 
-                const st = window.getComputedStyle(b);
+                const st = window.getComputedStyle(el);
                 if (st.display === 'none' || st.visibility === 'hidden') continue;
 
-                const txt = (b.innerText || b.textContent || '')
+                const txt = (el.innerText || el.textContent || '')
                     .normalize('NFD')
                     .replace(/[\u0300-\u036f]/g, '')
                     .replace(/\s+/g, ' ')
                     .trim()
                     .toLowerCase();
 
-                if (txt === 'excluir') {
-                    return {
-                        x: r.left + r.width / 2,
-                        y: r.top + r.height / 2,
-                    };
+                if (txt !== 'excluir') continue;
+
+                el.scrollIntoView({ block: 'nearest' });
+                const rAtual = el.getBoundingClientRect();
+                if (
+                    rAtual.right < 0 ||
+                    rAtual.left > window.innerWidth ||
+                    rAtual.bottom < 0 ||
+                    rAtual.top > window.innerHeight
+                ) {
+                    continue;
                 }
+
+                candidatos.push({
+                    x: rAtual.left + rAtual.width / 2,
+                    y: rAtual.top + rAtual.height / 2,
+                    area: rAtual.width * rAtual.height,
+                    ehTagBotao:
+                        el.tagName === 'BUTTON' ||
+                        el.getAttribute('role') === 'button',
+                });
             }
 
-            return null;
+            if (candidatos.length === 0) return null;
+
+            candidatos.sort((a, b) => {
+                if (a.ehTagBotao !== b.ehTagBotao) {
+                    return a.ehTagBotao ? -1 : 1;
+                }
+                return a.area - b.area;
+            });
+
+            return { x: candidatos[0].x, y: candidatos[0].y };
         });
 
         if (coordsExcluir) {
-            await page.mouse.click(coordsExcluir.x, coordsExcluir.y);
-            return;
+            if (
+                ultimaPosicao &&
+                Math.abs(coordsExcluir.x - ultimaPosicao.x) <= 3 &&
+                Math.abs(coordsExcluir.y - ultimaPosicao.y) <= 3
+            ) {
+                await page.mouse.click(coordsExcluir.x, coordsExcluir.y);
+                return;
+            }
+            ultimaPosicao = coordsExcluir;
+            await page.waitForTimeout(180);
+            continue;
         }
 
-        await page.waitForTimeout(250);
+        // Se após 2,5s a Tela 3 ainda não apareceu, tenta clicar novamente em "Excluir agendamento" na Tela 2
+        if (!tentouReclicarTela2 && Date.now() - inicio > 2500) {
+            tentouReclicarTela2 = true;
+            await clicarCardFluxoExclusao(
+                page,
+                'Excluir agendamento',
+                'Remover este atendimento',
+                'Tela 2 (Retentativa)'
+            ).catch(() => null);
+        }
+
+        ultimaPosicao = null;
+        await page.waitForTimeout(220);
     }
 
+    const resumoTela = await page
+        .evaluate(() => {
+            const textos = Array.from(
+                document.querySelectorAll('h1, h2, h3, h4, button, [role="button"]')
+            )
+                .map((el) => (el as HTMLElement).innerText?.trim() || '')
+                .filter((t) => t.length > 0 && t.length <= 60);
+            return Array.from(new Set(textos)).slice(-12).join(' | ');
+        })
+        .catch(() => '');
+
     throw new Error(
-        'Botão vermelho "EXCLUIR" não encontrado na Tela 3 de confirmação.'
+        `Botão vermelho "EXCLUIR" não encontrado na Tela 3 de confirmação. Elementos visíveis: [${resumoTela}]`
     );
 }
 
@@ -1649,7 +1708,7 @@ async function cancelarReservaNoClinCare(
 
     // Passo 0: Clica no bloco da aula na agenda para abrir a Tela 1
     await page.mouse.click(card.x, card.y);
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(650);
 
     // Tela 1: Clica em "Editar Agendamento" ("Dados administrativos")
     await clicarCardFluxoExclusao(
@@ -2465,10 +2524,8 @@ async function main() {
     try {
         await realizarLogin(page, clinCareBaseUrl, clinCareEmail, clinCarePassword);
 
-        // Sempre processa primeiro a fila de reservas/cancelamentos (RESERVADO APP)
         await processarFilaReservas(sql, page, clinCareBaseUrl);
 
-        // Se o workflow foi disparado exclusivamente para reservar horários, encerra aqui
         if (configModo.modo === 'reservas') {
             return;
         }
@@ -2553,7 +2610,6 @@ async function main() {
 
                 let gravados = 0;
                 for (const bl of blocosColetados) {
-                    // Ignora blocos criados pelo próprio robô ("RESERVADO APP") para não duplicar com agendamentos
                     if (/reservado\s*app/i.test(bl.motivo)) continue;
 
                     const profMatch =
