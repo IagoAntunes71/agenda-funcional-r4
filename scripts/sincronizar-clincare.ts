@@ -463,23 +463,133 @@ async function localizarColunaProfessor(
         return null;
     }, alvoNorm);
 }
-async function localizarHoraNaReguaEsquerda(
+async function localizarBarrinhasProfessor(
     page: Page,
-    horaExata: string
-): Promise<{ x: number; y: number; width: number; height: number } | null> {
-    return page.evaluate((alvo) => {
-        const nos = Array.from(document.querySelectorAll('*'));
-        for (const el of nos) {
-            if (el.children.length > 0) continue;
-            const txt = (el.textContent || '').trim();
-            if (txt !== alvo) continue;
-            const r = el.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0 && r.left >= 0 && r.left < 160) {
-                return { x: r.x, y: r.y, width: r.width, height: r.height };
+    nomeProfessor: string,
+    horaPreferida: string
+): Promise<{ x: number; y: number; info: string }[]> {
+    const alvoNorm = normalizarTexto(nomeProfessor);
+    if (!alvoNorm) return [];
+
+    return page.evaluate(
+        ({ alvo, horaPref }) => {
+            const nos = Array.from(document.querySelectorAll('*'));
+            let colLeft = -1;
+            let colRight = -1;
+            let headerBottom = 110;
+
+            for (const el of nos) {
+                if (el.children.length > 0) continue;
+                const txt = (el.textContent || '').trim();
+                if (!txt || txt.length > 65) continue;
+
+                const candNorm = txt
+                    .replace(/^(\d+\s*\.\s*)+/, '')
+                    .replace(/\./g, ' ')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+
+                if (!candNorm) continue;
+
+                let bate = candNorm === alvo;
+                if (!bate) {
+                    const pa = alvo.split(' ');
+                    const pb = candNorm.split(' ');
+                    if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0]) {
+                        const ua = pa[pa.length - 1];
+                        const ub = pb[pb.length - 1];
+                        if (
+                            (ua.length === 1 && ub.startsWith(ua)) ||
+                            (ub.length === 1 && ua.startsWith(ub))
+                        ) {
+                            bate = true;
+                        }
+                    }
+                }
+
+                if (bate) {
+                    let box: HTMLElement | null = el.parentElement;
+                    for (let i = 0; i < 4 && box; i++) {
+                        const r = box.getBoundingClientRect();
+                        if (
+                            r.width >= 90 &&
+                            r.width <= 520 &&
+                            r.height >= 25 &&
+                            r.height <= 260 &&
+                            r.left >= 40 &&
+                            r.left + r.width / 2 <= window.innerWidth - 20
+                        ) {
+                            colLeft = r.left;
+                            colRight = r.right;
+                            headerBottom = Math.max(headerBottom, r.bottom);
+                            break;
+                        }
+                        box = box.parentElement;
+                    }
+                    if (colLeft >= 0) {
+                        const thead = el.closest('thead');
+                        if (thead) {
+                            headerBottom = Math.max(
+                                headerBottom,
+                                thead.getBoundingClientRect().bottom
+                            );
+                        }
+                        break;
+                    }
+                }
             }
-        }
-        return null;
-    }, horaExata);
+
+            if (colLeft < 0) return [];
+
+            const colCenterX = Math.round((colLeft + colRight) / 2);
+            const tds = Array.from(document.querySelectorAll('tbody td, td'));
+            const preferidos: { x: number; y: number; info: string }[] = [];
+            const outros: { x: number; y: number; info: string }[] = [];
+
+            for (const td of tds) {
+                const r = td.getBoundingClientRect();
+                if (r.width < 60 || r.height < 14 || r.height > 120) continue;
+                if (colCenterX < r.left + 4 || colCenterX > r.right - 4) continue;
+
+                const cy = Math.round(r.top + r.height / 2);
+                if (cy < headerBottom + 12 || cy > window.innerHeight - 30) continue;
+
+                const topEl = document.elementFromPoint(
+                    colCenterX,
+                    cy
+                ) as HTMLElement | null;
+                if (!topEl) continue;
+                const topTxt = (topEl.innerText || '').trim();
+                if (topTxt.length > 0) continue;
+
+                const tr = td.closest('tr');
+                const trAttr =
+                    (td.getAttribute('data-time') || '') +
+                    ' ' +
+                    (tr ? tr.getAttribute('data-time') || tr.innerText || '' : '');
+                const item = {
+                    x: colCenterX,
+                    y: cy,
+                    info: `(${colCenterX},${cy}) td="${trAttr
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .slice(0, 30)}"`,
+                };
+
+                if (trAttr.includes(horaPref)) {
+                    preferidos.push(item);
+                } else {
+                    outros.push(item);
+                }
+            }
+
+            return [...preferidos, ...outros];
+        },
+        { alvo: alvoNorm, horaPref: horaPreferida }
+    );
 }
 
 async function criarReservaNoClinCare(
@@ -489,6 +599,8 @@ async function criarReservaNoClinCare(
 ): Promise<void> {
     const servicoPadrao = (process.env.CLINCARE_SERVICO_PADRAO || '').trim();
     const salaPadrao = (process.env.CLINCARE_SALA_PADRAO || '').trim();
+
+    await page.setViewportSize({ width: 1440, height: 1080 }).catch(() => null);
 
     const urlMapa = `${baseUrl}/painel/mapa-agenda?date=${ag.data}&unitId=${ag.unidade_clin_care_id}`;
     console.log(
@@ -508,14 +620,14 @@ async function criarReservaNoClinCare(
 
     for (let passo = 0; passo < 6 && !coluna; passo++) {
         const rolou = await page.evaluate(() => {
-            const scrollables = Array.from(document.querySelectorAll('*')).filter(
-                (el) => el.scrollWidth > el.clientWidth + 50
-            );
+            const scrollables = Array.from(document.querySelectorAll('*'));
             let moveu = false;
             for (const el of scrollables) {
-                const antes = el.scrollLeft;
-                el.scrollLeft += 1400;
-                if (el.scrollLeft !== antes) moveu = true;
+                if (el.scrollWidth > el.clientWidth + 50) {
+                    const antes = el.scrollLeft;
+                    el.scrollLeft += 1400;
+                    if (el.scrollLeft !== antes) moveu = true;
+                }
             }
             return moveu;
         });
@@ -534,89 +646,63 @@ async function criarReservaNoClinCare(
     const hh = hhRaw.padStart(2, '0');
     const mm = mmRaw.padStart(2, '0');
 
-    const tituloModal = page.locator('text="Novo Agendamento"').first();
+    const marcadorModal = page
+        .locator(
+            'button:has-text("CRIAR ATENDIMENTO"), button:has-text("Criar atendimento"), text=/novo agendamento/i, text=/novo atendimento/i, text=/selecione o paciente/i'
+        )
+        .first();
 
-    // 2. Tenta abrir o modal clicando primeiro na hora desejada e, se estiver ocupada/bloqueada,
-    //    testa outras barrinhas brancas da mesma coluna do professor
-    const horasParaTentar = Array.from(
-        new Set([
-            `${hh}:00`,
-            '08:00',
-            '09:00',
-            '10:00',
-            '11:00',
-            '12:00',
-            '13:00',
-            '14:00',
-            '15:00',
-            '16:00',
-            '17:00',
-            '18:00',
-            '19:00',
-            '20:00',
-        ])
+    // 2. Coleta barrinhas brancas visíveis na coluna do professor (topo + após rolar para baixo)
+    let alvos = await localizarBarrinhasProfessor(
+        page,
+        ag.professor_nome,
+        `${hh}:`
     );
 
-    let ultimoDiagnostico = '';
-
-    for (const labelHora of horasParaTentar) {
-        const elRegua = page
-            .locator(`text="${labelHora}"`)
-            .filter({ hasText: new RegExp(`^${labelHora}$`) })
-            .first();
-
-        if (await elRegua.isVisible({ timeout: 500 }).catch(() => false)) {
-            await elRegua.scrollIntoViewIfNeeded().catch(() => null);
-            await page.waitForTimeout(200);
-        }
-
-        coluna = (await localizarColunaProfessor(page, ag.professor_nome)) || coluna;
-        const boxHora = await localizarHoraNaReguaEsquerda(page, labelHora);
-        if (!boxHora) continue;
-
-        const horaProx = `${String(Number(labelHora.slice(0, 2)) + 1).padStart(2, '0')}:00`;
-        const boxProx = await localizarHoraNaReguaEsquerda(page, horaProx);
-        const alturaHora =
-            boxProx && boxProx.y > boxHora.y + 20 ? boxProx.y - boxHora.y : 88;
-
-        const clickX = Math.round(coluna.left + coluna.width / 2);
-        const minutoRef = labelHora === `${hh}:00` ? Number(mm) : 10;
-        const baseY = Math.round(boxHora.y + (minutoRef / 60) * alturaHora);
-
-        for (const offsetY of [8, 28, 52]) {
-            const targetY = baseY + offsetY;
-            ultimoDiagnostico = await page.evaluate(
-                ({ x, y }) => {
-                    const el = document.elementFromPoint(x, y) as HTMLElement | null;
-                    if (!el) return `sem elemento em (${x},${y})`;
-                    const txt = (el.innerText || el.textContent || '')
-                        .replace(/\s+/g, ' ')
-                        .trim()
-                        .slice(0, 40);
-                    return `(${x},${y}) tag=${el.tagName} txt="${txt}"`;
-                },
-                { x: clickX, y: targetY }
-            );
-
-            await page.mouse.click(clickX, targetY);
-            if (await tituloModal.isVisible({ timeout: 900 }).catch(() => false)) {
-                break;
+    await page.evaluate(() => {
+        const scrollables = Array.from(document.querySelectorAll('*'));
+        for (const el of scrollables) {
+            if (el.scrollHeight > el.clientHeight + 80) {
+                el.scrollTop += 450;
             }
         }
+    });
+    await page.waitForTimeout(350);
+    const alvosRolados = await localizarBarrinhasProfessor(
+        page,
+        ag.professor_nome,
+        `${hh}:`
+    );
+    alvos = [...alvos, ...alvosRolados];
 
-        if (await tituloModal.isVisible().catch(() => false)) {
+    let ultimoAlvo = 'nenhuma célula livre encontrada';
+
+    for (const alvo of alvos.slice(0, 12)) {
+        ultimoAlvo = alvo.info;
+
+        // Tenta clique simples
+        await page.mouse.click(alvo.x, alvo.y);
+        if (await marcadorModal.isVisible({ timeout: 750 }).catch(() => false)) {
+            break;
+        }
+
+        // Tenta duplo clique caso o calendário exija dblclick
+        await page.mouse.dblclick(alvo.x, alvo.y);
+        if (await marcadorModal.isVisible({ timeout: 750 }).catch(() => false)) {
             break;
         }
     }
 
-    if (!(await tituloModal.isVisible().catch(() => false))) {
+    if (!(await marcadorModal.isVisible().catch(() => false))) {
         throw new Error(
-            `Não foi possível abrir o modal de Novo Agendamento para ${ag.professor_nome}. Último alvo: ${ultimoDiagnostico}`
+            `Não foi possível abrir o modal de agendamento para ${ag.professor_nome}. Último alvo: ${ultimoAlvo}`
         );
     }
 
     const modal = page
-        .locator('[role="dialog"], div:has(> div:has-text("Novo Agendamento"))')
+        .locator(
+            '[role="dialog"], div:has(button:has-text("CRIAR ATENDIMENTO")), div:has(button:has-text("Criar atendimento"))'
+        )
         .last();
 
     // 3. Paciente -> RESERVADO APP
@@ -692,7 +778,7 @@ async function criarReservaNoClinCare(
     await btnCriar.click();
     await page.waitForTimeout(2200);
 
-    const aindaAberto = await tituloModal.isVisible().catch(() => false);
+    const aindaAberto = await marcadorModal.isVisible().catch(() => false);
     if (aindaAberto) {
         const textoModal = await modal.innerText().catch(() => '');
         throw new Error(
