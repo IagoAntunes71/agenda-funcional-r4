@@ -13,6 +13,17 @@ function normalizarMaterias(raw: unknown): string[] {
         .filter(Boolean);
 }
 
+function normalizarUnidadesIds(body: Record<string, unknown>): number[] {
+    if (Array.isArray(body?.unidades_ids)) {
+        const lista = Array.from(
+            new Set(body.unidades_ids.map((u) => Number(u)).filter((n) => n > 0))
+        );
+        if (lista.length > 0) return lista;
+    }
+    const unica = Number(body?.unidade_id || 0);
+    return unica > 0 ? [unica] : [];
+}
+
 function normalizarMateriasSeries(
     raw: unknown,
     materiasValidas: string[]
@@ -57,10 +68,10 @@ export async function POST(req: NextRequest) {
 
     try {
         await garantirColunasProfessor();
-        const body = await req.json();
+        const body = (await req.json()) as Record<string, unknown>;
         const nome = String(body?.nome || '').trim();
         const clinCareId = String(body?.clin_care_id || '').trim() || null;
-        const unidadeId = Number(body?.unidade_id || 0);
+        const unidadesIds = normalizarUnidadesIds(body);
         const materias = normalizarMaterias(body?.materias);
         const materiasSeries = normalizarMateriasSeries(
             body?.materias_series,
@@ -72,41 +83,46 @@ export async function POST(req: NextRequest) {
         const horaInicio = String(body?.hora_inicio || '14:10').trim();
         const horaFim = String(body?.hora_fim || '20:50').trim();
 
-        if (!nome || !unidadeId || materias.length === 0) {
+        if (!nome || unidadesIds.length === 0 || materias.length === 0) {
             return NextResponse.json(
-                { error: 'Preencha nome, unidade e pelo menos uma matéria.' },
+                {
+                    error:
+                        'Preencha nome, pelo menos uma unidade e pelo menos uma matéria.',
+                },
                 { status: 400 }
             );
         }
 
-        await sql`
-      INSERT INTO professores (
-        nome,
-        clin_care_id,
-        unidade_id,
-        materias,
-        materias_series,
-        manha_ativo,
-        manha_inicio,
-        manha_fim,
-        hora_inicio,
-        hora_fim,
-        ativo
-      )
-      VALUES (
-        ${nome},
-        ${clinCareId},
-        ${unidadeId},
-        ${materias},
-        ${JSON.stringify(materiasSeries)}::jsonb,
-        ${manhaAtivo},
-        ${manhaAtivo ? manhaInicio : null}::time,
-        ${manhaAtivo ? manhaFim : null}::time,
-        ${horaInicio}::time,
-        ${horaFim}::time,
-        true
-      )
-    `;
+        for (const uid of unidadesIds) {
+            await sql`
+        INSERT INTO professores (
+          nome,
+          clin_care_id,
+          unidade_id,
+          materias,
+          materias_series,
+          manha_ativo,
+          manha_inicio,
+          manha_fim,
+          hora_inicio,
+          hora_fim,
+          ativo
+        )
+        VALUES (
+          ${nome},
+          ${clinCareId},
+          ${uid},
+          ${materias},
+          ${JSON.stringify(materiasSeries)}::jsonb,
+          ${manhaAtivo},
+          ${manhaAtivo ? manhaInicio : null}::time,
+          ${manhaAtivo ? manhaFim : null}::time,
+          ${horaInicio}::time,
+          ${horaFim}::time,
+          true
+        )
+      `;
+        }
 
         return NextResponse.json({ sucesso: true }, { status: 201 });
     } catch (error) {
@@ -126,7 +142,7 @@ export async function PATCH(req: NextRequest) {
 
     try {
         await garantirColunasProfessor();
-        const body = await req.json();
+        const body = (await req.json()) as Record<string, unknown>;
         const id = Number(body?.id || 0);
 
         if (!id) {
@@ -136,22 +152,43 @@ export async function PATCH(req: NextRequest) {
             );
         }
 
+        // Alternância rápida de status ativo/inativo (aplica a todas as unidades do mesmo professor)
         if (
             typeof body?.ativo === 'boolean' &&
             body?.nome === undefined &&
             body?.materias === undefined
         ) {
-            await sql`
-        UPDATE professores
-        SET ativo = ${body.ativo}
+            const alvoRows = (await sql`
+        SELECT id, nome, clin_care_id
+        FROM professores
         WHERE id = ${id}
-      `;
+        LIMIT 1
+      `) as { id: number; nome: string; clin_care_id: string | null }[];
+
+            if (alvoRows.length > 0) {
+                const alvo = alvoRows[0];
+                if (alvo.clin_care_id) {
+                    await sql`
+            UPDATE professores
+            SET ativo = ${body.ativo}
+            WHERE clin_care_id = ${alvo.clin_care_id}
+          `;
+                } else {
+                    await sql`
+            UPDATE professores
+            SET ativo = ${body.ativo}
+            WHERE id = ${id}
+               OR lower(trim(nome)) = lower(trim(${alvo.nome}))
+          `;
+                }
+            }
+
             return NextResponse.json({ sucesso: true });
         }
 
         const nome = String(body?.nome || '').trim();
         const clinCareId = String(body?.clin_care_id || '').trim() || null;
-        const unidadeId = Number(body?.unidade_id || 0);
+        const unidadesIds = normalizarUnidadesIds(body);
         const materias = normalizarMaterias(body?.materias);
         const materiasSeries = normalizarMateriasSeries(
             body?.materias_series,
@@ -163,28 +200,161 @@ export async function PATCH(req: NextRequest) {
         const horaInicio = String(body?.hora_inicio || '14:10').trim();
         const horaFim = String(body?.hora_fim || '20:50').trim();
 
-        if (!nome || !unidadeId || materias.length === 0) {
+        if (!nome || unidadesIds.length === 0 || materias.length === 0) {
             return NextResponse.json(
-                { error: 'Informe nome, unidade e ao menos uma matéria.' },
+                { error: 'Informe nome, ao menos uma unidade e ao menos uma matéria.' },
                 { status: 400 }
             );
         }
 
-        await sql`
-      UPDATE professores
-      SET
-        nome = ${nome},
-        clin_care_id = ${clinCareId},
-        unidade_id = ${unidadeId},
-        materias = ${materias},
-        materias_series = ${JSON.stringify(materiasSeries)}::jsonb,
-        manha_ativo = ${manhaAtivo},
-        manha_inicio = ${manhaAtivo ? manhaInicio : null}::time,
-        manha_fim = ${manhaAtivo ? manhaFim : null}::time,
-        hora_inicio = ${horaInicio}::time,
-        hora_fim = ${horaFim}::time
+        const originais = (await sql`
+      SELECT id, nome, clin_care_id, ativo
+      FROM professores
       WHERE id = ${id}
-    `;
+      LIMIT 1
+    `) as {
+            id: number;
+            nome: string;
+            clin_care_id: string | null;
+            ativo: boolean;
+        }[];
+
+        if (originais.length === 0) {
+            return NextResponse.json(
+                { error: 'Professor não encontrado.' },
+                { status: 404 }
+            );
+        }
+
+        const orig = originais[0];
+        const chaveClinCare = clinCareId || orig.clin_care_id;
+
+        // Busca todos os vínculos atuais desse mesmo professor nas unidades
+        const irmaos = (
+            chaveClinCare
+                ? await sql`
+            SELECT id, unidade_id, ativo
+            FROM professores
+            WHERE id = ${id}
+               OR clin_care_id = ${chaveClinCare}
+            ORDER BY (CASE WHEN id = ${id} THEN 0 ELSE 1 END), id ASC
+          `
+                : await sql`
+            SELECT id, unidade_id, ativo
+            FROM professores
+            WHERE id = ${id}
+               OR lower(trim(nome)) = lower(trim(${orig.nome}))
+            ORDER BY (CASE WHEN id = ${id} THEN 0 ELSE 1 END), id ASC
+          `
+        ) as { id: number; unidade_id: number; ativo: boolean }[];
+
+        const ativoAtual = irmaos.some((r) => r.ativo);
+        const usadosIds = new Set<number>();
+        let principalMantidoId: number | null = null;
+
+        for (const uid of unidadesIds) {
+            const existenteUnidade = irmaos.find(
+                (r) => r.unidade_id === uid && !usadosIds.has(r.id)
+            );
+
+            if (existenteUnidade) {
+                usadosIds.add(existenteUnidade.id);
+                if (!principalMantidoId) principalMantidoId = existenteUnidade.id;
+
+                await sql`
+          UPDATE professores
+          SET
+            nome = ${nome},
+            clin_care_id = ${clinCareId},
+            unidade_id = ${uid},
+            materias = ${materias},
+            materias_series = ${JSON.stringify(materiasSeries)}::jsonb,
+            manha_ativo = ${manhaAtivo},
+            manha_inicio = ${manhaAtivo ? manhaInicio : null}::time,
+            manha_fim = ${manhaAtivo ? manhaFim : null}::time,
+            hora_inicio = ${horaInicio}::time,
+            hora_fim = ${horaFim}::time
+          WHERE id = ${existenteUnidade.id}
+        `;
+            } else {
+                const reaproveitavel = irmaos.find(
+                    (r) => !unidadesIds.includes(r.unidade_id) && !usadosIds.has(r.id)
+                );
+
+                if (reaproveitavel) {
+                    usadosIds.add(reaproveitavel.id);
+                    if (!principalMantidoId) principalMantidoId = reaproveitavel.id;
+
+                    await sql`
+            UPDATE professores
+            SET
+              nome = ${nome},
+              clin_care_id = ${clinCareId},
+              unidade_id = ${uid},
+              materias = ${materias},
+              materias_series = ${JSON.stringify(materiasSeries)}::jsonb,
+              manha_ativo = ${manhaAtivo},
+              manha_inicio = ${manhaAtivo ? manhaInicio : null}::time,
+              manha_fim = ${manhaAtivo ? manhaFim : null}::time,
+              hora_inicio = ${horaInicio}::time,
+              hora_fim = ${horaFim}::time
+            WHERE id = ${reaproveitavel.id}
+          `;
+                } else {
+                    const inserido = (await sql`
+            INSERT INTO professores (
+              nome,
+              clin_care_id,
+              unidade_id,
+              materias,
+              materias_series,
+              manha_ativo,
+              manha_inicio,
+              manha_fim,
+              hora_inicio,
+              hora_fim,
+              ativo
+            )
+            VALUES (
+              ${nome},
+              ${clinCareId},
+              ${uid},
+              ${materias},
+              ${JSON.stringify(materiasSeries)}::jsonb,
+              ${manhaAtivo},
+              ${manhaAtivo ? manhaInicio : null}::time,
+              ${manhaAtivo ? manhaFim : null}::time,
+              ${horaInicio}::time,
+              ${horaFim}::time,
+              ${ativoAtual}
+            )
+            RETURNING id
+          `) as { id: number }[];
+                    if (!principalMantidoId && inserido[0]?.id) {
+                        principalMantidoId = inserido[0].id;
+                    }
+                }
+            }
+        }
+
+        // Remove vínculos de unidades desmarcadas preservando histórico de agendamentos
+        const sobras = irmaos.filter((r) => !usadosIds.has(r.id));
+        if (sobras.length > 0 && principalMantidoId) {
+            const sobrasIds = sobras.map((s) => s.id);
+            await sql`
+        UPDATE agendamentos
+        SET professor_id = ${principalMantidoId}
+        WHERE professor_id = ANY(${sobrasIds}::int[])
+      `;
+            await sql`
+        DELETE FROM bloqueios_clincare
+        WHERE professor_id = ANY(${sobrasIds}::int[])
+      `;
+            await sql`
+        DELETE FROM professores
+        WHERE id = ANY(${sobrasIds}::int[])
+      `;
+        }
 
         return NextResponse.json({ sucesso: true });
     } catch (error) {

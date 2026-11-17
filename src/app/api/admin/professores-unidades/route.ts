@@ -8,40 +8,67 @@ interface ProfessorDbRow {
     clin_care_id: string | null;
     unidade_id: number;
     materias: string[] | null;
+    materias_series: Record<string, string[]> | null;
+    manha_ativo: boolean | null;
+    manha_inicio: string | null;
+    manha_fim: string | null;
     hora_inicio: string;
     hora_fim: string;
     ativo: boolean;
 }
 
-async function mesclarDuplicadosInterno() {
-    await sql`
-    DELETE FROM bloqueios_clincare
-    WHERE professor_id IN (
-      SELECT p.id
-      FROM professores p
-      WHERE p.clin_care_id IS NOT NULL
-        AND p.id NOT IN (
-          SELECT MIN(id)
-          FROM professores
-          WHERE clin_care_id IS NOT NULL
-          GROUP BY clin_care_id
-        )
-    )
-  `;
+async function garantirColunas() {
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
+    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
+}
 
-    await sql`
-    DELETE FROM professores
-    WHERE clin_care_id IS NOT NULL
-      AND id NOT IN (
-        SELECT MIN(id)
-        FROM professores
-        WHERE clin_care_id IS NOT NULL
-        GROUP BY clin_care_id
+async function mesclarDuplicadosInterno() {
+    const duplicados = (await sql`
+    SELECT p.id, p.clin_care_id
+    FROM professores p
+    WHERE p.clin_care_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM professores p2
+        WHERE p2.clin_care_id = p.clin_care_id
+          AND p2.unidade_id = p.unidade_id
+          AND p2.id < p.id
       )
-  `;
+  `) as { id: number; clin_care_id: string }[];
+
+    for (const dup of duplicados) {
+        const principal = (await sql`
+      SELECT id
+      FROM professores
+      WHERE clin_care_id = ${dup.clin_care_id}
+      ORDER BY id ASC
+      LIMIT 1
+    `) as { id: number }[];
+
+        if (principal[0]?.id) {
+            await sql`
+        UPDATE agendamentos
+        SET professor_id = ${principal[0].id}
+        WHERE professor_id = ${dup.id}
+      `;
+        }
+
+        await sql`
+      DELETE FROM bloqueios_clincare
+      WHERE professor_id = ${dup.id}
+    `;
+        await sql`
+      DELETE FROM professores
+      WHERE id = ${dup.id}
+    `;
+    }
 }
 
 async function carregarDadosAgrupados() {
+    await garantirColunas();
+
     const unidades = await sql`
     SELECT id, nome
     FROM unidades
@@ -56,8 +83,12 @@ async function carregarDadosAgrupados() {
       clin_care_id,
       unidade_id,
       materias,
-      to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
-      to_char(hora_fim, 'HH24:MI') AS hora_fim,
+      COALESCE(materias_series, '{}'::jsonb) AS materias_series,
+      COALESCE(manha_ativo, false) AS manha_ativo,
+      to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
+      to_char(manha_fim, 'HH24:MI') AS manha_fim,
+      COALESCE(to_char(hora_inicio, 'HH24:MI'), '14:10') AS hora_inicio,
+      COALESCE(to_char(hora_fim, 'HH24:MI'), '20:50') AS hora_fim,
       ativo
     FROM professores
     ORDER BY nome ASC, id ASC
@@ -139,6 +170,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+        await garantirColunas();
         const body = await req.json();
         const acao = String(body?.acao || '');
 
@@ -170,8 +202,12 @@ export async function POST(req: NextRequest) {
           clin_care_id,
           unidade_id,
           materias,
-          to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
-          to_char(hora_fim, 'HH24:MI') AS hora_fim,
+          COALESCE(materias_series, '{}'::jsonb) AS materias_series,
+          COALESCE(manha_ativo, false) AS manha_ativo,
+          to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
+          to_char(manha_fim, 'HH24:MI') AS manha_fim,
+          COALESCE(to_char(hora_inicio, 'HH24:MI'), '14:10') AS hora_inicio,
+          COALESCE(to_char(hora_fim, 'HH24:MI'), '20:50') AS hora_fim,
           ativo
         FROM professores
         WHERE id = ANY(${registrosIds}::int[])
@@ -186,21 +222,26 @@ export async function POST(req: NextRequest) {
             }
 
             const modelo = baseRows[0];
-            const materiasModelo = Array.isArray(modelo.materias)
-                ? modelo.materias
-                : ['Reforço Geral'];
+            const materiasModelo =
+                Array.isArray(modelo.materias) && modelo.materias.length > 0
+                    ? modelo.materias
+                    : ['Reforço Geral'];
+            const materiasSeriesJson = JSON.stringify(modelo.materias_series || {});
 
             const primeiraUnidade = unidadesIds[0];
             await sql`
         UPDATE professores
-        SET unidade_id = ${primeiraUnidade},
-            hora_inicio = '14:10'::time,
-            hora_fim = '20:50'::time
+        SET unidade_id = ${primeiraUnidade}
         WHERE id = ${modelo.id}
       `;
 
             const outrosIds = baseRows.slice(1).map((r) => r.id);
             if (outrosIds.length > 0) {
+                await sql`
+          UPDATE agendamentos
+          SET professor_id = ${modelo.id}
+          WHERE professor_id = ANY(${outrosIds}::int[])
+        `;
                 await sql`
           DELETE FROM bloqueios_clincare
           WHERE professor_id = ANY(${outrosIds}::int[])
@@ -218,6 +259,10 @@ export async function POST(req: NextRequest) {
             clin_care_id,
             unidade_id,
             materias,
+            materias_series,
+            manha_ativo,
+            manha_inicio,
+            manha_fim,
             hora_inicio,
             hora_fim,
             ativo
@@ -227,8 +272,12 @@ export async function POST(req: NextRequest) {
             ${modelo.clin_care_id},
             ${extraUnidadeId},
             ${materiasModelo}::text[],
-            '14:10'::time,
-            '20:50'::time,
+            ${materiasSeriesJson}::jsonb,
+            ${Boolean(modelo.manha_ativo)},
+            ${modelo.manha_ativo ? modelo.manha_inicio || '08:00' : null}::time,
+            ${modelo.manha_ativo ? modelo.manha_fim || '11:20' : null}::time,
+            ${modelo.hora_inicio || '14:10'}::time,
+            ${modelo.hora_fim || '20:50'}::time,
             ${modelo.ativo}
           )
         `;
