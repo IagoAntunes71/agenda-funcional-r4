@@ -520,6 +520,7 @@ export default function PainelAdmin({
 
     const [unidades, setUnidades] = useState<UnidadeAdmin[]>([]);
     const [professores, setProfessores] = useState<ProfessorAdmin[]>([]);
+    const [responsaveis, setResponsaveis] = useState<ResponsavelContaAdmin[]>([]);
     const [alunos, setAlunos] = useState<AlunoAdmin[]>([]);
     const [datasLiberadas, setDatasLiberadas] = useState<DataAdmin[]>([]);
     const [agendamentos, setAgendamentos] = useState<AgendamentoAdmin[]>([]);
@@ -541,6 +542,14 @@ export default function PainelAdmin({
     // Módulo Alunos
     const [buscaAluno, setBuscaAluno] = useState<string>('');
     const [filtroPinAluno, setFiltroPinAluno] = useState<string>('todos');
+    const [editResponsavelId, setEditResponsavelId] = useState<number | null>(null);
+    const [editRespNomeConta, setEditRespNomeConta] = useState<string>('');
+    const [editRespTelefoneConta, setEditRespTelefoneConta] = useState<string>('');
+    const [salvandoRespConta, setSalvandoRespConta] = useState<boolean>(false);
+    const [confirmandoExcluirContaId, setConfirmandoExcluirContaId] = useState<
+        number | null
+    >(null);
+    const [excluindoContaId, setExcluindoContaId] = useState<number | null>(null);
     const [editAlunoId, setEditAlunoId] = useState<number | null>(null);
     const [editAlunoNome, setEditAlunoNome] = useState<string>('');
     const [editAlunoResponsavel, setEditAlunoResponsavel] = useState<string>('');
@@ -694,6 +703,7 @@ export default function PainelAdmin({
             setUnidades(listaUnidades);
             setProfessores(json.professores || []);
             setAlunos(json.alunos || []);
+            setResponsaveis(json.responsaveis || []);
             setDatasLiberadas(listaDatas);
             setAgendamentos(json.agendamentos || []);
             setBloqueios(json.bloqueios || []);
@@ -1181,15 +1191,18 @@ export default function PainelAdmin({
         await carregarDados();
     }
 
-    async function resetarPinCliente(telefoneAlvo: string) {
-        if (!telefoneAlvo.trim()) return;
+    async function resetarPinCliente(telefoneAlvo: string, responsavelId?: number) {
+        if (!telefoneAlvo.trim() && !responsavelId) return;
         setResetandoPin(true);
         setFeedbackAluno(null);
         try {
             const res = await fetch('/api/admin/alunos/reset-pin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telefone: telefoneAlvo }),
+                body: JSON.stringify({
+                    telefone: telefoneAlvo,
+                    responsavelId: responsavelId || 0,
+                }),
             });
             const json = await res.json();
             if (res.ok) {
@@ -1206,6 +1219,115 @@ export default function PainelAdmin({
             }
         } finally {
             setResetandoPin(false);
+        }
+    }
+
+    function iniciarEdicaoContaResponsavel(resp: ResponsavelContaAdmin) {
+        setEditResponsavelId(resp.id);
+        setEditRespNomeConta(resp.nome || '');
+        setEditRespTelefoneConta(
+            formatarTelefone(resp.telefone || resp.telefone_formatado || '')
+        );
+        setFeedbackAluno(null);
+    }
+
+    async function salvarEdicaoContaResponsavel(
+        e: React.FormEvent,
+        resolverConflito = false
+    ) {
+        e.preventDefault();
+        if (!editResponsavelId) return;
+        setSalvandoRespConta(true);
+        setFeedbackAluno(null);
+
+        try {
+            const res = await fetch('/api/admin/alunos', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    acao: 'editar_responsavel',
+                    responsavel_id: editResponsavelId,
+                    nome: editRespNomeConta,
+                    telefone: editRespTelefoneConta,
+                    resolver_conflito: resolverConflito,
+                }),
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                setFeedbackAluno({
+                    tipo: 'erro',
+                    texto: json.error || 'Erro ao atualizar conta do responsável.',
+                });
+                return;
+            }
+            setEditResponsavelId(null);
+            setFeedbackAluno({
+                tipo: 'sucesso',
+                texto: json.mensagem || 'Conta do responsável atualizada.',
+            });
+            await carregarDados();
+        } finally {
+            setSalvandoRespConta(false);
+        }
+    }
+
+    async function marcarConflitoResolvido(resp: ResponsavelContaAdmin) {
+        setSalvandoRespConta(true);
+        setFeedbackAluno(null);
+        try {
+            const res = await fetch('/api/admin/alunos', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    acao: 'editar_responsavel',
+                    responsavel_id: resp.id,
+                    nome: resp.nome,
+                    telefone: resp.telefone,
+                    resolver_conflito: true,
+                }),
+            });
+            const json = await res.json();
+            if (res.ok) {
+                setFeedbackAluno({
+                    tipo: 'sucesso',
+                    texto: 'Alerta de conflito marcado como revisado.',
+                });
+                await carregarDados();
+            } else {
+                setFeedbackAluno({
+                    tipo: 'erro',
+                    texto: json.error || 'Não foi possível concluir a revisão.',
+                });
+            }
+        } finally {
+            setSalvandoRespConta(false);
+        }
+    }
+
+    async function excluirContaResponsavelAdmin(responsavelId: number) {
+        setExcluindoContaId(responsavelId);
+        setFeedbackAluno(null);
+        try {
+            const res = await fetch(
+                `/api/admin/alunos?responsavelId=${responsavelId}`,
+                { method: 'DELETE' }
+            );
+            const json = await res.json();
+            if (!res.ok) {
+                setFeedbackAluno({
+                    tipo: 'erro',
+                    texto: json.error || 'Erro ao excluir conta do responsável.',
+                });
+                return;
+            }
+            setConfirmandoExcluirContaId(null);
+            setFeedbackAluno({
+                tipo: 'sucesso',
+                texto: json.mensagem || 'Conta excluída com sucesso.',
+            });
+            await carregarDados();
+        } finally {
+            setExcluindoContaId(null);
         }
     }
 
@@ -1585,27 +1707,33 @@ export default function PainelAdmin({
         },
     };
 
-    // Filtragem de Alunos
+    // Filtragem de Contas (Responsáveis -> Filhos)
     const termoBuscaAluno = buscaAluno.trim().toLowerCase();
     const digitosBuscaAluno = buscaAluno.replace(/\D/g, '');
 
-    const alunosFiltrados = alunos.filter((al) => {
-        if (filtroPinAluno === 'com_pin' && !al.tem_pin) return false;
-        if (filtroPinAluno === 'sem_pin' && al.tem_pin) return false;
+    const responsaveisFiltrados = responsaveis.filter((resp) => {
+        if (filtroPinAluno === 'com_pin' && !resp.tem_pin) return false;
+        if (filtroPinAluno === 'sem_pin' && resp.tem_pin) return false;
+        if (filtroPinAluno === 'conflito' && !resp.conflito_migracao) return false;
 
         if (!termoBuscaAluno) return true;
 
-        const bateTexto =
-            al.responsavel_nome.toLowerCase().includes(termoBuscaAluno) ||
-            al.nome_aluno.toLowerCase().includes(termoBuscaAluno) ||
-            al.colegio_nome.toLowerCase().includes(termoBuscaAluno) ||
-            al.telefone_formatado.toLowerCase().includes(termoBuscaAluno);
+        const bateConta =
+            resp.nome.toLowerCase().includes(termoBuscaAluno) ||
+            resp.telefone_formatado.toLowerCase().includes(termoBuscaAluno);
 
         const bateDigitos =
             digitosBuscaAluno.length > 0 &&
-            al.telefone.replace(/\D/g, '').includes(digitosBuscaAluno);
+            resp.telefone.replace(/\D/g, '').includes(digitosBuscaAluno);
 
-        return bateTexto || bateDigitos;
+        const bateFilho = resp.filhos.some(
+            (f) =>
+                f.nome_aluno.toLowerCase().includes(termoBuscaAluno) ||
+                f.colegio_nome.toLowerCase().includes(termoBuscaAluno) ||
+                f.serie.toLowerCase().includes(termoBuscaAluno)
+        );
+
+        return bateConta || bateDigitos || bateFilho;
     });
 
     const colegiosUnicos = Array.from(
@@ -2927,16 +3055,17 @@ export default function PainelAdmin({
                                             onChange={(e) => setFiltroPinAluno(e.target.value)}
                                             className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                                         >
-                                            <option value="todos">Todos os cadastros</option>
+                                            <option value="todos">Todas as contas</option>
                                             <option value="com_pin">Com PIN ativo</option>
                                             <option value="sem_pin">Sem PIN (1º acesso)</option>
+                                            <option value="conflito">Com alerta de revisão</option>
                                         </select>
                                     </div>
 
                                     <div className="md:col-span-2 flex items-center justify-between md:justify-end gap-2 pb-1">
-                    <span className={`text-xs font-bold ${clsTitulo}`}>
-                      {alunosFiltrados.length} aluno(s)
-                    </span>
+                                        <span className={`text-xs font-bold ${clsTitulo}`}>
+                                            {responsaveisFiltrados.length} conta(s)
+                                        </span>
                                         {(buscaAluno || filtroPinAluno !== 'todos') && (
                                             <button
                                                 type="button"
@@ -2972,252 +3101,398 @@ export default function PainelAdmin({
                                 )}
                             </div>
 
-                            {alunosFiltrados.length === 0 ? (
+                            {responsaveisFiltrados.length === 0 ? (
                                 <div
                                     className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
                                 >
-                                    Nenhum aluno ou responsável encontrado para esta busca.
+                                    Nenhuma conta de responsável ou aluno encontrada para esta busca.
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                    {alunosFiltrados.map((al) => {
-                                        const editandoEste = editAlunoId === al.id;
-                                        const pedindoExclusao =
-                                            confirmandoExcluirAlunoId === al.id;
-                                        const whatsappDigitos = (al.telefone || '').replace(
+                                    {responsaveisFiltrados.map((resp) => {
+                                        const editandoConta = editResponsavelId === resp.id;
+                                        const pedindoExclusaoConta =
+                                            confirmandoExcluirContaId === resp.id;
+                                        const whatsappDigitos = (resp.telefone || '').replace(
                                             /\D/g,
                                             ''
                                         );
 
-                                        if (editandoEste) {
-                                            return (
-                                                <form
-                                                    key={al.id}
-                                                    onSubmit={(e) => void salvarEdicaoAlunoAdmin(e)}
-                                                    className={`border border-[#0E7C86] rounded-2xl p-5 space-y-3.5 ${clsCard}`}
-                                                >
-                                                    <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold uppercase text-[#1496A1]">
-                              Editando Cadastro de Aluno / Responsável
-                            </span>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setEditAlunoId(null)}
-                                                            className={`cursor-pointer ${clsSubtexto}`}
-                                                        >
-                                                            <X className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                        <div>
-                                                            <label
-                                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                            >
-                                                                Nome do Responsável *
-                                                            </label>
-                                                            <input
-                                                                type="text"
-                                                                required
-                                                                value={editAlunoResponsavel}
-                                                                onChange={(e) =>
-                                                                    setEditAlunoResponsavel(e.target.value)
-                                                                }
-                                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                                            />
-                                                        </div>
-
-                                                        <div>
-                                                            <label
-                                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                            >
-                                                                WhatsApp do Responsável (com DDD) *
-                                                            </label>
-                                                            <input
-                                                                type="tel"
-                                                                required
-                                                                value={editAlunoTelefone}
-                                                                onChange={(e) =>
-                                                                    setEditAlunoTelefone(
-                                                                        formatarTelefone(e.target.value)
-                                                                    )
-                                                                }
-                                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                                        <div>
-                                                            <label
-                                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                            >
-                                                                Nome do Aluno(a) *
-                                                            </label>
-                                                            <input
-                                                                type="text"
-                                                                required
-                                                                value={editAlunoNome}
-                                                                onChange={(e) =>
-                                                                    setEditAlunoNome(e.target.value)
-                                                                }
-                                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                                            />
-                                                        </div>
-
-                                                        <div>
-                                                            <label
-                                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                            >
-                                                                Colégio
-                                                            </label>
-                                                            <input
-                                                                type="text"
-                                                                value={editAlunoColegio}
-                                                                onChange={(e) =>
-                                                                    setEditAlunoColegio(e.target.value)
-                                                                }
-                                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                                            />
-                                                        </div>
-
-                                                        <div>
-                                                            <label
-                                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                            >
-                                                                Série / Ano
-                                                            </label>
-                                                            <select
-                                                                value={editAlunoSerie}
-                                                                onChange={(e) =>
-                                                                    setEditAlunoSerie(e.target.value)
-                                                                }
-                                                                className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                                            >
-                                                                {SERIES_ESCOLARES.map((s) => (
-                                                                    <option key={s} value={s}>
-                                                                        {s}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                    </div>
-
-                                                    <label
-                                                        className={`flex items-center gap-2 text-[11px] cursor-pointer ${clsSubtexto}`}
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={atualizarIrmaosTelefone}
-                                                            onChange={(e) =>
-                                                                setAtualizarIrmaosTelefone(e.target.checked)
-                                                            }
-                                                        />
-                                                        Se o número mudou, atualizar também para irmãos
-                                                        vinculados ao telefone antigo
-                                                    </label>
-
-                                                    <div className="flex justify-end gap-2 pt-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setEditAlunoId(null)}
-                                                            className={`px-3 py-1.5 rounded-xl border text-xs cursor-pointer ${clsSubCard}`}
-                                                        >
-                                                            Cancelar
-                                                        </button>
-                                                        <button
-                                                            type="submit"
-                                                            disabled={salvandoAlunoAdmin}
-                                                            className="px-4 py-1.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer"
-                                                        >
-                                                            <Save className="w-3.5 h-3.5" />
-                                                            {salvandoAlunoAdmin
-                                                                ? 'Salvando...'
-                                                                : 'Salvar Alterações'}
-                                                        </button>
-                                                    </div>
-                                                </form>
-                                            );
-                                        }
-
                                         return (
                                             <div
-                                                key={al.id}
-                                                className={`border rounded-2xl p-5 space-y-3.5 ${clsCard}`}
+                                                key={resp.id}
+                                                className={`border rounded-2xl p-5 space-y-4 ${
+                                                    resp.conflito_migracao
+                                                        ? 'border-amber-500/50'
+                                                        : ''
+                                                } ${clsCard}`}
                                             >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div>
-                                                        <h3 className={`text-base font-bold ${clsTitulo}`}>
-                                                            {al.nome_aluno}
-                                                        </h3>
-                                                        <p className={`text-xs ${clsSubtexto}`}>
-                                                            {[al.colegio_nome, al.serie]
-                                                                .filter(Boolean)
-                                                                .join(' • ') || 'Colégio/Série não informados'}
+                                                {/* CABEÇALHO DA CONTA ÚNICA DO RESPONSÁVEL */}
+                                                {editandoConta ? (
+                                                    <form
+                                                        onSubmit={(e) =>
+                                                            void salvarEdicaoContaResponsavel(e, false)
+                                                        }
+                                                        className={`border border-[#0E7C86] rounded-xl p-3.5 space-y-3 ${clsSubCard}`}
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[11px] font-bold uppercase text-[#1496A1]">
+                                                                Editando Conta do Responsável
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditResponsavelId(null)}
+                                                                className={`cursor-pointer ${clsSubtexto}`}
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                            <div>
+                                                                <label
+                                                                    className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                                >
+                                                                    Nome do Responsável *
+                                                                </label>
+                                                                <input
+                                                                    type="text"
+                                                                    required
+                                                                    value={editRespNomeConta}
+                                                                    onChange={(e) =>
+                                                                        setEditRespNomeConta(e.target.value)
+                                                                    }
+                                                                    className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label
+                                                                    className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                                >
+                                                                    WhatsApp Único (com DDD) *
+                                                                </label>
+                                                                <input
+                                                                    type="tel"
+                                                                    required
+                                                                    value={editRespTelefoneConta}
+                                                                    onChange={(e) =>
+                                                                        setEditRespTelefoneConta(
+                                                                            formatarTelefone(e.target.value)
+                                                                        )
+                                                                    }
+                                                                    className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex justify-end gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditResponsavelId(null)}
+                                                                className={`px-3 py-1.5 rounded-xl border text-xs cursor-pointer ${clsCard}`}
+                                                            >
+                                                                Cancelar
+                                                            </button>
+                                                            <button
+                                                                type="submit"
+                                                                disabled={salvandoRespConta}
+                                                                className="px-3.5 py-1.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                                            >
+                                                                <Save className="w-3.5 h-3.5" />
+                                                                {salvandoRespConta
+                                                                    ? 'Salvando...'
+                                                                    : 'Salvar Conta'}
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                ) : (
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <Users className="w-4 h-4 text-[#1496A1]" />
+                                                                <h3 className={`text-base font-bold ${clsTitulo}`}>
+                                                                    {resp.nome || 'Responsável'}
+                                                                </h3>
+                                                            </div>
+                                                            <p className="text-xs text-[#1496A1] font-semibold mt-0.5">
+                                                                WhatsApp:{' '}
+                                                                {formatarTelefone(
+                                                                    resp.telefone || resp.telefone_formatado
+                                                                ) || 'Não cadastrado'}
+                                                            </p>
+                                                        </div>
+
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            <span
+                                                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                                                    resp.pin_bloqueado
+                                                                        ? 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-400'
+                                                                        : resp.tem_pin
+                                                                            ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400'
+                                                                            : `${clsSubCard} ${clsSubtexto}`
+                                                                }`}
+                                                            >
+                                                                {resp.pin_bloqueado
+                                                                    ? 'PIN Bloqueado'
+                                                                    : resp.tem_pin
+                                                                        ? 'PIN Ativo'
+                                                                        : 'Sem PIN'}
+                                                            </span>
+                                                            <span className={`text-[11px] ${clsSubtexto}`}>
+                                                                {resp.filhos.length} filho(s) •{' '}
+                                                                {resp.total_aulas} aula(s)
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* ALERTA DE CONFLITO DETECTADO NA MIGRAÇÃO */}
+                                                {resp.conflito_migracao && (
+                                                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2">
+                                                        <span>
+                                                            <strong>Revisão recomendada:</strong>{' '}
+                                                            {resp.conflito_detalhes ||
+                                                                'Registros antigos agrupados neste número.'}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            disabled={salvandoRespConta}
+                                                            onClick={() => void marcarConflitoResolvido(resp)}
+                                                            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] font-semibold text-amber-200 inline-flex items-center gap-1 cursor-pointer"
+                                                        >
+                                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                                            Marcar Revisado
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {/* LISTA DE FILHOS VINCULADOS À CONTA */}
+                                                <div className="space-y-2">
+                                                    <p
+                                                        className={`text-[11px] font-semibold uppercase tracking-wide ${clsSubtexto}`}
+                                                    >
+                                                        Filhos vinculados ({resp.filhos.length})
+                                                    </p>
+
+                                                    {resp.filhos.length === 0 ? (
+                                                        <p
+                                                            className={`text-xs italic border rounded-xl p-3 ${clsSubCard} ${clsSubtexto}`}
+                                                        >
+                                                            Nenhum filho ativo vinculado a esta conta.
                                                         </p>
-                                                    </div>
+                                                    ) : (
+                                                        resp.filhos.map((al) => {
+                                                            const editandoEste = editAlunoId === al.id;
+                                                            const pedindoExclusao =
+                                                                confirmandoExcluirAlunoId === al.id;
 
-                                                    <div className="flex flex-col items-end gap-1">
-                            <span
-                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                    al.pin_bloqueado
-                                        ? 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-400'
-                                        : al.tem_pin
-                                            ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400'
-                                            : `${clsSubCard} ${clsSubtexto}`
-                                }`}
-                            >
-                              {al.pin_bloqueado
-                                  ? 'PIN Bloqueado'
-                                  : al.tem_pin
-                                      ? 'PIN Ativo'
-                                      : 'Sem PIN'}
-                            </span>
+                                                            if (editandoEste) {
+                                                                return (
+                                                                    <form
+                                                                        key={al.id}
+                                                                        onSubmit={(e) =>
+                                                                            void salvarEdicaoAlunoAdmin(e)
+                                                                        }
+                                                                        className={`border border-[#0E7C86] rounded-xl p-3.5 space-y-3 ${clsSubCard}`}
+                                                                    >
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="text-[11px] font-bold uppercase text-[#1496A1]">
+                                                                                Editando Filho(a)
+                                                                            </span>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setEditAlunoId(null)}
+                                                                                className={`cursor-pointer ${clsSubtexto}`}
+                                                                            >
+                                                                                <X className="w-4 h-4" />
+                                                                            </button>
+                                                                        </div>
 
-                                                        <span className={`text-[11px] ${clsSubtexto}`}>
-                              {al.total_aulas} aula(s)
-                            </span>
-                                                    </div>
+                                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                                            <div>
+                                                                                <label
+                                                                                    className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                                                >
+                                                                                    Nome do Aluno(a) *
+                                                                                </label>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    required
+                                                                                    value={editAlunoNome}
+                                                                                    onChange={(e) =>
+                                                                                        setEditAlunoNome(e.target.value)
+                                                                                    }
+                                                                                    className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                                                                />
+                                                                            </div>
+
+                                                                            <div>
+                                                                                <label
+                                                                                    className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                                                >
+                                                                                    Colégio
+                                                                                </label>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={editAlunoColegio}
+                                                                                    onChange={(e) =>
+                                                                                        setEditAlunoColegio(e.target.value)
+                                                                                    }
+                                                                                    className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                                                                />
+                                                                            </div>
+
+                                                                            <div>
+                                                                                <label
+                                                                                    className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                                                >
+                                                                                    Série / Ano
+                                                                                </label>
+                                                                                <select
+                                                                                    value={editAlunoSerie}
+                                                                                    onChange={(e) =>
+                                                                                        setEditAlunoSerie(e.target.value)
+                                                                                    }
+                                                                                    className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                                                                >
+                                                                                    {SERIES_ESCOLARES.map((s) => (
+                                                                                        <option key={s} value={s}>
+                                                                                            {s}
+                                                                                        </option>
+                                                                                    ))}
+                                                                                </select>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="flex justify-end gap-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setEditAlunoId(null)}
+                                                                                className={`px-3 py-1.5 rounded-xl border text-xs cursor-pointer ${clsCard}`}
+                                                                            >
+                                                                                Cancelar
+                                                                            </button>
+                                                                            <button
+                                                                                type="submit"
+                                                                                disabled={salvandoAlunoAdmin}
+                                                                                className="px-3.5 py-1.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                                                            >
+                                                                                <Save className="w-3.5 h-3.5" />
+                                                                                {salvandoAlunoAdmin
+                                                                                    ? 'Salvando...'
+                                                                                    : 'Salvar Filho'}
+                                                                            </button>
+                                                                        </div>
+                                                                    </form>
+                                                                );
+                                                            }
+
+                                                            return (
+                                                                <div
+                                                                    key={al.id}
+                                                                    className={`border rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 ${clsSubCard}`}
+                                                                >
+                                                                    <div>
+                                                                        <p className={`text-sm font-bold ${clsTitulo}`}>
+                                                                            {al.nome_aluno}
+                                                                        </p>
+                                                                        <p className={`text-xs ${clsSubtexto}`}>
+                                                                            {[al.colegio_nome, al.serie]
+                                                                                    .filter(Boolean)
+                                                                                    .join(' • ') ||
+                                                                                'Colégio/Série não informados'}{' '}
+                                                                            • {al.total_aulas} aula(s)
+                                                                        </p>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                iniciarEdicaoAlunoAdmin(al)
+                                                                            }
+                                                                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 cursor-pointer ${clsCard} ${clsTitulo} hover:border-[#0E7C86]`}
+                                                                        >
+                                                                            <Edit3 className="w-3 h-3 text-[#1496A1]" />
+                                                                            Editar
+                                                                        </button>
+
+                                                                        {pedindoExclusao ? (
+                                                                            <>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={excluindoAlunoId === al.id}
+                                                                                    onClick={() =>
+                                                                                        setConfirmandoExcluirAlunoId(
+                                                                                            null
+                                                                                        )
+                                                                                    }
+                                                                                    className={`px-2 py-1.5 rounded-lg border text-xs cursor-pointer ${clsCard}`}
+                                                                                >
+                                                                                    Não
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    disabled={excluindoAlunoId === al.id}
+                                                                                    onClick={() =>
+                                                                                        void excluirAlunoAdmin(al.id)
+                                                                                    }
+                                                                                    className="px-2.5 py-1.5 rounded-lg bg-[#BE1E23] hover:bg-rose-700 text-xs font-semibold text-white cursor-pointer"
+                                                                                >
+                                                                                    {excluindoAlunoId === al.id
+                                                                                        ? '...'
+                                                                                        : 'Confirmar'}
+                                                                                </button>
+                                                                            </>
+                                                                        ) : (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    setConfirmandoExcluirAlunoId(
+                                                                                        al.id
+                                                                                    )
+                                                                                }
+                                                                                className="px-2.5 py-1.5 rounded-lg bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-medium inline-flex items-center gap-1 cursor-pointer"
+                                                                            >
+                                                                                <Trash2 className="w-3 h-3" />
+                                                                                Remover
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                    )}
                                                 </div>
 
-                                                <div
-                                                    className={`border rounded-xl p-3 text-xs space-y-1 ${clsSubCard}`}
-                                                >
-                                                    <p>
-                                                        <strong>Responsável:</strong>{' '}
-                                                        {al.responsavel_nome || 'Não informado'}
-                                                    </p>
-                                                    <p className="text-[#1496A1] font-semibold">
-                                                        WhatsApp:{' '}
-                                                        {formatarTelefone(
-                                                            al.telefone || al.telefone_formatado
-                                                        ) || 'Não cadastrado'}
-                                                    </p>
-                                                </div>
-
-                                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                                                {/* RODAPÉ DE AÇÕES DA CONTA */}
+                                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <button
                                                             type="button"
-                                                            onClick={() => iniciarEdicaoAlunoAdmin(al)}
+                                                            onClick={() =>
+                                                                iniciarEdicaoContaResponsavel(resp)
+                                                            }
                                                             className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsTitulo} hover:border-[#0E7C86]`}
                                                         >
-                                                            <Edit3 className="w-3.5 h-3.5 text-[#1496A1]" />{' '}
-                                                            Editar / Trocar Número
+                                                            <Edit3 className="w-3.5 h-3.5 text-[#1496A1]" />
+                                                            Editar Conta / Número
                                                         </button>
 
-                                                        {whatsappDigitos && (
-                                                            <button
-                                                                type="button"
-                                                                disabled={resetandoPin}
-                                                                onClick={() =>
-                                                                    void resetarPinCliente(al.telefone)
-                                                                }
-                                                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsSubtexto} hover:text-[#1496A1]`}
-                                                            >
-                                                                <KeyRound className="w-3.5 h-3.5" /> Resetar PIN
-                                                            </button>
-                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            disabled={resetandoPin}
+                                                            onClick={() =>
+                                                                void resetarPinCliente(
+                                                                    resp.telefone,
+                                                                    resp.id
+                                                                )
+                                                            }
+                                                            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsSubtexto} hover:text-[#1496A1]`}
+                                                        >
+                                                            <KeyRound className="w-3.5 h-3.5" />
+                                                            Resetar PIN
+                                                        </button>
 
                                                         {whatsappDigitos && (
                                                             <a
@@ -3226,19 +3501,19 @@ export default function PainelAdmin({
                                                                 rel="noopener noreferrer"
                                                                 className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-500 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-emerald-500/25"
                                                             >
-                                                                <MessageCircle className="w-3.5 h-3.5" />{' '}
+                                                                <MessageCircle className="w-3.5 h-3.5" />
                                                                 WhatsApp
                                                             </a>
                                                         )}
                                                     </div>
 
-                                                    {pedindoExclusao ? (
+                                                    {pedindoExclusaoConta ? (
                                                         <div className="flex items-center gap-1.5">
                                                             <button
                                                                 type="button"
-                                                                disabled={excluindoAlunoId === al.id}
+                                                                disabled={excluindoContaId === resp.id}
                                                                 onClick={() =>
-                                                                    setConfirmandoExcluirAlunoId(null)
+                                                                    setConfirmandoExcluirContaId(null)
                                                                 }
                                                                 className={`px-2.5 py-1.5 rounded-xl border text-xs cursor-pointer ${clsSubCard}`}
                                                             >
@@ -3246,11 +3521,15 @@ export default function PainelAdmin({
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                disabled={excluindoAlunoId === al.id}
-                                                                onClick={() => void excluirAlunoAdmin(al.id)}
+                                                                disabled={excluindoContaId === resp.id}
+                                                                onClick={() =>
+                                                                    void excluirContaResponsavelAdmin(
+                                                                        resp.id
+                                                                    )
+                                                                }
                                                                 className="px-3 py-1.5 rounded-xl bg-[#BE1E23] hover:bg-rose-700 text-xs font-semibold text-white cursor-pointer"
                                                             >
-                                                                {excluindoAlunoId === al.id
+                                                                {excluindoContaId === resp.id
                                                                     ? 'Excluindo...'
                                                                     : 'Confirmar Exclusão'}
                                                             </button>
@@ -3259,11 +3538,12 @@ export default function PainelAdmin({
                                                         <button
                                                             type="button"
                                                             onClick={() =>
-                                                                setConfirmandoExcluirAlunoId(al.id)
+                                                                setConfirmandoExcluirContaId(resp.id)
                                                             }
                                                             className="px-3 py-1.5 rounded-xl bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                                                         >
-                                                            <Trash2 className="w-3.5 h-3.5" /> Excluir
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                            Excluir Conta
                                                         </button>
                                                     )}
                                                 </div>
