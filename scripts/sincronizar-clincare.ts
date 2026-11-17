@@ -473,6 +473,7 @@ async function preencherCampoDropdownModal(
     await page.waitForTimeout(450);
 
     const textoBusca = opcoes?.textoBusca;
+    let filtroAtivo = false;
     if (textoBusca) {
         const inputFocado = page.locator('input:focus').first();
         if (
@@ -482,13 +483,14 @@ async function preencherCampoDropdownModal(
             await page.keyboard.press('Control+A').catch(() => null);
             await page.keyboard.press('Backspace').catch(() => null);
             await inputFocado.pressSequentially(textoBusca, { delay: 45 });
+            filtroAtivo = true;
             await page.waitForTimeout(900);
         }
     } else {
         await page.waitForTimeout(500);
     }
 
-    // 2. Busca as opções abertas na camada superior do modal (com rolagem automática se a lista for longa)
+    // 2. Busca as opções abertas na camada superior do modal (com rolagem e fallback se não houver 100')
     const prefsNorm = preferencias
         .map((p) => normalizarTexto(p))
         .filter(Boolean);
@@ -496,18 +498,49 @@ async function preencherCampoDropdownModal(
     let opcaoSelecionada: { x: number; y: number; bruto: string } | null = null;
     const historicoOpcoesVistas = new Set<string>();
     let tentativas = 0;
+    let limpouFiltro = false;
+    let liberarFallback50 = false;
     const limiteEspera = Date.now() + 10000;
 
     while (Date.now() < limiteEspera && !opcaoSelecionada) {
         tentativas++;
 
-        if (tentativas === 7 && historicoOpcoesVistas.size === 0) {
+        if (tentativas === 5 && historicoOpcoesVistas.size === 0) {
             await page.mouse.click(coordsCampo.x, coordsCampo.y);
             await page.waitForTimeout(450);
         }
 
+        // Se não achou "<Matéria> 100'" nos primeiros 2,5s, limpa o filtro de texto para revelar todas as opções do professor
+        if (tentativas === 7 && filtroAtivo && !limpouFiltro) {
+            limpouFiltro = true;
+            await page.mouse.click(coordsCampo.x, coordsCampo.y);
+            await page.waitForTimeout(200);
+            const inputFocado = page.locator('input:focus').first();
+            if (
+                (await inputFocado.isVisible({ timeout: 500 }).catch(() => false)) &&
+                (await inputFocado.isEditable().catch(() => false))
+            ) {
+                await page.keyboard.press('Control+A').catch(() => null);
+                await page.keyboard.press('Backspace').catch(() => null);
+                await page.waitForTimeout(700);
+            }
+        }
+
+        // Após 5s sem nenhuma opção de 100 min disponível, libera fallback para a variação 50' da matéria (duração será ajustada para 100 min nos selects)
+        if (tentativas >= 14) {
+            liberarFallback50 = true;
+        }
+
         const resultado = await page.evaluate(
-            ({ prefs, box, campoY, preferir100, permitirUnica, deveRolar }) => {
+            ({
+                 prefs,
+                 box,
+                 campoY,
+                 preferir100,
+                 permitir50,
+                 permitirUnica,
+                 deveRolar,
+             }) => {
                 const marcados = document.querySelectorAll('[data-clincare-opcao-alvo]');
                 for (let m = 0; m < marcados.length; m++) {
                     marcados[m].removeAttribute('data-clincare-opcao-alvo');
@@ -563,6 +596,7 @@ async function preencherCampoDropdownModal(
                 for (let i = 0; i < nos.length; i++) {
                     const htmlEl = nos[i] as HTMLElement;
                     if (htmlEl.children.length > 3) continue;
+                    if (htmlEl.querySelector('select')) continue;
                     if (
                         htmlEl.closest(
                             '.material-icons, .material-icons-outlined, .material-symbols-outlined, [aria-hidden="true"], [inert], [aria-disabled="true"], [disabled]'
@@ -624,7 +658,8 @@ async function preencherCampoDropdownModal(
                         /^\d+$/.test(t) ||
                         t.includes('agendar um evento') ||
                         t.includes('bloqueio de agenda') ||
-                        t.includes('criar atendimento')
+                        t.includes('criar atendimento') ||
+                        t.includes('duracao')
                     ) {
                         continue;
                     }
@@ -646,13 +681,12 @@ async function preencherCampoDropdownModal(
                 let escolhido: (typeof candidatos)[number] | null = null;
 
                 if (preferir100) {
-                    // Para serviços: foco estrito em 100 minutos (ex.: "Química 100'"), evitando 50' e priorizando sem "X"
+                    // 1º: prioridade estrita em 100 minutos (ex.: "Química 100'")
                     for (let p = 0; p < prefs.length && !escolhido; p++) {
                         const pref = prefs[p];
                         if (!pref) continue;
                         const baseSem100 = pref.replace(/\s*100\s*$/, '').trim();
 
-                        // 1. Exato sem X (ex.: "quimica 100" -> "Química 100'")
                         const exato = candidatos.find(
                             (c) =>
                                 c.txt === `${baseSem100} 100` ||
@@ -663,7 +697,6 @@ async function preencherCampoDropdownModal(
                             break;
                         }
 
-                        // 2. Começa com "<matéria> 100" sem "x" (ex.: "Química 100 min")
                         const com100SemX = candidatos.find(
                             (c) =>
                                 c.txt.includes(baseSem100) &&
@@ -675,7 +708,6 @@ async function preencherCampoDropdownModal(
                             break;
                         }
 
-                        // 3. Qualquer variação de 100 min da matéria (caso só exista com "X")
                         const com100Qualquer = candidatos.find(
                             (c) => c.txt.includes(baseSem100) && /\b100\b/.test(c.txt)
                         );
@@ -684,8 +716,30 @@ async function preencherCampoDropdownModal(
                             break;
                         }
                     }
+
+                    // 2º: se o professor só tiver serviços de 50' vinculados no ClinCare, aceita a matéria (a duração será forçada para 100 min)
+                    if (!escolhido && permitir50) {
+                        for (let p = 0; p < prefs.length && !escolhido; p++) {
+                            const pref = prefs[p];
+                            if (!pref) continue;
+                            const baseSem100 = pref.replace(/\s*100\s*$/, '').trim();
+                            const semX = candidatos.find(
+                                (c) => c.txt.includes(baseSem100) && !/\bx\b/.test(c.txt)
+                            );
+                            if (semX) {
+                                escolhido = semX;
+                                break;
+                            }
+                            const qualquer = candidatos.find((c) =>
+                                c.txt.includes(baseSem100)
+                            );
+                            if (qualquer) {
+                                escolhido = qualquer;
+                                break;
+                            }
+                        }
+                    }
                 } else {
-                    // 1ª passada: correspondência exata normalizada
                     for (let p = 0; p < prefs.length && !escolhido; p++) {
                         const pref = prefs[p];
                         if (!pref) continue;
@@ -695,7 +749,6 @@ async function preencherCampoDropdownModal(
                         }
                     }
 
-                    // 2ª passada: correspondência parcial
                     for (let p = 0; p < prefs.length && !escolhido; p++) {
                         const pref = prefs[p];
                         if (!pref) continue;
@@ -706,12 +759,10 @@ async function preencherCampoDropdownModal(
                     }
                 }
 
-                // Fallback quando há apenas 1 opção real vinculada (ex.: sala única)
                 if (!escolhido && permitirUnica && opcoesUnicas.length === 1) {
                     escolhido = candidatos[0];
                 }
 
-                // Se ainda não achou e o dropdown tem barra de rolagem (ex.: Matemática -> Química), rola para baixo
                 let rolouLista = false;
                 if (!escolhido && deveRolar && candidatos.length > 0) {
                     const containerScroll = candidatos.find(
@@ -755,6 +806,7 @@ async function preencherCampoDropdownModal(
                 box: modalRect,
                 campoY: coordsCampo.y,
                 preferir100: Boolean(opcoes?.preferirDuracao100),
+                permitir50: liberarFallback50,
                 permitirUnica: Boolean(opcoes?.permitirUnicaOpcaoFallback),
                 deveRolar: tentativas >= 2,
             }
@@ -906,7 +958,7 @@ async function criarReservaNoClinCare(
         }
     );
 
-    // 5. Serviço -> sempre prioriza "<Matéria> 100'" (nunca 50' e evitando "100' X" quando houver padrão)
+    // 5. Serviço -> prioriza "<Matéria> 100'", com fallback para outros 100' ou variação 50' se não existir 100'
     await preencherCampoDropdownModal(
         page,
         'Selecione o serviço',
