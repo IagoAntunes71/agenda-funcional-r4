@@ -1316,9 +1316,6 @@ async function localizarCardReservadoNaGrade(
                 if (r.width < 50 || r.width > 500 || r.height < 18 || r.height > 450) {
                     continue;
                 }
-                if (r.right < 0 || r.left > window.innerWidth) {
-                    continue;
-                }
 
                 const cx = r.left + r.width / 2;
                 const colDona = colunas.find(
@@ -1363,21 +1360,163 @@ async function localizarCardReservadoNaGrade(
     );
 }
 
+async function selecionarUnidadeNoMapaSeNecessario(
+    page: Page,
+    unidadeId?: string,
+    unidadeNome?: string
+): Promise<void> {
+    if (!unidadeId && !unidadeNome) return;
+
+    const unidadeNorm = normalizarTexto(unidadeNome || '');
+
+    const trocouSelect = await page.evaluate(
+        ({ uid, uNorm }) => {
+            const selects = Array.from(document.querySelectorAll('select'));
+            for (let i = 0; i < selects.length; i++) {
+                const sel = selects[i] as HTMLSelectElement;
+                const opcoes = Array.from(sel.options);
+                const match = opcoes.find((opt) => {
+                    if (uid && opt.value === uid) return true;
+                    const txt = (opt.textContent || '')
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .toLowerCase();
+                    return Boolean(uNorm && txt && (txt === uNorm || txt.includes(uNorm)));
+                });
+
+                if (match && sel.value !== match.value) {
+                    sel.value = match.value;
+                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                }
+            }
+            return false;
+        },
+        { uid: unidadeId || '', uNorm: unidadeNorm }
+    );
+
+    if (trocouSelect) {
+        await aguardarEstabilizacaoModal(page, 1400);
+        return;
+    }
+
+    if (!unidadeNome) return;
+
+    const jaVisivelNoTopo = await page.evaluate((uNorm) => {
+        const nos = Array.from(document.querySelectorAll('*')) as HTMLElement[];
+        for (let i = 0; i < nos.length; i++) {
+            const el = nos[i];
+            if (el.children.length > 2) continue;
+            const r = el.getBoundingClientRect();
+            if (r.top < 0 || r.top > 220 || r.width < 20) continue;
+            const txt = (el.innerText || el.textContent || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+            if (txt && (txt === uNorm || txt.includes(uNorm))) {
+                return true;
+            }
+        }
+        return false;
+    }, unidadeNorm);
+
+    if (jaVisivelNoTopo) return;
+
+    const coordsTrigger = await page.evaluate(() => {
+        const botoes = Array.from(
+            document.querySelectorAll('button, [role="button"], [role="combobox"], input')
+        ) as HTMLElement[];
+
+        for (let i = 0; i < botoes.length; i++) {
+            const el = botoes[i];
+            const r = el.getBoundingClientRect();
+            if (r.top < 0 || r.top > 210 || r.width < 80 || r.width > 420) continue;
+            const txt = (
+                el.innerText ||
+                el.textContent ||
+                (el as HTMLInputElement).value ||
+                el.getAttribute('placeholder') ||
+                ''
+            )
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+
+            if (
+                txt.includes('unidade') ||
+                txt.includes('alphaville') ||
+                txt.includes('imbui') ||
+                txt.includes('pituba') ||
+                txt.includes('graca') ||
+                txt.includes('todas')
+            ) {
+                return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            }
+        }
+        return null;
+    });
+
+    if (!coordsTrigger) return;
+
+    await page.mouse.click(coordsTrigger.x, coordsTrigger.y);
+    await page.waitForTimeout(500);
+
+    const coordsOpcao = await page.evaluate((uNorm) => {
+        const nos = Array.from(
+            document.querySelectorAll('li, [role="option"], button, div, span')
+        ) as HTMLElement[];
+        for (let i = 0; i < nos.length; i++) {
+            const el = nos[i];
+            if (el.children.length > 2) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width < 40 || r.height < 18 || r.top < 40 || r.top > 650) continue;
+            const txt = (el.innerText || el.textContent || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+            if (txt && (txt === uNorm || txt.includes(uNorm))) {
+                return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            }
+        }
+        return null;
+    }, unidadeNorm);
+
+    if (coordsOpcao) {
+        await page.mouse.click(coordsOpcao.x, coordsOpcao.y);
+        await aguardarEstabilizacaoModal(page, 1400);
+    }
+}
+
 async function varrerMapaParaEncontrarCard(
     page: Page,
     urlMapa: string,
     hhmm: string,
-    professorNome: string
+    professorNome: string,
+    opcoesUnidade?: { unidadeId?: string; unidadeNome?: string }
 ): Promise<{ x: number; y: number; resumo: string } | null> {
     await page.goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page
-        .locator('text="08:00", text="14:00", text="14:10", text="17:00"')
+        .locator('text=/^(08:00|14:00|14:10|17:00)$/')
         .first()
         .waitFor({ state: 'visible', timeout: 10000 })
         .catch(() => null);
-    await page.waitForTimeout(1400);
+    await aguardarEstabilizacaoModal(page, 1400);
 
-    for (let passo = 0; passo < 5; passo++) {
+    await selecionarUnidadeNoMapaSeNecessario(
+        page,
+        opcoesUnidade?.unidadeId,
+        opcoesUnidade?.unidadeNome
+    );
+
+    for (let passo = 0; passo < 10; passo++) {
         const encontrado = await localizarCardReservadoNaGrade(
             page,
             hhmm,
@@ -1390,16 +1529,17 @@ async function varrerMapaParaEncontrarCard(
                 (el) => el.scrollWidth > el.clientWidth + 50
             );
             let moveu = false;
-            for (const el of scrollables) {
+            for (let i = 0; i < scrollables.length; i++) {
+                const el = scrollables[i];
                 const antes = el.scrollLeft;
-                el.scrollLeft += 1800;
+                el.scrollLeft += 1200;
                 if (el.scrollLeft !== antes) moveu = true;
             }
             return moveu;
         });
 
         if (!rolou) break;
-        await page.waitForTimeout(600);
+        await page.waitForTimeout(550);
     }
 
     return null;
@@ -1440,9 +1580,9 @@ async function clicarCardFluxoExclusao(
                     const r = el.getBoundingClientRect();
                     if (
                         r.width < 60 ||
-                        r.width > 720 ||
+                        r.width > 900 ||
                         r.height < 28 ||
-                        r.height > 160
+                        r.height > 180
                     ) {
                         continue;
                     }
@@ -1546,40 +1686,22 @@ async function clicarCardFluxoExclusao(
 async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
     const inicio = Date.now();
     const limite = inicio + 9000;
-    let tentouReclicarTela2 = false;
     let ultimaPosicao: { x: number; y: number } | null = null;
 
     while (Date.now() < limite) {
-        const coordsExcluir = await page.evaluate(() => {
+        const alvoExcluir = await page.evaluate(() => {
             // IMPORTANTE: não declarar funções auxiliares internas aqui
-            let perguntaBottom = -1;
-            const todos = Array.from(document.querySelectorAll('*')) as HTMLElement[];
-            for (let i = 0; i < todos.length; i++) {
-                const el = todos[i];
-                if (el.children.length > 2) continue;
-                const txt = (el.innerText || el.textContent || '')
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .replace(/\s+/g, ' ')
-                    .trim()
-                    .toLowerCase();
-
-                if (txt.includes('excluir este agendamento')) {
-                    const r = el.getBoundingClientRect();
-                    if (r.width > 40 && r.height > 12) {
-                        perguntaBottom = r.bottom;
-                        break;
-                    }
-                }
+            const antigos = document.querySelectorAll('[data-clincare-btn-excluir]');
+            for (let k = 0; k < antigos.length; k++) {
+                antigos[k].removeAttribute('data-clincare-btn-excluir');
             }
 
-            if (perguntaBottom < 0) return null;
-
             const candidatos: {
+                el: HTMLElement;
                 x: number;
                 y: number;
                 area: number;
-                ehTagBotao: boolean;
+                ehBotao: boolean;
             }[] = [];
 
             const elementos = Array.from(
@@ -1588,14 +1710,14 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
 
             for (let i = 0; i < elementos.length; i++) {
                 const el = elementos[i];
-                const r = el.getBoundingClientRect();
-                if (r.width < 45 || r.width > 460 || r.height < 24 || r.height > 90) {
+                const st = window.getComputedStyle(el);
+                if (
+                    st.display === 'none' ||
+                    st.visibility === 'hidden' ||
+                    st.opacity === '0'
+                ) {
                     continue;
                 }
-                if (r.top < perguntaBottom - 10) continue;
-
-                const st = window.getComputedStyle(el);
-                if (st.display === 'none' || st.visibility === 'hidden') continue;
 
                 const txt = (el.innerText || el.textContent || '')
                     .normalize('NFD')
@@ -1606,80 +1728,84 @@ async function confirmarBotaoExcluirTela3(page: Page): Promise<void> {
 
                 if (txt !== 'excluir') continue;
 
-                el.scrollIntoView({ block: 'nearest' });
-                const rAtual = el.getBoundingClientRect();
+                const r = el.getBoundingClientRect();
+                if (r.width < 40 || r.height < 20) continue;
+
+                el.scrollIntoView({ block: 'center' });
+                const rVisivel = el.getBoundingClientRect();
                 if (
-                    rAtual.right < 0 ||
-                    rAtual.left > window.innerWidth ||
-                    rAtual.bottom < 0 ||
-                    rAtual.top > window.innerHeight
+                    rVisivel.width < 40 ||
+                    rVisivel.height < 20 ||
+                    rVisivel.bottom < 0 ||
+                    rVisivel.top > window.innerHeight
                 ) {
                     continue;
                 }
 
                 candidatos.push({
-                    x: rAtual.left + rAtual.width / 2,
-                    y: rAtual.top + rAtual.height / 2,
-                    area: rAtual.width * rAtual.height,
-                    ehTagBotao:
+                    el,
+                    x: rVisivel.left + rVisivel.width / 2,
+                    y: rVisivel.top + rVisivel.height / 2,
+                    area: rVisivel.width * rVisivel.height,
+                    ehBotao:
                         el.tagName === 'BUTTON' ||
-                        el.getAttribute('role') === 'button',
+                        el.getAttribute('role') === 'button' ||
+                        st.cursor === 'pointer',
                 });
             }
 
             if (candidatos.length === 0) return null;
 
             candidatos.sort((a, b) => {
-                if (a.ehTagBotao !== b.ehTagBotao) {
-                    return a.ehTagBotao ? -1 : 1;
+                if (a.ehBotao !== b.ehBotao) {
+                    return a.ehBotao ? -1 : 1;
                 }
-                return a.area - b.area;
+                if (Math.abs(b.y - a.y) > 10) {
+                    return b.y - a.y;
+                }
+                return b.area - a.area;
             });
 
-            return { x: candidatos[0].x, y: candidatos[0].y };
+            const escolhido = candidatos[0];
+            escolhido.el.setAttribute('data-clincare-btn-excluir', '1');
+
+            return { x: escolhido.x, y: escolhido.y };
         });
 
-        if (coordsExcluir) {
+        if (alvoExcluir) {
             if (
                 ultimaPosicao &&
-                Math.abs(coordsExcluir.x - ultimaPosicao.x) <= 3 &&
-                Math.abs(coordsExcluir.y - ultimaPosicao.y) <= 3
+                Math.abs(alvoExcluir.x - ultimaPosicao.x) <= 3 &&
+                Math.abs(alvoExcluir.y - ultimaPosicao.y) <= 3
             ) {
-                await page.mouse.click(coordsExcluir.x, coordsExcluir.y);
+                await page.mouse.click(alvoExcluir.x, alvoExcluir.y);
+                await page.waitForTimeout(700);
+
+                await page.evaluate(() => {
+                    const btn = document.querySelector(
+                        '[data-clincare-btn-excluir="1"]'
+                    ) as HTMLElement | null;
+                    if (btn) {
+                        const r = btn.getBoundingClientRect();
+                        if (r.width > 0 && r.height > 0) {
+                            btn.click();
+                        }
+                    }
+                });
+
                 return;
             }
-            ultimaPosicao = coordsExcluir;
+            ultimaPosicao = alvoExcluir;
             await page.waitForTimeout(180);
             continue;
-        }
-
-        if (!tentouReclicarTela2 && Date.now() - inicio > 2500) {
-            tentouReclicarTela2 = true;
-            await clicarCardFluxoExclusao(
-                page,
-                'Excluir agendamento',
-                'Remover este atendimento',
-                'Tela 2 (Retentativa)'
-            ).catch(() => null);
         }
 
         ultimaPosicao = null;
         await page.waitForTimeout(220);
     }
 
-    const resumoTela = await page
-        .evaluate(() => {
-            const textos = Array.from(
-                document.querySelectorAll('h1, h2, h3, h4, button, [role="button"]')
-            )
-                .map((el) => (el as HTMLElement).innerText?.trim() || '')
-                .filter((t) => t.length > 0 && t.length <= 60);
-            return Array.from(new Set(textos)).slice(-12).join(' | ');
-        })
-        .catch(() => '');
-
     throw new Error(
-        `Botão vermelho "EXCLUIR" não encontrado na Tela 3 de confirmação. Elementos visíveis: [${resumoTela}]`
+        'Botão vermelho "EXCLUIR" não encontrado na Tela 3 de confirmação.'
     );
 }
 
@@ -1701,7 +1827,11 @@ async function cancelarReservaNoClinCare(
         page,
         urlComUnidade,
         hhmm,
-        ag.professor_nome
+        ag.professor_nome,
+        {
+            unidadeId: ag.unidade_clin_care_id,
+            unidadeNome: ag.unidade_nome,
+        }
     );
 
     if (!card) {
@@ -1710,13 +1840,27 @@ async function cancelarReservaNoClinCare(
             page,
             urlSemUnidade,
             hhmm,
-            ag.professor_nome
+            ag.professor_nome,
+            {
+                unidadeId: ag.unidade_clin_care_id,
+                unidadeNome: ag.unidade_nome,
+            }
         );
     }
 
     if (!card) {
+        const diagnostico = await page
+            .evaluate(() => {
+                const reservados = Array.from(document.querySelectorAll('div, article, section'))
+                    .map((el) => (el as HTMLElement).innerText?.trim() || '')
+                    .filter((t) => t.length > 0 && t.length <= 160 && /reservado/i.test(t))
+                    .map((t) => t.replace(/\s+/g, ' '));
+                return Array.from(new Set(reservados)).slice(0, 8).join(' | ');
+            })
+            .catch(() => '');
+
         throw new Error(
-            `Bloco "${PACIENTE_RESERVADO_NOME}" às ${hhmm} para ${ag.professor_nome} não encontrado no mapa-agenda em ${ag.data}.`
+            `Bloco "${PACIENTE_RESERVADO_NOME}" às ${hhmm} para ${ag.professor_nome} (${ag.unidade_nome}) não encontrado no mapa-agenda em ${ag.data}. Reservados visíveis: [${diagnostico || 'nenhum'}].`
         );
     }
 
@@ -1770,7 +1914,11 @@ async function cancelarReservaNoClinCare(
         page,
         urlUtilizada,
         hhmm,
-        ag.professor_nome
+        ag.professor_nome,
+        {
+            unidadeId: ag.unidade_clin_care_id,
+            unidadeNome: ag.unidade_nome,
+        }
     );
 
     if (aindaExiste) {
@@ -2592,12 +2740,17 @@ async function main() {
                     .catch(() => null);
 
                 await agendaPage
-                    .locator('text="08:00", text="14:00", text="14:10"')
+                    .locator('text=/^(08:00|14:00|14:10)$/')
                     .first()
                     .waitFor({ state: 'visible', timeout: 10000 })
                     .catch(() => null);
 
-                await agendaPage.waitForTimeout(950);
+                await aguardarEstabilizacaoModal(agendaPage, 950);
+                await selecionarUnidadeNoMapaSeNecessario(
+                    agendaPage,
+                    unidade.clin_care_id,
+                    unidade.nome
+                );
 
                 const colunasTodas = new Set<string>();
                 const blocosMapa = new Map<string, BloqueioGrade>();
