@@ -17,7 +17,11 @@ interface ProfessorDbRow {
     ativo: boolean;
 }
 
-async function garantirColunas() {
+async function garantirEstruturaProfessores() {
+    await sql`
+        ALTER TABLE professores
+        DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
+    `;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
@@ -25,74 +29,70 @@ async function garantirColunas() {
 }
 
 async function mesclarDuplicadosInterno() {
-    const duplicados = (await sql`
-    SELECT p.id, p.clin_care_id
-    FROM professores p
-    WHERE p.clin_care_id IS NOT NULL
-      AND EXISTS (
-        SELECT 1
-        FROM professores p2
-        WHERE p2.clin_care_id = p.clin_care_id
-          AND p2.unidade_id = p.unidade_id
-          AND p2.id < p.id
-      )
-  `) as { id: number; clin_care_id: string }[];
+    await garantirEstruturaProfessores();
 
-    for (const dup of duplicados) {
-        const principal = (await sql`
-      SELECT id
-      FROM professores
-      WHERE clin_care_id = ${dup.clin_care_id}
-      ORDER BY id ASC
-      LIMIT 1
-    `) as { id: number }[];
-
-        if (principal[0]?.id) {
-            await sql`
-        UPDATE agendamentos
-        SET professor_id = ${principal[0].id}
-        WHERE professor_id = ${dup.id}
-      `;
-        }
-
-        await sql`
-      DELETE FROM bloqueios_clincare
-      WHERE professor_id = ${dup.id}
+    await sql`
+        UPDATE agendamentos a
+        SET professor_id = keep.min_id
+        FROM professores p
+        JOIN (
+            SELECT clin_care_id, MIN(id) AS min_id
+            FROM professores
+            WHERE clin_care_id IS NOT NULL
+            GROUP BY clin_care_id
+        ) keep ON keep.clin_care_id = p.clin_care_id
+        WHERE a.professor_id = p.id
+          AND p.id <> keep.min_id
     `;
-        await sql`
-      DELETE FROM professores
-      WHERE id = ${dup.id}
+
+    await sql`
+        DELETE FROM bloqueios_clincare
+        WHERE professor_id IN (
+            SELECT p.id
+            FROM professores p
+            WHERE p.clin_care_id IS NOT NULL
+              AND p.id NOT IN (
+                  SELECT MIN(id)
+                  FROM professores
+                  WHERE clin_care_id IS NOT NULL
+                  GROUP BY clin_care_id
+              )
+        )
     `;
-    }
+
+    await sql`
+        DELETE FROM professores
+        WHERE clin_care_id IS NOT NULL
+          AND id NOT IN (
+              SELECT MIN(id)
+              FROM professores
+              WHERE clin_care_id IS NOT NULL
+              GROUP BY clin_care_id
+          )
+    `;
 }
 
 async function carregarDadosAgrupados() {
-    await garantirColunas();
-
     const unidades = await sql`
-    SELECT id, nome
-    FROM unidades
-    WHERE ativa = true
-    ORDER BY id ASC
-  `;
+        SELECT id, nome
+        FROM unidades
+        WHERE ativa = true
+        ORDER BY id ASC
+    `;
 
     const rows = (await sql`
-    SELECT
-      id,
-      nome,
-      clin_care_id,
-      unidade_id,
-      materias,
-      COALESCE(materias_series, '{}'::jsonb) AS materias_series,
-      COALESCE(manha_ativo, false) AS manha_ativo,
-      to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
-      to_char(manha_fim, 'HH24:MI') AS manha_fim,
-      COALESCE(to_char(hora_inicio, 'HH24:MI'), '14:10') AS hora_inicio,
-      COALESCE(to_char(hora_fim, 'HH24:MI'), '20:50') AS hora_fim,
-      ativo
-    FROM professores
-    ORDER BY nome ASC, id ASC
-  `) as ProfessorDbRow[];
+        SELECT
+            id,
+            nome,
+            clin_care_id,
+            unidade_id,
+            materias,
+            to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
+            to_char(hora_fim, 'HH24:MI') AS hora_fim,
+            ativo
+        FROM professores
+        ORDER BY nome ASC, id ASC
+    `) as ProfessorDbRow[];
 
     const mapa = new Map<
         string,
@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        await garantirColunas();
+        await garantirEstruturaProfessores();
         const body = await req.json();
         const acao = String(body?.acao || '');
 
@@ -195,31 +195,62 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            const baseRows = (await sql`
-        SELECT
-          id,
-          nome,
-          clin_care_id,
-          unidade_id,
-          materias,
-          COALESCE(materias_series, '{}'::jsonb) AS materias_series,
-          COALESCE(manha_ativo, false) AS manha_ativo,
-          to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
-          to_char(manha_fim, 'HH24:MI') AS manha_fim,
-          COALESCE(to_char(hora_inicio, 'HH24:MI'), '14:10') AS hora_inicio,
-          COALESCE(to_char(hora_fim, 'HH24:MI'), '20:50') AS hora_fim,
-          ativo
-        FROM professores
-        WHERE id = ANY(${registrosIds}::int[])
-        ORDER BY id ASC
-      `) as ProfessorDbRow[];
+            const iniciais = (await sql`
+                SELECT id, clin_care_id
+                FROM professores
+                WHERE id = ANY(${registrosIds}::int[])
+                ORDER BY id ASC
+            `) as { id: number; clin_care_id: string | null }[];
 
-            if (baseRows.length === 0) {
+            if (iniciais.length === 0) {
                 return NextResponse.json(
                     { error: 'Professor não encontrado.' },
                     { status: 404 }
                 );
             }
+
+            const clinCareId = iniciais.find((r) => r.clin_care_id)?.clin_care_id || null;
+
+            const baseRows = (
+                clinCareId
+                    ? await sql`
+                        SELECT
+                            id,
+                            nome,
+                            clin_care_id,
+                            unidade_id,
+                            materias,
+                            materias_series,
+                            manha_ativo,
+                            to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
+                            to_char(manha_fim, 'HH24:MI') AS manha_fim,
+                            to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
+                            to_char(hora_fim, 'HH24:MI') AS hora_fim,
+                            ativo
+                        FROM professores
+                        WHERE id = ANY(${registrosIds}::int[])
+                           OR clin_care_id = ${clinCareId}
+                        ORDER BY id ASC
+                    `
+                    : await sql`
+                        SELECT
+                            id,
+                            nome,
+                            clin_care_id,
+                            unidade_id,
+                            materias,
+                            materias_series,
+                            manha_ativo,
+                            to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
+                            to_char(manha_fim, 'HH24:MI') AS manha_fim,
+                            to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
+                            to_char(hora_fim, 'HH24:MI') AS hora_fim,
+                            ativo
+                        FROM professores
+                        WHERE id = ANY(${registrosIds}::int[])
+                        ORDER BY id ASC
+                    `
+            ) as ProfessorDbRow[];
 
             const modelo = baseRows[0];
             const materiasModelo =
@@ -227,60 +258,96 @@ export async function POST(req: NextRequest) {
                     ? modelo.materias
                     : ['Reforço Geral'];
             const materiasSeriesJson = JSON.stringify(modelo.materias_series || {});
+            const manhaAtivo = Boolean(modelo.manha_ativo);
+            const manhaInicio = modelo.manha_inicio || '08:00';
+            const manhaFim = modelo.manha_fim || '11:20';
+            const horaInicio = modelo.hora_inicio || '14:10';
+            const horaFim = modelo.hora_fim || '20:50';
 
-            const primeiraUnidade = unidadesIds[0];
-            await sql`
-        UPDATE professores
-        SET unidade_id = ${primeiraUnidade}
-        WHERE id = ${modelo.id}
-      `;
+            // 1. Mantém intactos os registros cuja unidade continua selecionada
+            const mantidosPorUnidade = new Map<number, ProfessorDbRow>();
+            const sobras: ProfessorDbRow[] = [];
 
-            const outrosIds = baseRows.slice(1).map((r) => r.id);
-            if (outrosIds.length > 0) {
-                await sql`
-          UPDATE agendamentos
-          SET professor_id = ${modelo.id}
-          WHERE professor_id = ANY(${outrosIds}::int[])
-        `;
-                await sql`
-          DELETE FROM bloqueios_clincare
-          WHERE professor_id = ANY(${outrosIds}::int[])
-        `;
-                await sql`
-          DELETE FROM professores
-          WHERE id = ANY(${outrosIds}::int[])
-        `;
+            for (const row of baseRows) {
+                if (
+                    unidadesIds.includes(row.unidade_id) &&
+                    !mantidosPorUnidade.has(row.unidade_id)
+                ) {
+                    mantidosPorUnidade.set(row.unidade_id, row);
+                } else {
+                    sobras.push(row);
+                }
             }
 
-            for (const extraUnidadeId of unidadesIds.slice(1)) {
+            // 2. Define qual ID sobreviverá para herdar aulas/agendamentos
+            const primeiroMantido = Array.from(mantidosPorUnidade.values())[0];
+            const idSobrevivente = primeiroMantido ? primeiroMantido.id : sobras[0].id;
+
+            // 3. Remove registros de unidades desmarcadas ANTES de atualizar/inserir
+            const idsParaExcluir = sobras
+                .map((r) => r.id)
+                .filter((id) => id !== idSobrevivente);
+
+            if (idsParaExcluir.length > 0) {
                 await sql`
-          INSERT INTO professores (
-            nome,
-            clin_care_id,
-            unidade_id,
-            materias,
-            materias_series,
-            manha_ativo,
-            manha_inicio,
-            manha_fim,
-            hora_inicio,
-            hora_fim,
-            ativo
-          )
-          VALUES (
-            ${modelo.nome},
-            ${modelo.clin_care_id},
-            ${extraUnidadeId},
-            ${materiasModelo}::text[],
-            ${materiasSeriesJson}::jsonb,
-            ${Boolean(modelo.manha_ativo)},
-            ${modelo.manha_ativo ? modelo.manha_inicio || '08:00' : null}::time,
-            ${modelo.manha_ativo ? modelo.manha_fim || '11:20' : null}::time,
-            ${modelo.hora_inicio || '14:10'}::time,
-            ${modelo.hora_fim || '20:50'}::time,
-            ${modelo.ativo}
-          )
-        `;
+                    UPDATE agendamentos
+                    SET professor_id = ${idSobrevivente}
+                    WHERE professor_id = ANY(${idsParaExcluir}::int[])
+                `;
+                await sql`
+                    DELETE FROM bloqueios_clincare
+                    WHERE professor_id = ANY(${idsParaExcluir}::int[])
+                `;
+                await sql`
+                    DELETE FROM professores
+                    WHERE id = ANY(${idsParaExcluir}::int[])
+                `;
+            }
+
+            // 4. Se nenhuma unidade antiga foi mantida, reaproveita o registro sobrevivente na primeira nova unidade
+            const unidadesFaltantes = unidadesIds.filter(
+                (uid) => !mantidosPorUnidade.has(uid)
+            );
+
+            if (!primeiroMantido && unidadesFaltantes.length > 0) {
+                const primeiraNovaUnidade = unidadesFaltantes.shift()!;
+                await sql`
+                    UPDATE professores
+                    SET unidade_id = ${primeiraNovaUnidade}
+                    WHERE id = ${idSobrevivente}
+                `;
+            }
+
+            // 5. Insere apenas as novas unidades adicionadas
+            for (const novaUnidadeId of unidadesFaltantes) {
+                await sql`
+                    INSERT INTO professores (
+                        nome,
+                        clin_care_id,
+                        unidade_id,
+                        materias,
+                        materias_series,
+                        manha_ativo,
+                        manha_inicio,
+                        manha_fim,
+                        hora_inicio,
+                        hora_fim,
+                        ativo
+                    )
+                    VALUES (
+                        ${modelo.nome},
+                        ${modelo.clin_care_id},
+                        ${novaUnidadeId},
+                        ${materiasModelo}::text[],
+                        ${materiasSeriesJson}::jsonb,
+                        ${manhaAtivo},
+                        ${manhaAtivo ? manhaInicio : null}::time,
+                        ${manhaAtivo ? manhaFim : null}::time,
+                        ${horaInicio}::time,
+                        ${horaFim}::time,
+                        ${modelo.ativo}
+                    )
+                `;
             }
 
             const dados = await carregarDadosAgrupados();
@@ -295,10 +362,10 @@ export async function POST(req: NextRequest) {
 
             if (registrosIds.length > 0) {
                 await sql`
-          UPDATE professores
-          SET ativo = ${ativo}
-          WHERE id = ANY(${registrosIds}::int[])
-        `;
+                    UPDATE professores
+                    SET ativo = ${ativo}
+                    WHERE id = ANY(${registrosIds}::int[])
+                `;
             }
 
             const dados = await carregarDadosAgrupados();
