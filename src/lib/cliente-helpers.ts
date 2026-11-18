@@ -70,13 +70,28 @@ export function professorAtendeMateriaNaSerie(
     );
 }
 
+export function isMateriaOcultaCliente(materia: string): boolean {
+    const normalizada = String(materia || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    return (
+        normalizada.startsWith('acompanhamento') ||
+        normalizada.startsWith('acompnhamento')
+    );
+}
+
 export function filtrarMateriasProfessorPorSerie(
     materias: string[],
     materiasSeries: MapaMateriasSeries | null | undefined,
     serieAluno: string | null | undefined
 ): string[] {
-    return (materias || []).filter((mat) =>
-        professorAtendeMateriaNaSerie(materiasSeries, mat, serieAluno)
+    return (materias || []).filter(
+        (mat) =>
+            !isMateriaOcultaCliente(mat) &&
+            professorAtendeMateriaNaSerie(materiasSeries, mat, serieAluno)
     );
 }
 

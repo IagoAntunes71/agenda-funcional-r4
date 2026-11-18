@@ -795,7 +795,7 @@ export default function PaginaAgendamentoReforco() {
     const matInicial =
         materiaFiltro !== 'todas'
             ? materiaFiltro
-            : prof.materias[0] || 'Acompanhamento Escolar';
+            : prof.materias[0] || 'Reforço Escolar';
     setMateriaAula(matInicial);
     setErroModal(null);
   }
