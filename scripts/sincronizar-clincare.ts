@@ -51,7 +51,7 @@ type ModoSync = 'hoje' | 'semana' | 'mes' | 'reservas';
 
 const HORA_INICIO_PADRAO = '14:10';
 const HORA_FIM_PADRAO = '20:50';
-const PACIENTE_RESERVADO_ID = 'a2bb7dbc-b80c-4f99-afe4-f39f7c728db7';
+const PACIENTE_RESERVADO_ID = '93b22ee6-1585-4826-9a86-ae5db20bd360';
 const PACIENTE_RESERVADO_NOME = 'RESERVADO APP';
 
 function obterConfiguracaoModo(): {
