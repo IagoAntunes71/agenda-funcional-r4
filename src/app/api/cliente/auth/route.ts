@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
+    AlunoClienteDTO,
     BLOQUEIO_PIN_MINUTOS,
     COOKIE_SESSAO_CLIENTE,
     DURACAO_SESSAO_CLIENTE_SEGUNDOS,
@@ -14,16 +15,83 @@ import {
     validarFormatoPin,
     verificarHashPin,
 } from '@/lib/cliente-auth';
+import { formatarTelefone } from '@/lib/cliente-helpers';
 
-function aplicarCookieSessao(res: NextResponse, telefoneNorm: string) {
+function responderAutenticado(
+    telefoneNorm: string,
+    responsavelNome: string,
+    alunos: AlunoClienteDTO[]
+) {
+    const resposta = NextResponse.json({
+        autenticado: true,
+        telefone: telefoneNorm,
+        responsavelNome,
+        alunos,
+        limiteSimultaneo: LIMITE_AGENDAMENTOS_SIMULTANEOS,
+    });
+
     const token = criarTokenSessaoCliente(telefoneNorm);
-    res.cookies.set(COOKIE_SESSAO_CLIENTE, token, {
+    resposta.cookies.set(COOKIE_SESSAO_CLIENTE, token, {
         httpOnly: true,
         sameSite: 'lax',
         secure: process.env.NODE_ENV === 'production',
         path: '/',
         maxAge: DURACAO_SESSAO_CLIENTE_SEGUNDOS,
     });
+
+    return resposta;
+}
+
+function validarNovoPinEConfirmacao(
+    pin: string,
+    confirmarPin: string
+): NextResponse | null {
+    if (!validarFormatoPin(pin)) {
+        return NextResponse.json(
+            { error: 'O PIN deve conter exatamente 4 números.' },
+            { status: 400 }
+        );
+    }
+
+    if (pin !== confirmarPin) {
+        return NextResponse.json(
+            { error: 'Os dois PINs digitados não conferem.' },
+            { status: 400 }
+        );
+    }
+
+    return null;
+}
+
+async function atualizarStatusPin(
+    variantes: string[],
+    dados: {
+        pinHash?: string;
+        tentativas?: number;
+        bloquearMinutos?: number;
+    }
+) {
+    if (dados.pinHash !== undefined) {
+        await Promise.all([
+            sql`UPDATE responsaveis SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE alunos SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+        ]);
+        return;
+    }
+
+    if (dados.bloquearMinutos !== undefined) {
+        await Promise.all([
+            sql`UPDATE responsaveis SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE alunos SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+        ]);
+        return;
+    }
+
+    const tentativas = dados.tentativas ?? 0;
+    await Promise.all([
+        sql`UPDATE responsaveis SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+        sql`UPDATE alunos SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+    ]);
 }
 
 export async function POST(req: NextRequest) {
@@ -78,7 +146,159 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // PASSO 2: Primeiro acesso — cria e grava o PIN de 4 dígitos
+        // PASSO 1B: Primeiro cadastro completo (responsável + 1º aluno + PIN)
+        if (acao === 'cadastrar_conta') {
+            if (familia.responsavelId || familia.alunos.length > 0) {
+                return NextResponse.json(
+                    {
+                        error:
+                            'Este número de WhatsApp já possui cadastro. Informe seu PIN para continuar.',
+                        status: familia.temPin ? 'exige_pin' : 'criar_pin',
+                    },
+                    { status: 409 }
+                );
+            }
+
+            const responsavelNome = String(body?.responsavelNome || '').trim();
+            const nomeAluno = String(body?.nomeAluno || '').trim();
+            const colegioOpcao = String(body?.colegioOpcao || '').trim();
+            const colegioOutroNome = String(body?.colegioOutroNome || '').trim();
+            const serie = String(body?.serie || '').trim();
+            const pin = String(body?.pin || '').trim();
+            const confirmarPin = String(body?.confirmarPin || '').trim();
+
+            if (responsavelNome.length < 2) {
+                return NextResponse.json(
+                    { error: 'Informe o nome completo do responsável.' },
+                    { status: 400 }
+                );
+            }
+
+            if (nomeAluno.length < 2) {
+                return NextResponse.json(
+                    { error: 'Informe o nome completo do(a) aluno(a).' },
+                    { status: 400 }
+                );
+            }
+
+            if (!serie) {
+                return NextResponse.json(
+                    { error: 'Selecione a série / ano do aluno.' },
+                    { status: 400 }
+                );
+            }
+
+            let colegioId: number | null = null;
+            let colegioNome = '';
+
+            if (colegioOpcao === 'outros') {
+                if (colegioOutroNome.length < 2) {
+                    return NextResponse.json(
+                        { error: 'Informe o nome do colégio do aluno.' },
+                        { status: 400 }
+                    );
+                }
+                colegioNome = colegioOutroNome;
+            } else {
+                const idNumerico = Number(colegioOpcao);
+                if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
+                    return NextResponse.json(
+                        { error: 'Selecione um colégio válido.' },
+                        { status: 400 }
+                    );
+                }
+
+                const colRows = (await sql`
+          SELECT id, nome
+          FROM colegios
+          WHERE id = ${idNumerico}
+          LIMIT 1
+        `) as { id: number; nome: string }[];
+
+                if (colRows.length === 0) {
+                    return NextResponse.json(
+                        { error: 'Colégio selecionado não encontrado.' },
+                        { status: 400 }
+                    );
+                }
+
+                colegioId = colRows[0].id;
+                colegioNome = colRows[0].nome;
+            }
+
+            const erroPin = validarNovoPinEConfirmacao(pin, confirmarPin);
+            if (erroPin) return erroPin;
+
+            const pinHash = gerarHashPin(pin);
+            const telefoneFormatado = formatarTelefone(telefoneNorm);
+
+            const novoResp = (await sql`
+        INSERT INTO responsaveis (
+          telefone,
+          telefone_formatado,
+          nome,
+          pin_hash,
+          pin_tentativas,
+          pin_bloqueado_ate,
+          criado_em,
+          atualizado_em
+        )
+        VALUES (
+          ${telefoneNorm},
+          ${telefoneFormatado},
+          ${responsavelNome},
+          ${pinHash},
+          0,
+          NULL,
+          now(),
+          now()
+        )
+        RETURNING id
+      `) as { id: number }[];
+
+            const responsavelId = novoResp[0].id;
+
+            await sql`
+        INSERT INTO alunos (
+          responsavel_id,
+          nome_aluno,
+          responsavel_nome,
+          telefone,
+          telefone_formatado,
+          colegio_id,
+          colegio_nome,
+          serie,
+          ativo,
+          pin_hash,
+          pin_tentativas,
+          pin_bloqueado_ate
+        )
+        VALUES (
+          ${responsavelId},
+          ${nomeAluno},
+          ${responsavelNome},
+          ${telefoneNorm},
+          ${telefoneFormatado},
+          ${colegioId},
+          ${colegioNome},
+          ${serie},
+          true,
+          ${pinHash},
+          0,
+          NULL
+        )
+      `;
+
+            const familiaAtualizada = await buscarFamiliaPorTelefone(telefoneNorm);
+
+            return responderAutenticado(
+                telefoneNorm,
+                responsavelNome,
+                familiaAtualizada.alunos
+            );
+        }
+
+        // PASSO 2: Primeiro acesso de cadastro já existente sem PIN
         if (acao === 'criar_pin') {
             if (!familia.responsavelId && familia.alunos.length === 0) {
                 return NextResponse.json(
@@ -100,60 +320,18 @@ export async function POST(req: NextRequest) {
             const pin = String(body?.pin || '').trim();
             const confirmarPin = String(body?.confirmarPin || '').trim();
 
-            if (!validarFormatoPin(pin)) {
-                return NextResponse.json(
-                    { error: 'O PIN deve conter exatamente 4 números.' },
-                    { status: 400 }
-                );
-            }
+            const erroPin = validarNovoPinEConfirmacao(pin, confirmarPin);
+            if (erroPin) return erroPin;
 
-            if (pin !== confirmarPin) {
-                return NextResponse.json(
-                    { error: 'Os dois PINs digitados não conferem.' },
-                    { status: 400 }
-                );
-            }
+            await atualizarStatusPin(variantes, { pinHash: gerarHashPin(pin) });
 
-            const pinHash = gerarHashPin(pin);
-
-            await sql`
-        UPDATE responsaveis
-        SET pin_hash = ${pinHash},
-            pin_tentativas = 0,
-            pin_bloqueado_ate = NULL,
-            atualizado_em = now()
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
-      `;
-
-            await sql`
-        UPDATE alunos
-        SET pin_hash = ${pinHash},
-            pin_tentativas = 0,
-            pin_bloqueado_ate = NULL
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
-      `;
-
-            const resposta = NextResponse.json({
-                autenticado: true,
-                telefone: telefoneNorm,
-                responsavelNome:
-                    familia.responsavelNome ||
-                    familia.alunos[0]?.responsavel_nome ||
-                    'Responsável',
-                alunos: familia.alunos,
-                limiteSimultaneo: LIMITE_AGENDAMENTOS_SIMULTANEOS,
-            });
-
-            aplicarCookieSessao(resposta, telefoneNorm);
-            return resposta;
+            return responderAutenticado(
+                telefoneNorm,
+                familia.responsavelNome ||
+                familia.alunos[0]?.responsavel_nome ||
+                'Responsável',
+                familia.alunos
+            );
         }
 
         // PASSO 3: Login recorrente — valida o PIN existente
@@ -176,34 +354,13 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            const pinValido = verificarHashPin(pin, familia.pinHash);
-
-            if (!pinValido) {
+            if (!verificarHashPin(pin, familia.pinHash)) {
                 const novasTentativas = familia.tentativas + 1;
 
                 if (novasTentativas >= MAX_TENTATIVAS_PIN) {
-                    await sql`
-            UPDATE responsaveis
-            SET pin_tentativas = 0,
-                pin_bloqueado_ate = now() + (${BLOQUEIO_PIN_MINUTOS} || ' minutes')::interval,
-                atualizado_em = now()
-            WHERE regexp_replace(
-              regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-              '^55(?=\d{10,11}$)',
-              ''
-            ) = ANY(${variantes}::text[])
-          `;
-
-                    await sql`
-            UPDATE alunos
-            SET pin_tentativas = 0,
-                pin_bloqueado_ate = now() + (${BLOQUEIO_PIN_MINUTOS} || ' minutes')::interval
-            WHERE regexp_replace(
-              regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-              '^55(?=\d{10,11}$)',
-              ''
-            ) = ANY(${variantes}::text[])
-          `;
+                    await atualizarStatusPin(variantes, {
+                        bloquearMinutos: BLOQUEIO_PIN_MINUTOS,
+                    });
 
                     return NextResponse.json(
                         {
@@ -214,26 +371,7 @@ export async function POST(req: NextRequest) {
                     );
                 }
 
-                await sql`
-          UPDATE responsaveis
-          SET pin_tentativas = ${novasTentativas},
-              atualizado_em = now()
-          WHERE regexp_replace(
-            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-            '^55(?=\d{10,11}$)',
-            ''
-          ) = ANY(${variantes}::text[])
-        `;
-
-                await sql`
-          UPDATE alunos
-          SET pin_tentativas = ${novasTentativas}
-          WHERE regexp_replace(
-            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-            '^55(?=\d{10,11}$)',
-            ''
-          ) = ANY(${variantes}::text[])
-        `;
+                await atualizarStatusPin(variantes, { tentativas: novasTentativas });
 
                 const restantes = MAX_TENTATIVAS_PIN - novasTentativas;
                 return NextResponse.json(
@@ -244,42 +382,15 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            await sql`
-        UPDATE responsaveis
-        SET pin_tentativas = 0,
-            pin_bloqueado_ate = NULL,
-            atualizado_em = now()
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
-      `;
+            await atualizarStatusPin(variantes, { tentativas: 0 });
 
-            await sql`
-        UPDATE alunos
-        SET pin_tentativas = 0,
-            pin_bloqueado_ate = NULL
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
-      `;
-
-            const resposta = NextResponse.json({
-                autenticado: true,
-                telefone: telefoneNorm,
-                responsavelNome:
-                    familia.responsavelNome ||
-                    familia.alunos[0]?.responsavel_nome ||
-                    'Responsável',
-                alunos: familia.alunos,
-                limiteSimultaneo: LIMITE_AGENDAMENTOS_SIMULTANEOS,
-            });
-
-            aplicarCookieSessao(resposta, telefoneNorm);
-            return resposta;
+            return responderAutenticado(
+                telefoneNorm,
+                familia.responsavelNome ||
+                familia.alunos[0]?.responsavel_nome ||
+                'Responsável',
+                familia.alunos
+            );
         }
 
         return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });
