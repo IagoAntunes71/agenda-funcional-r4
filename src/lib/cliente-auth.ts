@@ -20,6 +20,11 @@ const SEGREDO_SESSAO =
     process.env.ADMIN_PASSWORD ||
     'r4-ensina-chave-sessao-cliente-2026';
 
+declare global {
+    // eslint-disable-next-line no-var
+    var __r4ContasResponsaveisPromise: Promise<void> | undefined;
+}
+
 export function validarFormatoPin(pin: string): boolean {
     return /^\d{4}$/.test(String(pin || '').trim());
 }
@@ -91,13 +96,15 @@ export async function lerSessaoCliente(): Promise<{ telefone: string } | null> {
 }
 
 export async function garantirColunasSegurancaAlunos() {
-    await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`;
-    await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS pin_hash TEXT`;
-    await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS pin_tentativas INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS pin_bloqueado_ate TIMESTAMPTZ`;
+    await Promise.all([
+        sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS responsavel_nome TEXT`,
+        sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS pin_hash TEXT`,
+        sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS pin_tentativas INTEGER DEFAULT 0`,
+        sql`ALTER TABLE alunos ADD COLUMN IF NOT EXISTS pin_bloqueado_ate TIMESTAMPTZ`,
+    ]);
 }
 
-export async function garantirEstruturaContasResponsaveis() {
+async function executarMigracaoContasResponsaveis() {
     await garantirColunasSegurancaAlunos();
 
     await sql`
@@ -116,19 +123,20 @@ export async function garantirEstruturaContasResponsaveis() {
     )
   `;
 
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS telefone_formatado TEXT`;
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS nome TEXT NOT NULL DEFAULT 'Responsável'`;
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS pin_hash TEXT`;
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS pin_tentativas INTEGER NOT NULL DEFAULT 0`;
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS pin_bloqueado_ate TIMESTAMPTZ`;
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS conflito_migracao BOOLEAN NOT NULL DEFAULT false`;
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS conflito_detalhes TEXT`;
-    await sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()`;
-
-    await sql`
-    ALTER TABLE alunos
-    ADD COLUMN IF NOT EXISTS responsavel_id INT REFERENCES responsaveis(id) ON DELETE SET NULL
-  `;
+    await Promise.all([
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS telefone_formatado TEXT`,
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS nome TEXT NOT NULL DEFAULT 'Responsável'`,
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS pin_hash TEXT`,
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS pin_tentativas INTEGER NOT NULL DEFAULT 0`,
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS pin_bloqueado_ate TIMESTAMPTZ`,
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS conflito_migracao BOOLEAN NOT NULL DEFAULT false`,
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS conflito_detalhes TEXT`,
+        sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()`,
+        sql`
+      ALTER TABLE alunos
+      ADD COLUMN IF NOT EXISTS responsavel_id INT REFERENCES responsaveis(id) ON DELETE SET NULL
+    `,
+    ]);
 
     // 1. Vincula alunos antigos que ainda não têm responsavel_id
     const alunosSemConta = (await sql`
@@ -320,6 +328,17 @@ export async function garantirEstruturaContasResponsaveis() {
       `;
         }
     }
+}
+
+export function garantirEstruturaContasResponsaveis(): Promise<void> {
+    if (!globalThis.__r4ContasResponsaveisPromise) {
+        globalThis.__r4ContasResponsaveisPromise =
+            executarMigracaoContasResponsaveis().catch((err) => {
+                globalThis.__r4ContasResponsaveisPromise = undefined;
+                throw err;
+            });
+    }
+    return globalThis.__r4ContasResponsaveisPromise;
 }
 
 export interface AlunoClienteDTO {

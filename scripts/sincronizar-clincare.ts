@@ -2612,7 +2612,10 @@ async function main() {
     }
 
     const sql = neon(databaseUrl);
-    await ajustarBancoSemSobrescreverTurnos(sql);
+
+    if (configModo.modo !== 'reservas') {
+        await ajustarBancoSemSobrescreverTurnos(sql);
+    }
 
     const unidades = (await sql`
     SELECT id, nome, clin_care_id
@@ -2635,6 +2638,15 @@ async function main() {
         locale: 'pt-BR',
         timezoneId: 'America/Bahia',
     });
+
+    await context.route('**/*', (route) => {
+        const tipo = route.request().resourceType();
+        if (tipo === 'image' || tipo === 'media') {
+            return route.abort();
+        }
+        return route.continue();
+    });
+
     const page = await context.newPage();
 
     try {
@@ -2667,111 +2679,139 @@ async function main() {
             timeout: 30000,
         });
         const agendaPage = await abrirMapaAgenda(context, page);
+        if (agendaPage !== page) {
+            await agendaPage.close().catch(() => null);
+        }
 
         for (const unidade of unidades) {
-            for (const dataISO of datasAlvo) {
-                const urlMapa = `${clinCareBaseUrl}/painel/mapa-agenda?date=${dataISO}&unitId=${unidade.clin_care_id}`;
+            const filaDatas = [...datasAlvo];
+            const numAbas = Math.min(3, filaDatas.length);
 
-                await agendaPage
-                    .goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 })
-                    .catch(() => null);
+            const workersMapa = Array.from({ length: numAbas }, async () => {
+                const workerPage = await context.newPage();
+                try {
+                    while (filaDatas.length > 0) {
+                        const dataISO = filaDatas.shift();
+                        if (!dataISO) break;
 
-                await agendaPage
-                    .locator('text=/^(08:00|14:00|14:10)$/')
-                    .first()
-                    .waitFor({ state: 'visible', timeout: 10000 })
-                    .catch(() => null);
+                        const urlMapa = `${clinCareBaseUrl}/painel/mapa-agenda?date=${dataISO}&unitId=${unidade.clin_care_id}`;
 
-                await aguardarEstabilizacaoModal(agendaPage, 950);
-                await selecionarUnidadeNoMapaSeNecessario(
-                    agendaPage,
-                    unidade.clin_care_id,
-                    unidade.nome
-                );
+                        await workerPage
+                            .goto(urlMapa, { waitUntil: 'domcontentloaded', timeout: 30000 })
+                            .catch(() => null);
 
-                const colunasTodas = new Set<string>();
-                const blocosMapa = new Map<string, BloqueioGrade>();
+                        await workerPage
+                            .locator('text=/^(08:00|14:00|14:10)$/')
+                            .first()
+                            .waitFor({ state: 'visible', timeout: 8000 })
+                            .catch(() => null);
 
-                for (let passo = 0; passo < 4; passo++) {
-                    const parcial = await extrairGradeVisivel(agendaPage);
-                    for (const nomeCol of parcial.colunasNomes) {
-                        colunasTodas.add(nomeCol);
-                    }
-                    for (const bl of parcial.blocos) {
-                        const chave = `${bl.nomeProfessorBruto}|${bl.horaInicio}|${bl.horaFim}`;
-                        if (!blocosMapa.has(chave)) {
-                            blocosMapa.set(chave, bl);
-                        }
-                    }
-
-                    const rolou = await agendaPage.evaluate(() => {
-                        const scrollables = Array.from(
-                            document.querySelectorAll('*')
-                        ).filter((el) => el.scrollWidth > el.clientWidth + 50);
-                        let moveu = false;
-                        for (const el of scrollables) {
-                            const antes = el.scrollLeft;
-                            el.scrollLeft += 1800;
-                            if (el.scrollLeft !== antes) moveu = true;
-                        }
-                        return moveu;
-                    });
-
-                    if (!rolou) break;
-                    await agendaPage.waitForTimeout(500);
-                }
-
-                const blocosColetados = Array.from(blocosMapa.values());
-
-                await sql`
-          DELETE FROM bloqueios_clincare
-          WHERE unidade_id = ${unidade.id}
-            AND data = ${dataISO}::date
-        `;
-
-                let gravados = 0;
-                for (const bl of blocosColetados) {
-                    if (/reservado\s*app/i.test(bl.motivo)) continue;
-
-                    const profMatch =
-                        professoresBanco.find(
-                            (p) =>
-                                p.unidade_id === unidade.id &&
-                                nomesCorrespondem(p.nome, bl.nomeProfessorBruto)
-                        ) ||
-                        professoresBanco.find((p) =>
-                            nomesCorrespondem(p.nome, bl.nomeProfessorBruto)
+                        await aguardarEstabilizacaoModal(workerPage, 500);
+                        await selecionarUnidadeNoMapaSeNecessario(
+                            workerPage,
+                            unidade.clin_care_id,
+                            unidade.nome
                         );
 
-                    if (!profMatch) continue;
+                        const blocosMapa = new Map<string, BloqueioGrade>();
 
-                    await sql`
-            INSERT INTO bloqueios_clincare (
-              professor_id,
-              unidade_id,
-              data,
-              hora_inicio,
-              hora_fim,
-              motivo,
-              atualizado_em
-            )
-            VALUES (
-              ${profMatch.id},
-              ${unidade.id},
-              ${dataISO}::date,
-              ${bl.horaInicio}::time,
-              ${bl.horaFim}::time,
-              ${bl.motivo},
-              now()
-            )
-          `;
-                    gravados++;
+                        for (let passo = 0; passo < 4; passo++) {
+                            const parcial = await extrairGradeVisivel(workerPage);
+                            for (const bl of parcial.blocos) {
+                                const chave = `${bl.nomeProfessorBruto}|${bl.horaInicio}|${bl.horaFim}`;
+                                if (!blocosMapa.has(chave)) {
+                                    blocosMapa.set(chave, bl);
+                                }
+                            }
+
+                            const rolou = await workerPage.evaluate(() => {
+                                const scrollables = Array.from(
+                                    document.querySelectorAll('*')
+                                ).filter((el) => el.scrollWidth > el.clientWidth + 50);
+                                let moveu = false;
+                                for (const el of scrollables) {
+                                    const antes = el.scrollLeft;
+                                    el.scrollLeft += 1800;
+                                    if (el.scrollLeft !== antes) moveu = true;
+                                }
+                                return moveu;
+                            });
+
+                            if (!rolou) break;
+                            await workerPage.waitForTimeout(300);
+                        }
+
+                        const blocosColetados = Array.from(blocosMapa.values());
+                        const registros: {
+                            professor_id: number;
+                            hora_inicio: string;
+                            hora_fim: string;
+                            motivo: string;
+                        }[] = [];
+
+                        for (const bl of blocosColetados) {
+                            if (/reservado\s*app/i.test(bl.motivo)) continue;
+
+                            const profMatch =
+                                professoresBanco.find(
+                                    (p) =>
+                                        p.unidade_id === unidade.id &&
+                                        nomesCorrespondem(p.nome, bl.nomeProfessorBruto)
+                                ) ||
+                                professoresBanco.find((p) =>
+                                    nomesCorrespondem(p.nome, bl.nomeProfessorBruto)
+                                );
+
+                            if (!profMatch) continue;
+
+                            registros.push({
+                                professor_id: profMatch.id,
+                                hora_inicio: bl.horaInicio,
+                                hora_fim: bl.horaFim,
+                                motivo: bl.motivo,
+                            });
+                        }
+
+                        await sql`
+              DELETE FROM bloqueios_clincare
+              WHERE unidade_id = ${unidade.id}
+                AND data = ${dataISO}::date
+            `;
+
+                        if (registros.length > 0) {
+                            await sql`
+                INSERT INTO bloqueios_clincare (
+                  professor_id,
+                  unidade_id,
+                  data,
+                  hora_inicio,
+                  hora_fim,
+                  motivo,
+                  atualizado_em
+                )
+                SELECT
+                  r.professor_id,
+                  ${unidade.id},
+                  ${dataISO}::date,
+                  r.hora_inicio::time,
+                  r.hora_fim::time,
+                  r.motivo,
+                  now()
+                FROM jsonb_to_recordset(${JSON.stringify(registros)}::jsonb)
+                  AS r(professor_id int, hora_inicio text, hora_fim text, motivo text)
+              `;
+                        }
+
+                        console.log(
+                            `[SYNC ${configModo.modo.toUpperCase()}] ${unidade.nome} (${dataISO}): ${blocosColetados.length} lido(s), ${registros.length} gravado(s).`
+                        );
+                    }
+                } finally {
+                    await workerPage.close().catch(() => null);
                 }
+            });
 
-                console.log(
-                    `[SYNC ${configModo.modo.toUpperCase()}] ${unidade.nome} (${dataISO}): ${blocosColetados.length} lido(s), ${gravados} gravado(s).`
-                );
-            }
+            await Promise.all(workersMapa);
         }
     } finally {
         await browser.close();

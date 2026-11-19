@@ -1,9 +1,24 @@
 import { sql } from '@/lib/db';
 
-export async function garantirColunasFilaReserva(): Promise<void> {
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reserva_status TEXT DEFAULT 'pendente'`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reserva_erro TEXT`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reservado_em TIMESTAMPTZ`;
+declare global {
+    // eslint-disable-next-line no-var
+    var __r4ColunasFilaPromise: Promise<void> | undefined;
+}
+
+export function garantirColunasFilaReserva(): Promise<void> {
+    if (!globalThis.__r4ColunasFilaPromise) {
+        globalThis.__r4ColunasFilaPromise = Promise.all([
+            sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reserva_status TEXT DEFAULT 'pendente'`,
+            sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reserva_erro TEXT`,
+            sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reservado_em TIMESTAMPTZ`,
+        ])
+            .then(() => undefined)
+            .catch((err) => {
+                globalThis.__r4ColunasFilaPromise = undefined;
+                throw err;
+            });
+    }
+    return globalThis.__r4ColunasFilaPromise;
 }
 
 export async function dispararRoboReservaClinCare(

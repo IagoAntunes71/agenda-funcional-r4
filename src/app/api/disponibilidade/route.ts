@@ -31,24 +31,38 @@ interface BloqueioRow extends IntervaloOcupado {
     clin_care_id: string | null;
 }
 
-async function garantirEstruturaBanco() {
-    await sql`
-    CREATE TABLE IF NOT EXISTS bloqueios_clincare (
-      id SERIAL PRIMARY KEY,
-      professor_id INT NOT NULL,
-      unidade_id INT NOT NULL,
-      data DATE NOT NULL,
-      hora_inicio TIME NOT NULL,
-      hora_fim TIME NOT NULL,
-      motivo TEXT,
-      atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
+declare global {
+    // eslint-disable-next-line no-var
+    var __r4DispSchemaPromise: Promise<void> | undefined;
+}
 
-    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
-    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
-    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
-    await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
+function garantirEstruturaBanco(): Promise<void> {
+    if (!globalThis.__r4DispSchemaPromise) {
+        globalThis.__r4DispSchemaPromise = Promise.all([
+            sql`
+        CREATE TABLE IF NOT EXISTS bloqueios_clincare (
+          id SERIAL PRIMARY KEY,
+          professor_id INT NOT NULL,
+          unidade_id INT NOT NULL,
+          data DATE NOT NULL,
+          hora_inicio TIME NOT NULL,
+          hora_fim TIME NOT NULL,
+          motivo TEXT,
+          atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `,
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`,
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`,
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`,
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`,
+        ])
+            .then(() => undefined)
+            .catch((err) => {
+                globalThis.__r4DispSchemaPromise = undefined;
+                throw err;
+            });
+    }
+    return globalThis.__r4DispSchemaPromise;
 }
 
 export async function GET(req: NextRequest) {

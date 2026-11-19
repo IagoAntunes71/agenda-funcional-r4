@@ -21,11 +21,23 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Instalar dependências
-        run: npm ci
+      - name: Cache do navegador Playwright
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Instalar Chromium do Playwright
+      - name: Instalar dependências
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Instalar Chromium (somente se não estiver em cache)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium --with-deps
+
+      - name: Instalar libs de sistema do Chromium (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Processar fila de reservas no clin.care
         env:

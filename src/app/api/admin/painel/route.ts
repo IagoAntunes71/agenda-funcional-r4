@@ -18,13 +18,15 @@ export async function GET() {
         const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
 
         await garantirEstruturaContasResponsaveis();
-        await garantirColunasFilaReserva();
-        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
-        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
-        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
-        await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
-        await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`;
+        await Promise.all([
+            garantirColunasFilaReserva(),
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`,
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`,
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`,
+            sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`,
+            sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`,
+            sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`,
+        ]);
 
         const [
             unidades,
