@@ -32,6 +32,7 @@ import {
     X,
     XCircle,
 } from 'lucide-react';
+import AdminWhatsApp from '@/components/AdminWhatsApp';
 import LogoR4 from '@/components/LogoR4';
 import {
     ModoChaveMestra,
@@ -701,6 +702,12 @@ export default function PainelAdmin({
             subtitulo: 'IDs e matriz de profs',
             icone: <Building2 className="w-4 h-4" />,
         },
+        {
+            id: 'whatsapp',
+            rotulo: 'WhatsApp / Webhook',
+            subtitulo: 'Avisos e integração CRM',
+            icone: <MessageCircle className="w-4 h-4" />,
+        },
     ];
 
     const metaAbaAtual: Record<AbaAdmin, { titulo: string }> = {
@@ -711,6 +718,7 @@ export default function PainelAdmin({
         datas: { titulo: 'Bloquear ou Liberar Datas' },
         professores: { titulo: 'Equipe de Professores' },
         unidades: { titulo: 'Unidades & Distribuição' },
+        whatsapp: { titulo: 'WhatsApp & Webhook CRM' },
     };
 
     const colegiosUnicos = Array.from(
@@ -1853,6 +1861,8 @@ export default function PainelAdmin({
                             onRecarregarDados={carregarDados}
                         />
                     )}
+
+                    {aba === 'whatsapp' && <AdminWhatsApp />}
                 </div>
             </div>
 

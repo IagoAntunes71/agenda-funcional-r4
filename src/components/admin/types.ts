@@ -112,7 +112,8 @@ export type AbaAdmin =
     | 'textos'
     | 'datas'
     | 'professores'
-    | 'unidades';
+    | 'unidades'
+    | 'whatsapp';
 
 export interface TemaClasses {
     clsCard: string;
