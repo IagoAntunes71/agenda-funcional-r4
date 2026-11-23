@@ -96,7 +96,8 @@ type EtapaLoginCliente =
     | 'telefone'
     | 'exige_pin'
     | 'criar_pin'
-    | 'novo_cadastro';
+    | 'novo_cadastro'
+    | 'recuperar_pin';;
 
 function formatarDiaSemana(isoDate: string): string {
   const [ano, mes, dia] = isoDate.split('-').map(Number);
@@ -121,12 +122,43 @@ export default function PaginaAgendamentoReforco() {
   const [confirmarPinInput, setConfirmarPinInput] = useState<string>('');
   const [limiteSimultaneo, setLimiteSimultaneo] = useState<number>(2);
 
+  const [exigeVerificacaoCadastro, setExigeVerificacaoCadastro] =
+      useState<boolean>(false);
+  const [codigoVerificacaoCadastro, setCodigoVerificacaoCadastro] =
+      useState<string>('');
+  const [codigoCadastroEnviado, setCodigoCadastroEnviado] =
+      useState<boolean>(false);
+  const [enviandoCodigoCadastro, setEnviandoCodigoCadastro] =
+      useState<boolean>(false);
+  const [avisoCodigoCadastro, setAvisoCodigoCadastro] = useState<string | null>(
+      null
+  );
+
+  const [codigoRecuperacaoPin, setCodigoRecuperacaoPin] = useState<string>('');
+  const [novoPinRecuperacao, setNovoPinRecuperacao] = useState<string>('');
+  const [confirmarNovoPinRecuperacao, setConfirmarNovoPinRecuperacao] =
+      useState<string>('');
+  const [enviandoRecuperacaoPin, setEnviandoRecuperacaoPin] =
+      useState<boolean>(false);
+  const [avisoRecuperacaoPin, setAvisoRecuperacaoPin] = useState<string | null>(
+      null
+  );
+  const [cooldownOtpSegundos, setCooldownOtpSegundos] = useState<number>(0);
+
   const [responsavelInput, setResponsavelInput] = useState<string>('');
   const [responsavelConfirmado, setResponsavelConfirmado] = useState<string>('');
   const [telefoneInput, setTelefoneInput] = useState<string>('');
   const [telefoneConfirmado, setTelefoneConfirmado] = useState<string>('');
   const [buscandoCliente, setBuscandoCliente] = useState<boolean>(true);
   const [erroCliente, setErroCliente] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (cooldownOtpSegundos <= 0) return;
+    const timer = window.setInterval(() => {
+      setCooldownOtpSegundos((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldownOtpSegundos]);
 
   const [alunos, setAlunos] = useState<AlunoCadastrado[]>([]);
   const [alunoSelecionadoId, setAlunoSelecionadoId] = useState<number>(0);
@@ -426,12 +458,20 @@ export default function PaginaAgendamentoReforco() {
       setTelefoneInput(formatarTelefone(tel));
       setPinInput('');
       setConfirmarPinInput('');
+      setCodigoVerificacaoCadastro('');
+      setCodigoCadastroEnviado(false);
+      setAvisoCodigoCadastro(null);
+      setCodigoRecuperacaoPin('');
+      setNovoPinRecuperacao('');
+      setConfirmarNovoPinRecuperacao('');
+      setAvisoRecuperacaoPin(null);
 
       if (json.status === 'exige_pin') {
         setEtapaLogin('exige_pin');
       } else if (json.status === 'criar_pin') {
         setEtapaLogin('criar_pin');
       } else {
+        setExigeVerificacaoCadastro(Boolean(json.exigeVerificacaoCadastro));
         setEtapaLogin('novo_cadastro');
       }
     } catch {
@@ -528,6 +568,56 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
+  async function handleEnviarCodigoCadastro() {
+    if (!telefonePendente || enviandoCodigoCadastro || cooldownOtpSegundos > 0) {
+      return;
+    }
+
+    setEnviandoCodigoCadastro(true);
+    setErroCliente(null);
+    setAvisoCodigoCadastro(null);
+
+    try {
+      const res = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'enviar_codigo_cadastro',
+          telefone: telefonePendente,
+        }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        if (json.aguardarSegundos) {
+          setCooldownOtpSegundos(Number(json.aguardarSegundos));
+        }
+        setErroCliente(
+            json.error || 'Não foi possível enviar o código via WhatsApp.'
+        );
+        return;
+      }
+
+      if (json.verificacaoDispensada) {
+        setExigeVerificacaoCadastro(false);
+        setAvisoCodigoCadastro('Verificação dispensada. Pode concluir o cadastro.');
+        return;
+      }
+
+      setCodigoCadastroEnviado(true);
+      setCooldownOtpSegundos(Number(json.cooldownSegundos || 60));
+      setAvisoCodigoCadastro(
+          `Código de 6 dígitos enviado para ${formatarTelefone(
+              telefonePendente
+          )} (válido por ${json.expiraMinutos || 10} min).`
+      );
+    } catch {
+      setErroCliente('Falha de conexão ao enviar o código de verificação.');
+    } finally {
+      setEnviandoCodigoCadastro(false);
+    }
+  }
+
   async function handleFinalizarNovoCadastro(e: React.FormEvent) {
     e.preventDefault();
     const nomeResp = responsavelInput.trim();
@@ -549,6 +639,12 @@ export default function PaginaAgendamentoReforco() {
       setErroCliente('Os dois PINs digitados não conferem.');
       return;
     }
+    if (exigeVerificacaoCadastro && codigoVerificacaoCadastro.length !== 6) {
+      setErroCliente(
+          'Solicite e digite o código de 6 dígitos enviado no seu WhatsApp.'
+      );
+      return;
+    }
 
     setBuscandoCliente(true);
     setErroCliente(null);
@@ -567,11 +663,15 @@ export default function PaginaAgendamentoReforco() {
           serie: serieAluno,
           pin: pinInput,
           confirmarPin: confirmarPinInput,
+          codigoVerificacao: codigoVerificacaoCadastro,
         }),
       });
       const jsonConta = await resConta.json();
 
       if (!resConta.ok) {
+        if (jsonConta.exigeCodigoVerificacao) {
+          setExigeVerificacaoCadastro(true);
+        }
         if (resConta.status === 409 && jsonConta.status) {
           setPinInput('');
           setConfirmarPinInput('');
@@ -589,10 +689,117 @@ export default function PaginaAgendamentoReforco() {
       setColegioOutroNome('');
       setPinInput('');
       setConfirmarPinInput('');
+      setCodigoVerificacaoCadastro('');
+      setCodigoCadastroEnviado(false);
+      setAvisoCodigoCadastro(null);
 
       await carregarDadosFamiliaAutenticada(telefonePendente);
     } catch {
       setErroCliente('Erro de rede ao concluir cadastro.');
+    } finally {
+      setBuscandoCliente(false);
+    }
+  }
+
+  async function handleSolicitarRecuperacaoPin() {
+    if (!telefonePendente || enviandoRecuperacaoPin) return;
+
+    setErroCliente(null);
+    setAvisoRecuperacaoPin(null);
+    setCodigoRecuperacaoPin('');
+    setNovoPinRecuperacao('');
+    setConfirmarNovoPinRecuperacao('');
+    setEtapaLogin('recuperar_pin');
+
+    if (cooldownOtpSegundos > 0) return;
+
+    setEnviandoRecuperacaoPin(true);
+    try {
+      const res = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'solicitar_recuperacao_pin',
+          telefone: telefonePendente,
+        }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        if (json.aguardarSegundos) {
+          setCooldownOtpSegundos(Number(json.aguardarSegundos));
+        }
+        setErroCliente(
+            json.error || 'Não foi possível enviar o código de recuperação.'
+        );
+        return;
+      }
+
+      setCooldownOtpSegundos(Number(json.cooldownSegundos || 60));
+      setAvisoRecuperacaoPin(
+          `Enviamos um código de 6 dígitos para o WhatsApp ${formatarTelefone(
+              telefonePendente
+          )} (válido por ${json.expiraMinutos || 10} min).`
+      );
+    } catch {
+      setErroCliente('Erro de conexão ao solicitar código pelo WhatsApp.');
+    } finally {
+      setEnviandoRecuperacaoPin(false);
+    }
+  }
+
+  async function handleRedefinirPinComCodigo(e: React.FormEvent) {
+    e.preventDefault();
+    if (codigoRecuperacaoPin.length !== 6) {
+      setErroCliente('Digite o código de 6 dígitos enviado no WhatsApp.');
+      return;
+    }
+    if (
+        novoPinRecuperacao.length !== 4 ||
+        confirmarNovoPinRecuperacao.length !== 4
+    ) {
+      setErroCliente('O novo PIN deve ter exatamente 4 números.');
+      return;
+    }
+    if (novoPinRecuperacao !== confirmarNovoPinRecuperacao) {
+      setErroCliente('Os dois PINs digitados não conferem.');
+      return;
+    }
+
+    setBuscandoCliente(true);
+    setErroCliente(null);
+
+    try {
+      const res = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'redefinir_pin_codigo',
+          telefone: telefonePendente,
+          codigo: codigoRecuperacaoPin,
+          pin: novoPinRecuperacao,
+          confirmarPin: confirmarNovoPinRecuperacao,
+        }),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setErroCliente(json.error || 'Não foi possível redefinir o PIN.');
+        return;
+      }
+
+      if (json.limiteSimultaneo) {
+        setLimiteSimultaneo(Number(json.limiteSimultaneo));
+      }
+
+      setCodigoRecuperacaoPin('');
+      setNovoPinRecuperacao('');
+      setConfirmarNovoPinRecuperacao('');
+      setAvisoRecuperacaoPin(null);
+
+      await carregarDadosFamiliaAutenticada(telefonePendente);
+    } catch {
+      setErroCliente('Erro de conexão ao redefinir o PIN.');
     } finally {
       setBuscandoCliente(false);
     }
@@ -606,6 +813,13 @@ export default function PaginaAgendamentoReforco() {
     setEtapaLogin('telefone');
     setPinInput('');
     setConfirmarPinInput('');
+    setCodigoVerificacaoCadastro('');
+    setCodigoCadastroEnviado(false);
+    setAvisoCodigoCadastro(null);
+    setCodigoRecuperacaoPin('');
+    setNovoPinRecuperacao('');
+    setConfirmarNovoPinRecuperacao('');
+    setAvisoRecuperacaoPin(null);
     setAlunos([]);
     setProximasAulas([]);
     setAlunoSelecionadoId(0);
@@ -1136,10 +1350,171 @@ export default function PaginaAgendamentoReforco() {
                           </button>
                         </div>
 
-                        <p className={`text-[11px] text-center ${clsSubtexto}`}>
-                          Esqueceu seu PIN? Solicite o reset rápido à secretaria da R4
-                          Ensina.
+                        <div className="text-center pt-1">
+                          <button
+                              type="button"
+                              onClick={() => void handleSolicitarRecuperacaoPin()}
+                              disabled={enviandoRecuperacaoPin}
+                              className="text-xs font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
+                          >
+                            {enviandoRecuperacaoPin
+                                ? 'Enviando código...'
+                                : 'Esqueceu seu PIN? Receber código no WhatsApp'}
+                          </button>
+                        </div>
+                      </form>
+                    </>
+                )}
+
+                {etapaLogin === 'recuperar_pin' && (
+                    <>
+                      <div className="space-y-1">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                    <KeyRound className="w-3.5 h-3.5" /> Recuperação de PIN
+                  </span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
+                          Redefinir PIN via WhatsApp
+                        </h2>
+                        <p className={`text-sm ${clsSubtexto}`}>
+                          Número:{' '}
+                          <strong className={clsTitulo}>
+                            {formatarTelefone(telefonePendente)}
+                          </strong>
                         </p>
+                      </div>
+
+                      {avisoRecuperacaoPin && (
+                          <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-3.5 py-2.5 text-xs text-emerald-400">
+                            {avisoRecuperacaoPin}
+                          </div>
+                      )}
+
+                      <form
+                          onSubmit={handleRedefinirPinComCodigo}
+                          className="space-y-4"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label
+                                className={`block text-xs font-medium ${clsSubtexto}`}
+                            >
+                              Código de 6 dígitos (WhatsApp) *
+                            </label>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    void handleSolicitarRecuperacaoPin()
+                                }
+                                disabled={
+                                    enviandoRecuperacaoPin ||
+                                    cooldownOtpSegundos > 0
+                                }
+                                className="text-[11px] font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
+                            >
+                              {enviandoRecuperacaoPin
+                                  ? 'Enviando...'
+                                  : cooldownOtpSegundos > 0
+                                      ? `Reenviar em ${cooldownOtpSegundos}s`
+                                      : 'Reenviar código'}
+                            </button>
+                          </div>
+                          <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="\d{6}"
+                              maxLength={6}
+                              required
+                              autoFocus
+                              value={codigoRecuperacaoPin}
+                              onChange={(e) =>
+                                  setCodigoRecuperacaoPin(
+                                      e.target.value.replace(/\D/g, '').slice(0, 6)
+                                  )
+                              }
+                              placeholder="000000"
+                              className={`w-full rounded-xl border px-4 py-3 text-center text-xl font-bold tracking-[0.45em] focus:outline-none ${clsInput}`}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label
+                                className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                            >
+                              Novo PIN (4 dígitos) *
+                            </label>
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                pattern="\d{4}"
+                                maxLength={4}
+                                required
+                                value={novoPinRecuperacao}
+                                onChange={(e) =>
+                                    setNovoPinRecuperacao(
+                                        e.target.value.replace(/\D/g, '').slice(0, 4)
+                                    )
+                                }
+                                placeholder="••••"
+                                className={`w-full rounded-xl border px-3 py-3 text-center text-xl font-bold tracking-[0.5em] focus:outline-none ${clsInput}`}
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                                className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                            >
+                              Confirmar PIN *
+                            </label>
+                            <input
+                                type="password"
+                                inputMode="numeric"
+                                pattern="\d{4}"
+                                maxLength={4}
+                                required
+                                value={confirmarNovoPinRecuperacao}
+                                onChange={(e) =>
+                                    setConfirmarNovoPinRecuperacao(
+                                        e.target.value.replace(/\D/g, '').slice(0, 4)
+                                    )
+                                }
+                                placeholder="••••"
+                                className={`w-full rounded-xl border px-3 py-3 text-center text-xl font-bold tracking-[0.5em] focus:outline-none ${clsInput}`}
+                            />
+                          </div>
+                        </div>
+
+                        {erroCliente && (
+                            <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
+                              {erroCliente}
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-2.5">
+                          <button
+                              type="button"
+                              onClick={() => {
+                                setEtapaLogin('exige_pin');
+                                setErroCliente(null);
+                              }}
+                              className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
+                          >
+                            Voltar
+                          </button>
+                          <button
+                              type="submit"
+                              disabled={
+                                  buscandoCliente ||
+                                  codigoRecuperacaoPin.length < 6 ||
+                                  novoPinRecuperacao.length < 4
+                              }
+                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                          >
+                            {buscandoCliente
+                                ? 'Salvando...'
+                                : 'Salvar Novo PIN e Entrar'}
+                          </button>
+                        </div>
                       </form>
                     </>
                 )}
@@ -1399,6 +1774,61 @@ export default function PaginaAgendamentoReforco() {
                           </div>
                         </div>
 
+                        {exigeVerificacaoCadastro && (
+                            <div
+                                className={`border rounded-xl p-3.5 space-y-2.5 ${clsSubCard}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-[#1496A1]">
+                                  Confirme seu WhatsApp para finalizar:
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        void handleEnviarCodigoCadastro()
+                                    }
+                                    disabled={
+                                        enviandoCodigoCadastro ||
+                                        cooldownOtpSegundos > 0
+                                    }
+                                    className="px-3 py-1.5 rounded-lg bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-[11px] font-semibold text-white cursor-pointer shrink-0"
+                                >
+                                  {enviandoCodigoCadastro
+                                      ? 'Enviando...'
+                                      : cooldownOtpSegundos > 0
+                                          ? `Reenviar (${cooldownOtpSegundos}s)`
+                                          : codigoCadastroEnviado
+                                              ? 'Reenviar Código'
+                                              : 'Enviar Código WhatsApp'}
+                                </button>
+                              </div>
+
+                              {avisoCodigoCadastro && (
+                                  <p className="text-[11px] text-emerald-400">
+                                    {avisoCodigoCadastro}
+                                  </p>
+                              )}
+
+                              <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="\d{6}"
+                                  maxLength={6}
+                                  required
+                                  value={codigoVerificacaoCadastro}
+                                  onChange={(e) =>
+                                      setCodigoVerificacaoCadastro(
+                                          e.target.value
+                                              .replace(/\D/g, '')
+                                              .slice(0, 6)
+                                      )
+                                  }
+                                  placeholder="Código de 6 dígitos"
+                                  className={`w-full rounded-xl border px-3 py-2.5 text-center text-base font-bold tracking-[0.45em] focus:outline-none ${clsInput}`}
+                              />
+                            </div>
+                        )}
+
                         {erroCliente && (
                             <div className="rounded-xl border border-[#BE1E23]/40 bg-[#BE1E23]/15 px-3.5 py-2.5 text-xs text-rose-400">
                               {erroCliente}
@@ -1418,7 +1848,11 @@ export default function PaginaAgendamentoReforco() {
                           </button>
                           <button
                               type="submit"
-                              disabled={buscandoCliente}
+                              disabled={
+                                  buscandoCliente ||
+                                  (exigeVerificacaoCadastro &&
+                                      codigoVerificacaoCadastro.length !== 6)
+                              }
                               className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
                           >
                             {buscandoCliente

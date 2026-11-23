@@ -26,6 +26,7 @@ export interface ConfigWhatsApp {
     wame_ativo: boolean; // Opção 2: Botão gratuito wa.me na tela do cliente
     wame_numero: string;
     alerta_sonoro_ativo: boolean; // Opção 3: Alerta sonoro automático no /admin
+    verificar_cadastro_whatsapp: boolean; // Opção 4: Exigir código OTP no cadastro
 }
 
 export async function garantirTabelaConfigWhatsApp() {
@@ -42,6 +43,7 @@ export async function garantirTabelaConfigWhatsApp() {
       wame_ativo BOOLEAN NOT NULL DEFAULT false,
       wame_numero TEXT NOT NULL DEFAULT '',
       alerta_sonoro_ativo BOOLEAN NOT NULL DEFAULT true,
+      verificar_cadastro_whatsapp BOOLEAN NOT NULL DEFAULT true,
       atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
@@ -49,10 +51,11 @@ export async function garantirTabelaConfigWhatsApp() {
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_ativo BOOLEAN NOT NULL DEFAULT false`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_numero TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS alerta_sonoro_ativo BOOLEAN NOT NULL DEFAULT true`;
+    await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS verificar_cadastro_whatsapp BOOLEAN NOT NULL DEFAULT true`;
 
     await sql`
-    INSERT INTO config_whatsapp_grupo (id, ativo, wame_ativo, alerta_sonoro_ativo)
-    VALUES (1, false, false, true)
+    INSERT INTO config_whatsapp_grupo (id, ativo, wame_ativo, alerta_sonoro_ativo, verificar_cadastro_whatsapp)
+    VALUES (1, false, false, true, true)
     ON CONFLICT (id) DO NOTHING
   `;
 }
@@ -71,7 +74,8 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
       grupo_id,
       COALESCE(wame_ativo, false) AS wame_ativo,
       COALESCE(wame_numero, '') AS wame_numero,
-      COALESCE(alerta_sonoro_ativo, true) AS alerta_sonoro_ativo
+      COALESCE(alerta_sonoro_ativo, true) AS alerta_sonoro_ativo,
+      COALESCE(verificar_cadastro_whatsapp, true) AS verificar_cadastro_whatsapp
     FROM config_whatsapp_grupo
     WHERE id = 1
     LIMIT 1
@@ -103,6 +107,10 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
             dbCfg?.alerta_sonoro_ativo !== undefined
                 ? Boolean(dbCfg.alerta_sonoro_ativo)
                 : true,
+        verificar_cadastro_whatsapp:
+            dbCfg?.verificar_cadastro_whatsapp !== undefined
+                ? Boolean(dbCfg.verificar_cadastro_whatsapp)
+                : true,
     };
 }
 
@@ -126,13 +134,11 @@ function formatarDataComDia(isoDate: string): string {
     return `${dd}/${mm}/${ano} (${diaSem})`;
 }
 
-function formatarDestinoApi(destinoBruto: string): string {
+export function formatarDestinoApi(destinoBruto: string): string {
     const limpo = destinoBruto.trim();
-    // Se for ID de grupo (@g.us ou -group), mantém intacto
     if (limpo.includes('@') || limpo.includes('-group')) {
         return limpo;
     }
-    // Se for número individual, garante DDI 55
     const digitos = limpo.replace(/\D/g, '');
     if (digitos.length === 10 || digitos.length === 11) {
         return `55${digitos}`;
@@ -177,16 +183,15 @@ export function gerarLinkWaMe(
     return `https://wa.me/${digitos}?text=${encodeURIComponent(texto)}`;
 }
 
-export async function enviarTextoParaGrupo(
+async function dispararRequisicaoWhatsApp(
     cfg: ConfigWhatsApp,
+    destino: string,
     texto: string,
     payloadExtra?: Record<string, unknown>
 ): Promise<{ ok: boolean; erro?: string }> {
     if (!cfg.url_api) {
         return { ok: false, erro: 'URL da API do WhatsApp não configurada.' };
     }
-
-    const destino = formatarDestinoApi(cfg.grupo_id);
 
     try {
         if (cfg.provedor === 'evolution') {
@@ -287,6 +292,59 @@ export async function enviarTextoParaGrupo(
         const msg = err instanceof Error ? err.message : String(err);
         return { ok: false, erro: `Falha de conexão com API WhatsApp: ${msg}` };
     }
+}
+
+export async function enviarTextoParaGrupo(
+    cfg: ConfigWhatsApp,
+    texto: string,
+    payloadExtra?: Record<string, unknown>
+): Promise<{ ok: boolean; erro?: string }> {
+    const destino = formatarDestinoApi(cfg.grupo_id);
+    return dispararRequisicaoWhatsApp(cfg, destino, texto, payloadExtra);
+}
+
+export async function enviarCodigoVerificacaoWhatsApp(
+    telefoneBruto: string,
+    codigo: string,
+    objetivo: 'cadastro' | 'recuperacao_pin'
+): Promise<{ ok: boolean; desativado?: boolean; erro?: string }> {
+    const cfg = await obterConfigWhatsApp();
+
+    if (!cfg.ativo || !cfg.url_api) {
+        return {
+            ok: false,
+            desativado: true,
+            erro: 'O envio automático pelo WhatsApp está desativado no momento. Solicite apoio à recepção.',
+        };
+    }
+
+    const destino = formatarDestinoApi(telefoneBruto);
+    const telefoneSemDdi = destino.startsWith('55') ? destino.slice(2) : destino;
+
+    const texto =
+        objetivo === 'cadastro'
+            ? [
+                `🔐 *R4 Ensina — Código de Verificação*`,
+                ``,
+                `Seu código para confirmar o cadastro é: *${codigo}*`,
+                ``,
+                `_Válido por 10 minutos. Não compartilhe este código._`,
+            ].join('\n')
+            : [
+                `🔑 *R4 Ensina — Recuperação de PIN*`,
+                ``,
+                `Seu código para redefinir o PIN de acesso é: *${codigo}*`,
+                ``,
+                `_Válido por 10 minutos. Se você não solicitou, ignore esta mensagem._`,
+            ].join('\n');
+
+    return dispararRequisicaoWhatsApp(cfg, destino, texto, {
+        evento: 'codigo_verificacao',
+        objetivo,
+        telefone: destino,
+        telefoneSemDdi,
+        codigo,
+    });
 }
 
 export async function notificarGrupoNovoAgendamento(

@@ -6,6 +6,7 @@ import {
     gerarVariantesTelefone,
     normalizarTelefone,
 } from '@/lib/cliente-helpers';
+import { enviarCodigoVerificacaoWhatsApp } from '@/lib/whatsapp-notificacao';
 
 export { normalizarTelefone, gerarVariantesTelefone };
 
@@ -14,6 +15,11 @@ export const DURACAO_SESSAO_CLIENTE_SEGUNDOS = 30 * 24 * 60 * 60; // 30 dias
 export const MAX_TENTATIVAS_PIN = 5;
 export const BLOQUEIO_PIN_MINUTOS = 15;
 export const LIMITE_AGENDAMENTOS_SIMULTANEOS = 2;
+
+export const OTP_VALIDADE_MINUTOS = 10;
+export const OTP_COOLDOWN_SEGUNDOS = 60;
+export const OTP_MAX_ENVIOS_HORA = 4;
+export const OTP_MAX_TENTATIVAS = 5;
 
 const SEGREDO_SESSAO =
     process.env.CLIENT_SESSION_SECRET ||
@@ -27,6 +33,10 @@ declare global {
 
 export function validarFormatoPin(pin: string): boolean {
     return /^\d{4}$/.test(String(pin || '').trim());
+}
+
+export function gerarCodigoOtp4Digitos(): string {
+    return crypto.randomInt(1000, 10000).toString();
 }
 
 export function gerarHashPin(pin: string): string {
@@ -123,6 +133,19 @@ async function executarMigracaoContasResponsaveis() {
     )
   `;
 
+    await sql`
+    CREATE TABLE IF NOT EXISTS codigos_verificacao_whatsapp (
+      id SERIAL PRIMARY KEY,
+      telefone TEXT NOT NULL,
+      objetivo TEXT NOT NULL,
+      codigo_hash TEXT NOT NULL,
+      tentativas INTEGER NOT NULL DEFAULT 0,
+      usado BOOLEAN NOT NULL DEFAULT false,
+      expira_em TIMESTAMPTZ NOT NULL,
+      criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
     await Promise.all([
         sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS telefone_formatado TEXT`,
         sql`ALTER TABLE responsaveis ADD COLUMN IF NOT EXISTS nome TEXT NOT NULL DEFAULT 'Responsável'`,
@@ -138,7 +161,6 @@ async function executarMigracaoContasResponsaveis() {
     `,
     ]);
 
-    // 1. Vincula alunos antigos que ainda não têm responsavel_id
     const alunosSemConta = (await sql`
     SELECT
       id,
@@ -240,7 +262,6 @@ async function executarMigracaoContasResponsaveis() {
     `;
     }
 
-    // 2. Unifica contas duplicadas em responsaveis que difiram apenas pelo dígito 9
     const todasContas = (await sql`
     SELECT id, telefone, nome, pin_hash
     FROM responsaveis
@@ -339,6 +360,213 @@ export function garantirEstruturaContasResponsaveis(): Promise<void> {
             });
     }
     return globalThis.__r4ContasResponsaveisPromise;
+}
+
+export async function solicitarCodigoVerificacaoWhatsApp(
+    telefoneBruto: string,
+    objetivo: 'cadastro' | 'recuperacao_pin'
+): Promise<{
+    ok: boolean;
+    status?: number;
+    erro?: string;
+    desativado?: boolean;
+    expiraMinutos?: number;
+    cooldownSegundos?: number;
+    aguardarSegundos?: number;
+}> {
+    await garantirEstruturaContasResponsaveis();
+
+    const telefoneCanonico = normalizarTelefone(telefoneBruto);
+    const variantes = gerarVariantesTelefone(telefoneBruto);
+
+    if (
+        telefoneCanonico.length < 10 ||
+        telefoneCanonico.length > 11 ||
+        variantes.length === 0
+    ) {
+        return {
+            ok: false,
+            status: 400,
+            erro: 'Informe um número de WhatsApp válido com DDD.',
+        };
+    }
+
+    const recentes = (await sql`
+    SELECT
+      EXTRACT(EPOCH FROM (now() - criado_em))::int AS segundos_atras
+    FROM codigos_verificacao_whatsapp
+    WHERE telefone = ANY(${variantes}::text[])
+      AND objetivo = ${objetivo}
+      AND criado_em >= now() - interval '1 hour'
+    ORDER BY id DESC
+  `) as { segundos_atras: number }[];
+
+    if (recentes.length > 0 && recentes[0].segundos_atras < OTP_COOLDOWN_SEGUNDOS) {
+        const aguardar = Math.max(
+            1,
+            OTP_COOLDOWN_SEGUNDOS - recentes[0].segundos_atras
+        );
+        return {
+            ok: false,
+            status: 429,
+            aguardarSegundos: aguardar,
+            erro: `Aguarde ${aguardar} segundo(s) antes de solicitar um novo código.`,
+        };
+    }
+
+    if (recentes.length >= OTP_MAX_ENVIOS_HORA) {
+        return {
+            ok: false,
+            status: 429,
+            erro: 'Muitos códigos solicitados para este número. Tente novamente em alguns minutos.',
+        };
+    }
+
+    const codigo = gerarCodigoOtp4Digitos();
+    const codigoHash = gerarHashPin(codigo);
+
+    const envio = await enviarCodigoVerificacaoWhatsApp(
+        telefoneCanonico,
+        codigo,
+        objetivo
+    );
+
+    if (!envio.ok) {
+        return {
+            ok: false,
+            status: envio.desativado ? 503 : 502,
+            desativado: envio.desativado,
+            erro:
+                envio.erro ||
+                'Não foi possível enviar o código pelo WhatsApp. Tente novamente.',
+        };
+    }
+
+    await sql`
+    UPDATE codigos_verificacao_whatsapp
+    SET usado = true
+    WHERE telefone = ANY(${variantes}::text[])
+      AND objetivo = ${objetivo}
+      AND usado = false
+  `;
+
+    await sql`
+    INSERT INTO codigos_verificacao_whatsapp (
+      telefone,
+      objetivo,
+      codigo_hash,
+      tentativas,
+      usado,
+      expira_em,
+      criado_em
+    )
+    VALUES (
+      ${telefoneCanonico},
+      ${objetivo},
+      ${codigoHash},
+      0,
+      false,
+      now() + (${OTP_VALIDADE_MINUTOS} || ' minutes')::interval,
+      now()
+    )
+  `;
+
+    return {
+        ok: true,
+        expiraMinutos: OTP_VALIDADE_MINUTOS,
+        cooldownSegundos: OTP_COOLDOWN_SEGUNDOS,
+    };
+}
+
+export async function validarCodigoVerificacaoWhatsApp(
+    telefoneBruto: string,
+    objetivo: 'cadastro' | 'recuperacao_pin',
+    codigoDigitado: string,
+    consumir = true
+): Promise<{ ok: boolean; status?: number; erro?: string }> {
+    await garantirEstruturaContasResponsaveis();
+
+    const codigoLimpo = String(codigoDigitado || '').trim();
+    if (!validarFormatoPin(codigoLimpo)) {
+        return {
+            ok: false,
+            status: 400,
+            erro: 'Digite o código de 4 dígitos enviado no seu WhatsApp.',
+        };
+    }
+
+    const variantes = gerarVariantesTelefone(telefoneBruto);
+    if (variantes.length === 0) {
+        return {
+            ok: false,
+            status: 400,
+            erro: 'Número de WhatsApp inválido.',
+        };
+    }
+
+    const rows = (await sql`
+    SELECT id, codigo_hash, tentativas
+    FROM codigos_verificacao_whatsapp
+    WHERE telefone = ANY(${variantes}::text[])
+      AND objetivo = ${objetivo}
+      AND usado = false
+      AND expira_em > now()
+    ORDER BY id DESC
+    LIMIT 1
+  `) as { id: number; codigo_hash: string; tentativas: number }[];
+
+    if (rows.length === 0) {
+        return {
+            ok: false,
+            status: 400,
+            erro: 'Código expirado ou inválido. Solicite um novo código.',
+        };
+    }
+
+    const registro = rows[0];
+
+    if (registro.tentativas >= OTP_MAX_TENTATIVAS) {
+        await sql`
+      UPDATE codigos_verificacao_whatsapp
+      SET usado = true
+      WHERE id = ${registro.id}
+    `;
+        return {
+            ok: false,
+            status: 429,
+            erro: 'Muitas tentativas incorretas. Solicite um novo código.',
+        };
+    }
+
+    if (!verificarHashPin(codigoLimpo, registro.codigo_hash)) {
+        const novasTentativas = registro.tentativas + 1;
+        const esgotou = novasTentativas >= OTP_MAX_TENTATIVAS;
+
+        await sql`
+      UPDATE codigos_verificacao_whatsapp
+      SET tentativas = ${novasTentativas},
+          usado = ${esgotou}
+      WHERE id = ${registro.id}
+    `;
+
+        return {
+            ok: false,
+            status: 401,
+            erro: esgotou
+                ? 'Código bloqueado por excesso de tentativas. Solicite um novo código.'
+                : 'Código incorreto. Verifique a mensagem no WhatsApp e tente novamente.',
+        };
+    }
+
+    if (consumir) {
+        await sql`
+      UPDATE codigos_verificacao_whatsapp
+      SET usado = true
+      WHERE id = ${registro.id}
+    `;
+    }
+
+    return { ok: true };
 }
 
 export interface AlunoClienteDTO {

@@ -14,6 +14,7 @@ interface ConfigWhatsApp {
     wame_ativo: boolean;
     wame_numero: string;
     alerta_sonoro_ativo: boolean;
+    verificar_cadastro_whatsapp: boolean;
 }
 
 interface AgendamentoRecente {
@@ -45,7 +46,7 @@ function tocarCampainhaAlerta() {
         const ctx = new AudioCtx();
         const agora = ctx.currentTime;
 
-        const notas = [587.33, 880]; // Ré5 -> Lá5
+        const notas = [587.33, 880];
         notas.forEach((freq, idx) => {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
@@ -76,6 +77,7 @@ export default function AdminWhatsApp() {
         wame_ativo: false,
         wame_numero: '',
         alerta_sonoro_ativo: true,
+        verificar_cadastro_whatsapp: true,
     });
     const [recentes, setRecentes] = useState<AgendamentoRecente[]>([]);
     const [carregando, setCarregando] = useState(true);
@@ -119,7 +121,6 @@ export default function AdminWhatsApp() {
 
         void carregarInicial();
 
-        // Monitoramento em tempo real a cada 20 segundos
         const intervalo = window.setInterval(async () => {
             try {
                 const res = await fetch('/api/admin/whatsapp', { cache: 'no-store' });
@@ -271,10 +272,10 @@ export default function AdminWhatsApp() {
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <h2 className="text-lg font-bold text-white">
-                        Avisos de Novos Agendamentos (3 Modos Configuráveis)
+                        Avisos, Códigos OTP &amp; Integração WhatsApp
                     </h2>
                     <p className="text-xs text-slate-400">
-                        Ative ou desative cada modo de aviso de acordo com a operação da recepção.
+                        Configure o envio automático de confirmações, validação de cadastro e recuperação de PIN.
                     </p>
                 </div>
                 {pendentesClinCare > 0 && (
@@ -312,15 +313,14 @@ export default function AdminWhatsApp() {
             )}
 
             <form onSubmit={handleSalvarFormulario} className="space-y-4">
-                {/* OPÇÃO 1: ENVIO AUTOMÁTICO VIA API */}
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <h3 className="text-sm font-bold text-white">
-                                1. Envio Automático para Grupo ou Número (API WhatsApp)
+                                1. Envio Automático para Grupo ou Número (API WhatsApp / CRM)
                             </h3>
                             <p className="text-xs text-slate-400">
-                                Dispara automaticamente em segundo plano via Evolution API, Z-API ou Webhook.
+                                Dispara confirmações de aula, códigos de cadastro e recuperação de PIN via Evolution API, Z-API ou Webhook (DataCrazy).
                             </p>
                         </div>
                         <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -364,13 +364,13 @@ export default function AdminWhatsApp() {
                                 >
                                     <option value="evolution">Evolution API</option>
                                     <option value="zapi">Z-API</option>
-                                    <option value="webhook">Webhook (n8n / Make / Zapier)</option>
+                                    <option value="webhook">Webhook (DataCrazy / n8n / Make)</option>
                                 </select>
                             </div>
 
                             <div>
                                 <label className="block text-xs font-medium text-slate-300 mb-1">
-                                    Destino (ID do Grupo @g.us ou Número com DDD)
+                                    Destino Padrão (ID do Grupo @g.us ou Número com DDD)
                                 </label>
                                 <input
                                     type="text"
@@ -476,12 +476,47 @@ export default function AdminWhatsApp() {
                     )}
                 </div>
 
-                {/* OPÇÃO 2: BOTÃO GRATUITO WA.ME PARA O CLIENTE */}
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h3 className="text-sm font-bold text-white">
+                            2. Validar WhatsApp com Código de 4 Dígitos no Cadastro
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                            Exige que novos responsáveis confirmem um código enviado no WhatsApp antes de concluir o cadastro (requer a Opção 1 ativada).
+                        </p>
+                    </div>
+
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={config.verificar_cadastro_whatsapp}
+                            onChange={(e) => {
+                                const atualizada = {
+                                    ...config,
+                                    verificar_cadastro_whatsapp: e.target.checked,
+                                };
+                                setConfig(atualizada);
+                                void salvarConfiguracoes(atualizada);
+                            }}
+                            className="w-4 h-4 accent-emerald-500"
+                        />
+                        <span
+                            className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                                config.verificar_cadastro_whatsapp
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : 'bg-slate-800 text-slate-400'
+                            }`}
+                        >
+              {config.verificar_cadastro_whatsapp ? 'ATIVADO' : 'DESATIVADO'}
+            </span>
+                    </label>
+                </div>
+
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <h3 className="text-sm font-bold text-white">
-                                2. Botão &ldquo;Enviar Comprovante no WhatsApp&rdquo; para o Cliente (Gratuito)
+                                3. Botão &ldquo;Enviar Comprovante no WhatsApp&rdquo; para o Cliente (Gratuito)
                             </h3>
                             <p className="text-xs text-slate-400">
                                 Exibe um botão verde logo após o agendamento abrindo o WhatsApp do cliente já com a mensagem pronta para a secretaria.
@@ -531,11 +566,10 @@ export default function AdminWhatsApp() {
                     )}
                 </div>
 
-                {/* OPÇÃO 3: ALERTA SONORO AUTOMÁTICO NO PAINEL ADMIN */}
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <h3 className="text-sm font-bold text-white">
-                            3. Alerta Sonoro Automático nesta Tela (/admin)
+                            4. Alerta Sonoro Automático nesta Tela (/admin)
                         </h3>
                         <p className="text-xs text-slate-400">
                             Atualiza a fila a cada 20s e toca uma campainha no computador da recepção sempre que entrar uma nova aula.
@@ -589,7 +623,6 @@ export default function AdminWhatsApp() {
                 </div>
             </form>
 
-            {/* Fila de Agendamentos Recentes para controle dos atendentes */}
             <div className="space-y-3 pt-2 border-t border-slate-800">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     Últimos Agendamentos (Controle de Lançamento no Clin Care)

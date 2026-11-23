@@ -82,6 +82,10 @@ export async function POST(req: NextRequest) {
             const wameAtivo = Boolean(body?.wame_ativo);
             const wameNumero = String(body?.wame_numero || '').trim();
             const alertaSonoroAtivo = Boolean(body?.alerta_sonoro_ativo);
+            const verificarCadastroWhatsApp =
+                body?.verificar_cadastro_whatsapp !== undefined
+                    ? Boolean(body.verificar_cadastro_whatsapp)
+                    : true;
 
             await sql`
         UPDATE config_whatsapp_grupo
@@ -95,6 +99,7 @@ export async function POST(req: NextRequest) {
             wame_ativo = ${wameAtivo},
             wame_numero = ${wameNumero},
             alerta_sonoro_ativo = ${alertaSonoroAtivo},
+            verificar_cadastro_whatsapp = ${verificarCadastroWhatsApp},
             atualizado_em = now()
         WHERE id = 1
       `;

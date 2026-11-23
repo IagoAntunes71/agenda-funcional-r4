@@ -12,10 +12,13 @@ import {
     gerarHashPin,
     gerarVariantesTelefone,
     normalizarTelefone,
+    solicitarCodigoVerificacaoWhatsApp,
+    validarCodigoVerificacaoWhatsApp,
     validarFormatoPin,
     verificarHashPin,
 } from '@/lib/cliente-auth';
 import { formatarTelefone } from '@/lib/cliente-helpers';
+import { obterConfigWhatsApp } from '@/lib/whatsapp-notificacao';
 
 function responderAutenticado(
     telefoneNorm: string,
@@ -115,7 +118,12 @@ export async function POST(req: NextRequest) {
 
         const familia = await buscarFamiliaPorTelefone(telefoneRaw);
 
-        if (familia.bloqueadoAte) {
+        const acoesRecuperacao = new Set([
+            'solicitar_recuperacao_pin',
+            'redefinir_pin_codigo',
+        ]);
+
+        if (familia.bloqueadoAte && !acoesRecuperacao.has(acao)) {
             const restanteMs = new Date(familia.bloqueadoAte).getTime() - Date.now();
             if (restanteMs > 0) {
                 const minutosRestantes = Math.max(1, Math.ceil(restanteMs / 60000));
@@ -130,12 +138,17 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        // PASSO 1: Verifica se já existe conta (com 9 ou sem 9) e se já possui PIN
         if (acao === 'verificar_telefone') {
             if (!familia.responsavelId && familia.alunos.length === 0) {
+                const cfgWhatsApp = await obterConfigWhatsApp();
+                const exigeVerificacaoCadastro = Boolean(
+                    cfgWhatsApp.ativo && cfgWhatsApp.verificar_cadastro_whatsapp
+                );
+
                 return NextResponse.json({
                     status: 'novo_cadastro',
                     telefone: telefoneNorm,
+                    exigeVerificacaoCadastro,
                 });
             }
 
@@ -146,7 +159,48 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // PASSO 1B: Primeiro cadastro completo (responsável + 1º aluno + PIN)
+        if (acao === 'enviar_codigo_cadastro') {
+            if (familia.responsavelId || familia.alunos.length > 0) {
+                return NextResponse.json(
+                    {
+                        error:
+                            'Este número de WhatsApp já possui cadastro. Informe seu PIN para entrar.',
+                        status: familia.temPin ? 'exige_pin' : 'criar_pin',
+                    },
+                    { status: 409 }
+                );
+            }
+
+            const cfgWhatsApp = await obterConfigWhatsApp();
+            if (!cfgWhatsApp.ativo || !cfgWhatsApp.verificar_cadastro_whatsapp) {
+                return NextResponse.json({
+                    ok: true,
+                    verificacaoDispensada: true,
+                });
+            }
+
+            const envio = await solicitarCodigoVerificacaoWhatsApp(
+                telefoneRaw,
+                'cadastro'
+            );
+
+            if (!envio.ok) {
+                return NextResponse.json(
+                    {
+                        error: envio.erro,
+                        aguardarSegundos: envio.aguardarSegundos,
+                    },
+                    { status: envio.status || 400 }
+                );
+            }
+
+            return NextResponse.json({
+                ok: true,
+                expiraMinutos: envio.expiraMinutos,
+                cooldownSegundos: envio.cooldownSegundos,
+            });
+        }
+
         if (acao === 'cadastrar_conta') {
             if (familia.responsavelId || familia.alunos.length > 0) {
                 return NextResponse.json(
@@ -166,6 +220,7 @@ export async function POST(req: NextRequest) {
             const serie = String(body?.serie || '').trim();
             const pin = String(body?.pin || '').trim();
             const confirmarPin = String(body?.confirmarPin || '').trim();
+            const codigoVerificacao = String(body?.codigoVerificacao || '').trim();
 
             if (responsavelNome.length < 2) {
                 return NextResponse.json(
@@ -228,6 +283,25 @@ export async function POST(req: NextRequest) {
 
             const erroPin = validarNovoPinEConfirmacao(pin, confirmarPin);
             if (erroPin) return erroPin;
+
+            const cfgWhatsApp = await obterConfigWhatsApp();
+            if (cfgWhatsApp.ativo && cfgWhatsApp.verificar_cadastro_whatsapp) {
+                const validacaoOtp = await validarCodigoVerificacaoWhatsApp(
+                    telefoneRaw,
+                    'cadastro',
+                    codigoVerificacao,
+                    true
+                );
+                if (!validacaoOtp.ok) {
+                    return NextResponse.json(
+                        {
+                            error: validacaoOtp.erro,
+                            exigeCodigoVerificacao: true,
+                        },
+                        { status: validacaoOtp.status || 400 }
+                    );
+                }
+            }
 
             const pinHash = gerarHashPin(pin);
             const telefoneFormatado = formatarTelefone(telefoneNorm);
@@ -298,7 +372,6 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // PASSO 2: Primeiro acesso de cadastro já existente sem PIN
         if (acao === 'criar_pin') {
             if (!familia.responsavelId && familia.alunos.length === 0) {
                 return NextResponse.json(
@@ -334,7 +407,6 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // PASSO 3: Login recorrente — valida o PIN existente
         if (acao === 'entrar_pin') {
             if (!familia.temPin || !familia.pinHash) {
                 return NextResponse.json(
@@ -383,6 +455,79 @@ export async function POST(req: NextRequest) {
             }
 
             await atualizarStatusPin(variantes, { tentativas: 0 });
+
+            return responderAutenticado(
+                telefoneNorm,
+                familia.responsavelNome ||
+                familia.alunos[0]?.responsavel_nome ||
+                'Responsável',
+                familia.alunos
+            );
+        }
+
+        if (acao === 'solicitar_recuperacao_pin') {
+            if (!familia.responsavelId && familia.alunos.length === 0) {
+                return NextResponse.json(
+                    {
+                        error:
+                            'Nenhuma conta encontrada com este número de WhatsApp.',
+                    },
+                    { status: 404 }
+                );
+            }
+
+            const envio = await solicitarCodigoVerificacaoWhatsApp(
+                telefoneRaw,
+                'recuperacao_pin'
+            );
+
+            if (!envio.ok) {
+                return NextResponse.json(
+                    {
+                        error: envio.erro,
+                        aguardarSegundos: envio.aguardarSegundos,
+                    },
+                    { status: envio.status || 400 }
+                );
+            }
+
+            return NextResponse.json({
+                ok: true,
+                expiraMinutos: envio.expiraMinutos,
+                cooldownSegundos: envio.cooldownSegundos,
+            });
+        }
+
+        if (acao === 'redefinir_pin_codigo') {
+            if (!familia.responsavelId && familia.alunos.length === 0) {
+                return NextResponse.json(
+                    { error: 'Conta não encontrada para este número.' },
+                    { status: 404 }
+                );
+            }
+
+            const codigo = String(body?.codigo || '').trim();
+            const pin = String(body?.pin || '').trim();
+            const confirmarPin = String(body?.confirmarPin || '').trim();
+
+            const erroPin = validarNovoPinEConfirmacao(pin, confirmarPin);
+            if (erroPin) return erroPin;
+
+            const validacaoOtp = await validarCodigoVerificacaoWhatsApp(
+                telefoneRaw,
+                'recuperacao_pin',
+                codigo,
+                true
+            );
+
+            if (!validacaoOtp.ok) {
+                return NextResponse.json(
+                    { error: validacaoOtp.erro },
+                    { status: validacaoOtp.status || 400 }
+                );
+            }
+
+            await atualizarStatusPin(variantes, { pinHash: gerarHashPin(pin) });
 
             return responderAutenticado(
                 telefoneNorm,
