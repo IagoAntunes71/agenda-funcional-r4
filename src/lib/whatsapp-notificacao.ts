@@ -106,6 +106,13 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
     };
 }
 
+function formatarDataBR(isoDate: string): string {
+    const limpo = String(isoDate || '').trim().slice(0, 10);
+    const [ano, mes, dia] = limpo.split('-');
+    if (!ano || !mes || !dia || ano.length !== 4) return isoDate;
+    return `${dia.padStart(2, '0')}/${mes.padStart(2, '0')}/${ano}`;
+}
+
 function formatarDataComDia(isoDate: string): string {
     const [ano, mes, dia] = isoDate.split('-').map(Number);
     if (!ano || !mes || !dia) return isoDate;
@@ -252,7 +259,7 @@ export async function enviarTextoParaGrupo(
             return { ok: true };
         }
 
-        // Modo Webhook genérico (n8n, Make, Zapier, etc.)
+        // Modo Webhook genérico (DataCrazy, n8n, Make, Zapier, etc.)
         const res = await fetch(cfg.url_api, {
             method: 'POST',
             headers: {
@@ -301,7 +308,12 @@ export async function notificarGrupoNovoAgendamento(
     const mensagem = montarMensagemAgendamento(dados);
     const resultado = await enviarTextoParaGrupo(cfg, mensagem, {
         evento: 'novo_agendamento',
-        agendamento: dados,
+        agendamento: {
+            ...dados,
+            data: formatarDataBR(dados.data),
+            dataISO: dados.data,
+            dataComDia: formatarDataComDia(dados.data),
+        },
     });
 
     return {
