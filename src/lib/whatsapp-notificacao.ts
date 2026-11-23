@@ -19,6 +19,7 @@ export interface ConfigWhatsApp {
     ativo: boolean; // Opção 1: Envio automático via API (grupo ou número)
     provedor: 'evolution' | 'zapi' | 'webhook';
     url_api: string;
+    url_webhook_otp: string; // URL separada opcional para códigos OTP / recuperação de PIN via Webhook
     token_api: string;
     client_token: string;
     instancia: string;
@@ -36,6 +37,7 @@ export async function garantirTabelaConfigWhatsApp() {
       ativo BOOLEAN NOT NULL DEFAULT false,
       provedor TEXT NOT NULL DEFAULT 'evolution',
       url_api TEXT NOT NULL DEFAULT '',
+      url_webhook_otp TEXT NOT NULL DEFAULT '',
       token_api TEXT NOT NULL DEFAULT '',
       client_token TEXT NOT NULL DEFAULT '',
       instancia TEXT NOT NULL DEFAULT '',
@@ -48,6 +50,7 @@ export async function garantirTabelaConfigWhatsApp() {
     )
   `;
 
+    await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS url_webhook_otp TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_ativo BOOLEAN NOT NULL DEFAULT false`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_numero TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS alerta_sonoro_ativo BOOLEAN NOT NULL DEFAULT true`;
@@ -68,6 +71,7 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
       ativo,
       provedor,
       url_api,
+      COALESCE(url_webhook_otp, '') AS url_webhook_otp,
       token_api,
       client_token,
       instancia,
@@ -89,6 +93,11 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
             process.env.WHATSAPP_PROVEDOR ||
             'evolution') as ConfigWhatsApp['provedor'],
         url_api: (dbCfg?.url_api || process.env.WHATSAPP_API_URL || '').trim(),
+        url_webhook_otp: (
+            dbCfg?.url_webhook_otp ||
+            process.env.WHATSAPP_WEBHOOK_OTP_URL ||
+            ''
+        ).trim(),
         token_api: (dbCfg?.token_api || process.env.WHATSAPP_API_TOKEN || '').trim(),
         client_token: (
             dbCfg?.client_token ||
@@ -306,11 +315,16 @@ export async function enviarTextoParaGrupo(
 export async function enviarCodigoVerificacaoWhatsApp(
     telefoneBruto: string,
     codigo: string,
-    objetivo: 'cadastro' | 'recuperacao_pin'
+    objetivo: 'cadastro' | 'recuperacao_pin',
+    nomeResponsavel?: string
 ): Promise<{ ok: boolean; desativado?: boolean; erro?: string }> {
     const cfg = await obterConfigWhatsApp();
+    const urlDestino =
+        cfg.provedor === 'webhook' && cfg.url_webhook_otp
+            ? cfg.url_webhook_otp
+            : cfg.url_api;
 
-    if (!cfg.ativo || !cfg.url_api) {
+    if (!cfg.ativo || !urlDestino) {
         return {
             ok: false,
             desativado: true,
@@ -318,8 +332,14 @@ export async function enviarCodigoVerificacaoWhatsApp(
         };
     }
 
+    const cfgEfetiva: ConfigWhatsApp = {
+        ...cfg,
+        url_api: urlDestino,
+    };
+
     const destino = formatarDestinoApi(telefoneBruto);
     const telefoneSemDdi = destino.startsWith('55') ? destino.slice(2) : destino;
+    const nomeLimpo = String(nomeResponsavel || '').trim() || 'Responsável R4 Ensina';
 
     const texto =
         objetivo === 'cadastro'
@@ -338,9 +358,10 @@ export async function enviarCodigoVerificacaoWhatsApp(
                 `_Válido por 10 minutos. Se você não solicitou, ignore esta mensagem._`,
             ].join('\n');
 
-    return dispararRequisicaoWhatsApp(cfg, destino, texto, {
+    return dispararRequisicaoWhatsApp(cfgEfetiva, destino, texto, {
         evento: 'codigo_verificacao',
         objetivo,
+        nome: nomeLimpo,
         telefone: destino,
         telefoneSemDdi,
         codigo,

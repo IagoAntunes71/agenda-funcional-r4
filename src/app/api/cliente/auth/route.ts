@@ -179,9 +179,11 @@ export async function POST(req: NextRequest) {
                 });
             }
 
+            const nomeResponsavel = String(body?.responsavelNome || '').trim();
             const envio = await solicitarCodigoVerificacaoWhatsApp(
                 telefoneRaw,
-                'cadastro'
+                'cadastro',
+                nomeResponsavel
             );
 
             if (!envio.ok) {
@@ -478,7 +480,8 @@ export async function POST(req: NextRequest) {
 
             const envio = await solicitarCodigoVerificacaoWhatsApp(
                 telefoneRaw,
-                'recuperacao_pin'
+                'recuperacao_pin',
+                familia.responsavelNome
             );
 
             if (!envio.ok) {

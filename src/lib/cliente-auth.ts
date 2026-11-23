@@ -364,7 +364,8 @@ export function garantirEstruturaContasResponsaveis(): Promise<void> {
 
 export async function solicitarCodigoVerificacaoWhatsApp(
     telefoneBruto: string,
-    objetivo: 'cadastro' | 'recuperacao_pin'
+    objetivo: 'cadastro' | 'recuperacao_pin',
+    nomeResponsavel?: string
 ): Promise<{
     ok: boolean;
     status?: number;
@@ -428,7 +429,8 @@ export async function solicitarCodigoVerificacaoWhatsApp(
     const envio = await enviarCodigoVerificacaoWhatsApp(
         telefoneCanonico,
         codigo,
-        objetivo
+        objetivo,
+        nomeResponsavel
     );
 
     if (!envio.ok) {

@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
             const ativo = Boolean(body?.ativo);
             const provedor = String(body?.provedor || 'evolution');
             const urlApi = String(body?.url_api || '').trim();
+            const urlWebhookOtp = String(body?.url_webhook_otp || '').trim();
             const tokenApi = String(body?.token_api || '').trim();
             const clientToken = String(body?.client_token || '').trim();
             const instancia = String(body?.instancia || '').trim();
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
         SET ativo = ${ativo},
             provedor = ${provedor},
             url_api = ${urlApi},
+            url_webhook_otp = ${urlWebhookOtp},
             token_api = ${tokenApi},
             client_token = ${clientToken},
             instancia = ${instancia},

@@ -7,6 +7,7 @@ interface ConfigWhatsApp {
     ativo: boolean;
     provedor: 'evolution' | 'zapi' | 'webhook';
     url_api: string;
+    url_webhook_otp: string;
     token_api: string;
     client_token: string;
     instancia: string;
@@ -70,6 +71,7 @@ export default function AdminWhatsApp() {
         ativo: false,
         provedor: 'evolution',
         url_api: '',
+        url_webhook_otp: '',
         token_api: '',
         client_token: '',
         instancia: '',
@@ -389,7 +391,7 @@ export default function AdminWhatsApp() {
                                         ? 'URL da Instância Z-API'
                                         : config.provedor === 'evolution'
                                             ? 'URL Base da Evolution API'
-                                            : 'URL do Webhook'}
+                                            : 'URL do Webhook (Agendamentos)'}
                                 </label>
                                 <input
                                     type="url"
@@ -401,6 +403,29 @@ export default function AdminWhatsApp() {
                                     className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                 />
                             </div>
+
+                            {config.provedor === 'webhook' && (
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                                        URL do Webhook para Códigos OTP e Recuperação de PIN (opcional)
+                                    </label>
+                                    <input
+                                        type="url"
+                                        value={config.url_webhook_otp || ''}
+                                        onChange={(e) =>
+                                            setConfig((prev) => ({
+                                                ...prev,
+                                                url_webhook_otp: e.target.value,
+                                            }))
+                                        }
+                                        placeholder="https://api.datacrazy.io/... (se vazio, usa a URL do Webhook acima)"
+                                        className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
+                                    />
+                                    <p className="text-[11px] text-slate-400 mt-1">
+                                        Recomendado no DataCrazy: crie uma 2ª automação exclusiva para disparar códigos de cadastro e recuperação de PIN sem interferir no fluxo de agendamentos.
+                                    </p>
+                                </div>
+                            )}
 
                             {config.provedor === 'evolution' && (
                                 <>
