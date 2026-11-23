@@ -8,6 +8,7 @@ export interface DadosNotificacaoAgendamento {
     materia: string;
     data: string; // YYYY-MM-DD
     horario: string; // Ex: 14:10 às 15:50
+    responsavelNome?: string;
     alunoNome: string;
     alunoTelefone: string;
     colegioNome?: string;
@@ -20,6 +21,7 @@ export interface ConfigWhatsApp {
     provedor: 'evolution' | 'zapi' | 'webhook';
     url_api: string;
     url_webhook_otp: string; // URL separada opcional para códigos OTP / recuperação de PIN via Webhook
+    url_webhook_grupo: string; // URL separada opcional para avisos de agendamento/cancelamento no Grupo
     token_api: string;
     client_token: string;
     instancia: string;
@@ -38,6 +40,7 @@ export async function garantirTabelaConfigWhatsApp() {
       provedor TEXT NOT NULL DEFAULT 'evolution',
       url_api TEXT NOT NULL DEFAULT '',
       url_webhook_otp TEXT NOT NULL DEFAULT '',
+      url_webhook_grupo TEXT NOT NULL DEFAULT '',
       token_api TEXT NOT NULL DEFAULT '',
       client_token TEXT NOT NULL DEFAULT '',
       instancia TEXT NOT NULL DEFAULT '',
@@ -51,6 +54,7 @@ export async function garantirTabelaConfigWhatsApp() {
   `;
 
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS url_webhook_otp TEXT NOT NULL DEFAULT ''`;
+    await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS url_webhook_grupo TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_ativo BOOLEAN NOT NULL DEFAULT false`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_numero TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS alerta_sonoro_ativo BOOLEAN NOT NULL DEFAULT true`;
@@ -72,6 +76,7 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
       provedor,
       url_api,
       COALESCE(url_webhook_otp, '') AS url_webhook_otp,
+      COALESCE(url_webhook_grupo, '') AS url_webhook_grupo,
       token_api,
       client_token,
       instancia,
@@ -96,6 +101,11 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
         url_webhook_otp: (
             dbCfg?.url_webhook_otp ||
             process.env.WHATSAPP_WEBHOOK_OTP_URL ||
+            ''
+        ).trim(),
+        url_webhook_grupo: (
+            dbCfg?.url_webhook_grupo ||
+            process.env.WHATSAPP_WEBHOOK_GRUPO_URL ||
             ''
         ).trim(),
         token_api: (dbCfg?.token_api || process.env.WHATSAPP_API_TOKEN || '').trim(),
@@ -344,19 +354,19 @@ export async function enviarCodigoVerificacaoWhatsApp(
     const texto =
         objetivo === 'cadastro'
             ? [
-                `🔐 *R4 Ensina — Código de Verificação*`,
-                ``,
-                `Seu código para confirmar o cadastro é: *${codigo}*`,
-                ``,
-                `_Válido por 10 minutos. Não compartilhe este código._`,
-            ].join('\n')
+                  `🔐 *R4 Ensina — Código de Verificação*`,
+                  ``,
+                  `Seu código para confirmar o cadastro é: *${codigo}*`,
+                  ``,
+                  `_Válido por 10 minutos. Não compartilhe este código._`,
+              ].join('\n')
             : [
-                `🔑 *R4 Ensina — Recuperação de PIN*`,
-                ``,
-                `Seu código para redefinir o PIN de acesso é: *${codigo}*`,
-                ``,
-                `_Válido por 10 minutos. Se você não solicitou, ignore esta mensagem._`,
-            ].join('\n');
+                  `🔑 *R4 Ensina — Recuperação de PIN*`,
+                  ``,
+                  `Seu código para redefinir o PIN de acesso é: *${codigo}*`,
+                  ``,
+                  `_Válido por 10 minutos. Se você não solicitou, ignore esta mensagem._`,
+              ].join('\n');
 
     return dispararRequisicaoWhatsApp(cfgEfetiva, destino, texto, {
         evento: 'codigo_verificacao',
@@ -366,6 +376,89 @@ export async function enviarCodigoVerificacaoWhatsApp(
         telefoneSemDdi,
         codigo,
     });
+}
+
+export function montarMensagemGrupoControleAgendamento(
+    dados: DadosNotificacaoAgendamento
+): string {
+    const cliente = String(dados.responsavelNome || '').trim() || 'Não informado';
+    const telFmt = formatarTelefone(dados.alunoTelefone) || dados.alunoTelefone;
+    const dataBR = formatarDataBR(dados.data);
+
+    return [
+        `✅ *NOVO AGENDAMENTO — R4 Ensina*`,
+        ``,
+        `👤 *Cliente:* ${cliente}`,
+        `🎓 *Aluno(a):* ${dados.alunoNome}`,
+        `📱 *Telefone:* ${telFmt}`,
+        `📅 *Aula:* ${dataBR} • ${dados.horario} (${dados.unidade} — ${dados.materia} / Prof. ${dados.professor})`,
+    ].join('\n');
+}
+
+export function montarMensagemGrupoControleCancelamento(
+    dados: DadosNotificacaoAgendamento
+): string {
+    const cliente = String(dados.responsavelNome || '').trim() || 'Não informado';
+    const telFmt = formatarTelefone(dados.alunoTelefone) || dados.alunoTelefone;
+    const dataBR = formatarDataBR(dados.data);
+
+    return [
+        `❌ *AGENDAMENTO CANCELADO — R4 Ensina*`,
+        ``,
+        `👤 *Cliente:* ${cliente}`,
+        `🎓 *Aluno(a):* ${dados.alunoNome}`,
+        `📱 *Telefone:* ${telFmt}`,
+        `📅 *Aula cancelada:* ${dataBR} • ${dados.horario} (${dados.unidade} — ${dados.materia} / Prof. ${dados.professor})`,
+    ].join('\n');
+}
+
+async function dispararNotificacaoGrupoControle(
+    cfg: ConfigWhatsApp,
+    evento: 'grupo_novo_agendamento' | 'grupo_cancelamento_agendamento',
+    mensagem: string,
+    dados: DadosNotificacaoAgendamento
+): Promise<{ ok: boolean; erro?: string }> {
+    const destinoGrupo = formatarDestinoApi(cfg.grupo_id);
+    if (!destinoGrupo) {
+        return {
+            ok: false,
+            erro: 'Destino Padrão (ID do Grupo @g.us) não configurado.',
+        };
+    }
+
+    const cliente = String(dados.responsavelNome || '').trim() || 'Não informado';
+    const telefoneComDdi = formatarDestinoApi(dados.alunoTelefone);
+    const telefoneFormatado = formatarTelefone(dados.alunoTelefone) || dados.alunoTelefone;
+
+    const payloadExtra = {
+        evento,
+        clienteNome: cliente,
+        alunoNome: dados.alunoNome,
+        telefone: telefoneComDdi,
+        telefoneFormatado,
+        unidade: dados.unidade,
+        professor: dados.professor,
+        materia: dados.materia,
+        data: formatarDataBR(dados.data),
+        horario: dados.horario,
+        agendamentoId: dados.id,
+    };
+
+    if (cfg.provedor === 'webhook') {
+        if (!cfg.url_webhook_grupo) {
+            return {
+                ok: false,
+                erro: 'URL do Webhook do Grupo não configurada.',
+            };
+        }
+        const cfgGrupo: ConfigWhatsApp = {
+            ...cfg,
+            url_api: cfg.url_webhook_grupo,
+        };
+        return dispararRequisicaoWhatsApp(cfgGrupo, destinoGrupo, mensagem, payloadExtra);
+    }
+
+    return dispararRequisicaoWhatsApp(cfg, destinoGrupo, mensagem, payloadExtra);
 }
 
 export async function notificarGrupoNovoAgendamento(
@@ -395,9 +488,55 @@ export async function notificarGrupoNovoAgendamento(
         },
     });
 
+    // Disparo adicional para o 3º Webhook (Grupo de Controle da Equipe)
+    if (cfg.provedor === 'webhook' && cfg.url_webhook_grupo && cfg.grupo_id) {
+        const msgGrupo = montarMensagemGrupoControleAgendamento(dados);
+        await dispararNotificacaoGrupoControle(
+            cfg,
+            'grupo_novo_agendamento',
+            msgGrupo,
+            dados
+        ).catch((err) => {
+            console.error('Erro ao notificar grupo (novo agendamento):', err);
+        });
+    }
+
     return {
         enviado: resultado.ok,
         erro: resultado.erro,
         linkWaMe,
+    };
+}
+
+export async function notificarGrupoCancelamentoAgendamento(
+    dados: DadosNotificacaoAgendamento
+): Promise<{ enviado: boolean; erro?: string }> {
+    const cfg = await obterConfigWhatsApp();
+
+    if (!cfg.ativo) {
+        return {
+            enviado: false,
+            erro: 'Notificação automática via API desativada.',
+        };
+    }
+
+    if (cfg.provedor === 'webhook' && !cfg.url_webhook_grupo) {
+        return {
+            enviado: false,
+            erro: 'URL do Webhook do Grupo não configurada.',
+        };
+    }
+
+    const msgGrupo = montarMensagemGrupoControleCancelamento(dados);
+    const resultado = await dispararNotificacaoGrupoControle(
+        cfg,
+        'grupo_cancelamento_agendamento',
+        msgGrupo,
+        dados
+    );
+
+    return {
+        enviado: resultado.ok,
+        erro: resultado.erro,
     };
 }

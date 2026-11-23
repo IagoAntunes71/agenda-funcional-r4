@@ -403,8 +403,8 @@ export async function POST(req: NextRequest) {
             return responderAutenticado(
                 telefoneNorm,
                 familia.responsavelNome ||
-                familia.alunos[0]?.responsavel_nome ||
-                'Responsável',
+                    familia.alunos[0]?.responsavel_nome ||
+                    'Responsável',
                 familia.alunos
             );
         }
@@ -461,8 +461,8 @@ export async function POST(req: NextRequest) {
             return responderAutenticado(
                 telefoneNorm,
                 familia.responsavelNome ||
-                familia.alunos[0]?.responsavel_nome ||
-                'Responsável',
+                    familia.alunos[0]?.responsavel_nome ||
+                    'Responsável',
                 familia.alunos
             );
         }
@@ -535,8 +535,8 @@ export async function POST(req: NextRequest) {
             return responderAutenticado(
                 telefoneNorm,
                 familia.responsavelNome ||
-                familia.alunos[0]?.responsavel_nome ||
-                'Responsável',
+                    familia.alunos[0]?.responsavel_nome ||
+                    'Responsável',
                 familia.alunos
             );
         }

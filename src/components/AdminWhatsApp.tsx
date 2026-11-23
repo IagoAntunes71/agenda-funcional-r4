@@ -8,6 +8,7 @@ interface ConfigWhatsApp {
     provedor: 'evolution' | 'zapi' | 'webhook';
     url_api: string;
     url_webhook_otp: string;
+    url_webhook_grupo: string;
     token_api: string;
     client_token: string;
     instancia: string;
@@ -72,6 +73,7 @@ export default function AdminWhatsApp() {
         provedor: 'evolution',
         url_api: '',
         url_webhook_otp: '',
+        url_webhook_grupo: '',
         token_api: '',
         client_token: '',
         instancia: '',
@@ -85,6 +87,7 @@ export default function AdminWhatsApp() {
     const [carregando, setCarregando] = useState(true);
     const [salvando, setSalvando] = useState(false);
     const [testando, setTestando] = useState(false);
+    const [testandoGrupo, setTestandoGrupo] = useState(false);
     const [novoAvisoVisual, setNovoAvisoVisual] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<{
         tipo: 'ok' | 'erro';
@@ -223,6 +226,40 @@ export default function AdminWhatsApp() {
             }
         } finally {
             setTestando(false);
+        }
+    }
+
+    async function handleTestarGrupo() {
+        setTestandoGrupo(true);
+        setFeedback(null);
+
+        try {
+            await fetch('/api/admin/whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ acao: 'salvarConfig', ...config }),
+            });
+
+            const res = await fetch('/api/admin/whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ acao: 'testarEnvioGrupo' }),
+            });
+            const json = await res.json();
+
+            if (res.ok) {
+                setFeedback({
+                    tipo: 'ok',
+                    texto: 'Mensagem de teste enviada para o Webhook do Grupo!',
+                });
+            } else {
+                setFeedback({
+                    tipo: 'erro',
+                    texto: json.error || 'Erro ao enviar teste para o grupo.',
+                });
+            }
+        } finally {
+            setTestandoGrupo(false);
         }
     }
 
@@ -405,26 +442,63 @@ export default function AdminWhatsApp() {
                             </div>
 
                             {config.provedor === 'webhook' && (
-                                <div className="md:col-span-2">
-                                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                                        URL do Webhook para Códigos OTP e Recuperação de PIN (opcional)
-                                    </label>
-                                    <input
-                                        type="url"
-                                        value={config.url_webhook_otp || ''}
-                                        onChange={(e) =>
-                                            setConfig((prev) => ({
-                                                ...prev,
-                                                url_webhook_otp: e.target.value,
-                                            }))
-                                        }
-                                        placeholder="https://api.datacrazy.io/... (se vazio, usa a URL do Webhook acima)"
-                                        className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
-                                    />
-                                    <p className="text-[11px] text-slate-400 mt-1">
-                                        Recomendado no DataCrazy: crie uma 2ª automação exclusiva para disparar códigos de cadastro e recuperação de PIN sem interferir no fluxo de agendamentos.
-                                    </p>
-                                </div>
+                                <>
+                                    <div className="md:col-span-2">
+                                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                                            2ª URL do Webhook — Códigos OTP e Recuperação de PIN (opcional)
+                                        </label>
+                                        <input
+                                            type="url"
+                                            value={config.url_webhook_otp || ''}
+                                            onChange={(e) =>
+                                                setConfig((prev) => ({
+                                                    ...prev,
+                                                    url_webhook_otp: e.target.value,
+                                                }))
+                                            }
+                                            placeholder="https://api.datacrazy.io/... (se vazio, usa a URL do Webhook acima)"
+                                            className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
+                                        />
+                                        <p className="text-[11px] text-slate-400 mt-1">
+                                            Automação 2 no DataCrazy: envia códigos de 4 dígitos no WhatsApp do cliente no cadastro e na recuperação de PIN.
+                                        </p>
+                                    </div>
+
+                                    <div className="md:col-span-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                                            <label className="block text-xs font-medium text-slate-300">
+                                                3ª URL do Webhook — Controle no Grupo (Agendamentos e Cancelamentos)
+                                            </label>
+                                            <button
+                                                type="button"
+                                                disabled={
+                                                    testandoGrupo ||
+                                                    !config.url_webhook_grupo ||
+                                                    !config.grupo_id
+                                                }
+                                                onClick={handleTestarGrupo}
+                                                className="px-3 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/40 disabled:opacity-40 text-[11px] font-semibold text-emerald-200 hover:text-white transition"
+                                            >
+                                                {testandoGrupo ? 'Testando Grupo...' : 'Testar Webhook do Grupo'}
+                                            </button>
+                                        </div>
+                                        <input
+                                            type="url"
+                                            value={config.url_webhook_grupo || ''}
+                                            onChange={(e) =>
+                                                setConfig((prev) => ({
+                                                    ...prev,
+                                                    url_webhook_grupo: e.target.value,
+                                                }))
+                                            }
+                                            placeholder="https://api.datacrazy.io/... (dispara para o Destino Padrão @g.us ao agendar e ao cancelar)"
+                                            className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
+                                        />
+                                        <p className="text-[11px] text-slate-400 mt-1">
+                                            Automação 3 no DataCrazy: dispara resumo com Cliente, Aluno e Telefone para o grupo (@g.us) sempre que uma aula for marcada ou cancelada.
+                                        </p>
+                                    </div>
+                                </>
                             )}
 
                             {config.provedor === 'evolution' && (

@@ -483,7 +483,7 @@ export default function PaginaAgendamentoReforco() {
           setEtapaLogin('recuperar_pin');
         }
         setErroCliente(
-            json.error || 'Não foi possível enviar o código no WhatsApp.'
+          json.error || 'Não foi possível enviar o código no WhatsApp.'
         );
         return;
       }
@@ -493,7 +493,7 @@ export default function PaginaAgendamentoReforco() {
       setConfirmarPinInput('');
       setCooldownOtpSegundos(Number(json.cooldownSegundos || 60));
       setAvisoOtp(
-          `Código de 4 dígitos enviado para ${formatarTelefone(telefonePendente)}. Válido por ${json.expiraMinutos || 10} minutos.`
+        `Código de 4 dígitos enviado para ${formatarTelefone(telefonePendente)}. Válido por ${json.expiraMinutos || 10} minutos.`
       );
       setEtapaLogin('recuperar_pin');
     } catch {
@@ -726,7 +726,7 @@ export default function PaginaAgendamentoReforco() {
           }
         }
         setErroCliente(
-            json.error || 'Não foi possível enviar o código no WhatsApp.'
+          json.error || 'Não foi possível enviar o código no WhatsApp.'
         );
         return;
       }
@@ -739,7 +739,7 @@ export default function PaginaAgendamentoReforco() {
       setCodigoOtpInput('');
       setCooldownOtpSegundos(Number(json.cooldownSegundos || 60));
       setAvisoOtp(
-          `Código de 4 dígitos enviado para ${formatarTelefone(telefonePendente)}. Válido por ${json.expiraMinutos || 10} minutos.`
+        `Código de 4 dígitos enviado para ${formatarTelefone(telefonePendente)}. Válido por ${json.expiraMinutos || 10} minutos.`
       );
       if (irParaEtapaCodigo) {
         setEtapaLogin('confirmar_codigo_cadastro');

@@ -8,6 +8,7 @@ import {
     gerarVariantesTelefone,
     normalizarTelefone,
 } from '@/lib/cliente-helpers';
+import { notificarGrupoCancelamentoAgendamento } from '@/lib/whatsapp-notificacao';
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
@@ -96,6 +97,63 @@ export async function PATCH(req: NextRequest) {
 
         if (atualizados[0].clincare_reserva_status === 'cancelar_pendente') {
             await dispararRoboReservaClinCare();
+        }
+
+        const detalhesRows = (await sql`
+      SELECT
+        a.id,
+        COALESCE(u.nome, 'Unidade') AS unidade_nome,
+        COALESCE(p.nome, 'Professor') AS professor_nome,
+        COALESCE(a.materia, '') AS materia,
+        to_char(a.data, 'YYYY-MM-DD') AS data,
+        COALESCE(
+          CASE
+            WHEN a.hora_inicio IS NOT NULL AND a.hora_fim IS NOT NULL
+              THEN to_char(a.hora_inicio, 'HH24:MI') || ' às ' || to_char(a.hora_fim, 'HH24:MI')
+            WHEN a.hora_inicio IS NOT NULL
+              THEN to_char(a.hora_inicio, 'HH24:MI')
+            ELSE NULL
+          END,
+          to_char(a.horario, 'HH24:MI'),
+          ''
+        ) AS horario,
+        COALESCE(NULLIF(trim(a.aluno_nome), ''), NULLIF(trim(a.nome_aluno), ''), 'Aluno') AS aluno_nome,
+        COALESCE(NULLIF(trim(a.aluno_telefone), ''), NULLIF(trim(a.whatsapp_responsavel), ''), ${telefoneNorm}) AS aluno_telefone,
+        COALESCE(NULLIF(trim(a.responsavel_nome), ''), NULLIF(trim(r.nome), ''), NULLIF(trim(al.responsavel_nome), ''), '') AS responsavel_nome
+      FROM agendamentos a
+      LEFT JOIN unidades u ON u.id = a.unidade_id
+      LEFT JOIN professores p ON p.id = a.professor_id
+      LEFT JOIN alunos al ON al.id = a.aluno_id
+      LEFT JOIN responsaveis r ON r.id = al.responsavel_id
+      WHERE a.id = ${Number(id)}
+      LIMIT 1
+    `) as {
+            id: number;
+            unidade_nome: string;
+            professor_nome: string;
+            materia: string;
+            data: string;
+            horario: string;
+            aluno_nome: string;
+            aluno_telefone: string;
+            responsavel_nome: string;
+        }[];
+
+        if (detalhesRows.length > 0) {
+            const d = detalhesRows[0];
+            await notificarGrupoCancelamentoAgendamento({
+                id: d.id,
+                unidade: d.unidade_nome,
+                professor: d.professor_nome,
+                materia: d.materia,
+                data: d.data,
+                horario: d.horario,
+                responsavelNome: d.responsavel_nome,
+                alunoNome: d.aluno_nome,
+                alunoTelefone: d.aluno_telefone || telefoneNorm,
+            }).catch((err) => {
+                console.error('Erro ao notificar cancelamento para o grupo:', err);
+            });
         }
 
         return NextResponse.json({ ok: true });

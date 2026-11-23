@@ -408,6 +408,7 @@ export async function POST(req: NextRequest) {
             materia,
             data,
             horario: slotEscolhido.label,
+            responsavelNome: responsavelFinal,
             alunoNome,
             alunoTelefone,
             colegioNome,

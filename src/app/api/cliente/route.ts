@@ -6,6 +6,7 @@ import {
     normalizarTelefone,
 } from '@/lib/cliente-helpers';
 import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
+import { notificarGrupoCancelamentoAgendamento } from '@/lib/whatsapp-notificacao';
 
 export async function garantirTabelasClientesEColegios() {
     await sql`
@@ -270,6 +271,37 @@ export async function POST(req: NextRequest) {
         SELECT
           a.id,
           COALESCE(a.status, 'confirmado') AS status,
+          COALESCE(u.nome, 'Unidade') AS unidade_nome,
+          COALESCE(p.nome, 'Professor') AS professor_nome,
+          COALESCE(a.materia, '') AS materia,
+          to_char(a.data, 'YYYY-MM-DD') AS data,
+          COALESCE(
+            CASE
+              WHEN a.hora_inicio IS NOT NULL AND a.hora_fim IS NOT NULL
+                THEN to_char(a.hora_inicio, 'HH24:MI') || ' às ' || to_char(a.hora_fim, 'HH24:MI')
+              WHEN a.hora_inicio IS NOT NULL
+                THEN to_char(a.hora_inicio, 'HH24:MI')
+              ELSE NULL
+            END,
+            to_char(a.horario, 'HH24:MI'),
+            ''
+          ) AS horario,
+          COALESCE(
+            NULLIF(trim(a.aluno_nome), ''),
+            NULLIF(trim(a.nome_aluno), ''),
+            'Aluno'
+          ) AS aluno_nome,
+          COALESCE(
+            NULLIF(trim(a.aluno_telefone), ''),
+            NULLIF(trim(a.whatsapp_responsavel), ''),
+            ${telefone}
+          ) AS aluno_telefone,
+          COALESCE(
+            NULLIF(trim(a.responsavel_nome), ''),
+            NULLIF(trim(r.nome), ''),
+            NULLIF(trim(al.responsavel_nome), ''),
+            ''
+          ) AS responsavel_nome,
           EXTRACT(
             EPOCH FROM (
               ((a.data + COALESCE(a.hora_inicio, a.horario, '14:10'::time)) AT TIME ZONE 'America/Bahia')
@@ -277,6 +309,10 @@ export async function POST(req: NextRequest) {
             )
           ) / 3600.0 AS horas_restantes
         FROM agendamentos a
+        LEFT JOIN unidades u ON u.id = a.unidade_id
+        LEFT JOIN professores p ON p.id = a.professor_id
+        LEFT JOIN alunos al ON al.id = a.aluno_id
+        LEFT JOIN responsaveis r ON r.id = al.responsavel_id
         WHERE a.id = ${agendamentoId}
           AND (
             regexp_replace(
@@ -295,7 +331,19 @@ export async function POST(req: NextRequest) {
             )
           )
         LIMIT 1
-      `) as { id: number; status: string; horas_restantes: number }[];
+      `) as {
+                id: number;
+                status: string;
+                unidade_nome: string;
+                professor_nome: string;
+                materia: string;
+                data: string;
+                horario: string;
+                aluno_nome: string;
+                aluno_telefone: string;
+                responsavel_nome: string;
+                horas_restantes: number;
+            }[];
 
             if (registros.length === 0) {
                 return NextResponse.json(
@@ -327,6 +375,20 @@ export async function POST(req: NextRequest) {
         SET status = 'cancelado'
         WHERE id = ${agendamentoId}
       `;
+
+            await notificarGrupoCancelamentoAgendamento({
+                id: ag.id,
+                unidade: ag.unidade_nome,
+                professor: ag.professor_nome,
+                materia: ag.materia,
+                data: ag.data,
+                horario: ag.horario,
+                responsavelNome: ag.responsavel_nome,
+                alunoNome: ag.aluno_nome,
+                alunoTelefone: ag.aluno_telefone || telefone,
+            }).catch((err) => {
+                console.error('Erro ao notificar cancelamento para o grupo:', err);
+            });
 
             const proximasAulas = await buscarProximasAulasPorTelefone(telefoneRaw);
 

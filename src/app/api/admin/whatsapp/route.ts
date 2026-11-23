@@ -3,6 +3,7 @@ import { sql } from '@/lib/db';
 import { verificarAdminAutenticado } from '@/lib/admin-auth';
 import {
     enviarTextoParaGrupo,
+    formatarDestinoApi,
     garantirTabelaConfigWhatsApp,
     notificarGrupoNovoAgendamento,
     obterConfigWhatsApp,
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
             const provedor = String(body?.provedor || 'evolution');
             const urlApi = String(body?.url_api || '').trim();
             const urlWebhookOtp = String(body?.url_webhook_otp || '').trim();
+            const urlWebhookGrupo = String(body?.url_webhook_grupo || '').trim();
             const tokenApi = String(body?.token_api || '').trim();
             const clientToken = String(body?.client_token || '').trim();
             const instancia = String(body?.instancia || '').trim();
@@ -94,6 +96,7 @@ export async function POST(req: NextRequest) {
             provedor = ${provedor},
             url_api = ${urlApi},
             url_webhook_otp = ${urlWebhookOtp},
+            url_webhook_grupo = ${urlWebhookGrupo},
             token_api = ${tokenApi},
             client_token = ${clientToken},
             instancia = ${instancia},
@@ -121,6 +124,52 @@ export async function POST(req: NextRequest) {
             if (!resTeste.ok) {
                 return NextResponse.json(
                     { error: resTeste.erro || 'Falha no teste de envio.' },
+                    { status: 400 }
+                );
+            }
+
+            return NextResponse.json({ sucesso: true });
+        }
+
+        if (acao === 'testarEnvioGrupo') {
+            const cfg = await obterConfigWhatsApp();
+            const destinoGrupo = formatarDestinoApi(cfg.grupo_id);
+            if (!destinoGrupo) {
+                return NextResponse.json(
+                    { error: 'Preencha o Destino Padrão (ID do Grupo @g.us) antes de testar.' },
+                    { status: 400 }
+                );
+            }
+            if (!cfg.url_webhook_grupo) {
+                return NextResponse.json(
+                    { error: 'Preencha a URL do Webhook do Grupo antes de testar.' },
+                    { status: 400 }
+                );
+            }
+
+            const cfgGrupo = { ...cfg, url_api: cfg.url_webhook_grupo };
+            const resTeste = await enviarTextoParaGrupo(
+                cfgGrupo,
+                [
+                    `✅ *TESTE GRUPO — R4 Ensina*`,
+                    ``,
+                    `👤 *Cliente:* Responsável Teste`,
+                    `🎓 *Aluno(a):* Aluno Teste`,
+                    `📱 *Telefone:* (71) 99999-9999`,
+                    `📅 *Aula:* Teste de conexão do Webhook do Grupo`,
+                ].join('\n'),
+                {
+                    evento: 'grupo_teste_conexao',
+                    clienteNome: 'Responsável Teste',
+                    alunoNome: 'Aluno Teste',
+                    telefone: '5571999999999',
+                    telefoneFormatado: '(71) 99999-9999',
+                }
+            );
+
+            if (!resTeste.ok) {
+                return NextResponse.json(
+                    { error: resTeste.erro || 'Falha no teste de envio para o grupo.' },
                     { status: 400 }
                 );
             }
