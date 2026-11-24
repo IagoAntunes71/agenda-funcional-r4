@@ -14,24 +14,35 @@ import {
     ChevronLeft,
     ChevronRight,
     GraduationCap,
-    GripVertical,
     Lock,
     Pencil,
     RotateCcw,
     Search,
+    Plus,
+    SlidersHorizontal,
     Trash2,
     User,
-    Users,
     X,
 } from 'lucide-react';
 import { RoleSistema } from '@/lib/admin-auth';
 import {
     HORAS_GRADE_R4,
+    LISTA_STATUS_AULA_R4,
     normalizarStatusAulaR4,
     obterMetaStatusR4,
 } from '@/lib/agenda-status-r4';
 import { filtrarMateriasVisiveis } from '@/lib/cliente-helpers';
 import { adicionarDiasISO, horaParaMinutos, minutosParaHora } from '@/lib/horarios-reforco';
+import {
+    distribuirSobreposicoes,
+    FIM_MAPA,
+    INICIO_MAPA,
+    intervaloAula,
+    intervaloBloqueio,
+    recortarIntervalo,
+    relogioBahia,
+} from './mapa-dia-horarios';
+import styles from './MapaDia.module.css';
 import ModalDetalhesAulaR4 from './ModalDetalhesAulaR4';
 import ModalNovoAgendamentoR4 from './ModalNovoAgendamentoR4';
 import {
@@ -45,16 +56,28 @@ import {
     obterIniciais,
 } from './types';
 
-const ALTURA_LINHA_PX = 84;
-const HORA_INICIAL_GRADE = 8; // 08:00
-const HORAS_BLOQUEIO = Array.from({ length: 15 }, (_, i) => String(8 + i).padStart(2, '0'));
-const MINUTOS_BLOQUEIO = ['00', '10', '20', '30', '40', '50'];
+const ALTURA_HORA = 72;
+const ALTURA_GRADE = (FIM_MAPA - INICIO_MAPA) / 60 * ALTURA_HORA;
+const HORAS_BLOQUEIO = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTOS_INICIO = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+const HORARIOS_GRADE = Array.from({ length: (FIM_MAPA - INICIO_MAPA) / 30 }, (_, i) =>
+    INICIO_MAPA + i * 30
+);
 
-function obterHojeISO(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-        d.getDate()
-    ).padStart(2, '0')}`;
+function obterHojeISO() {
+    return relogioBahia().data;
+}
+
+function posicao(minuto: number) {
+    return (minuto - INICIO_MAPA) / 60 * ALTURA_HORA;
+}
+
+function correspondeProfessor(
+    item: { professor_id: number | null; professor_clin_care_id?: string | null },
+    professor: ProfessorAdmin,
+) {
+    return item.professor_id === professor.id ||
+        Boolean(professor.clin_care_id && item.professor_clin_care_id === professor.clin_care_id);
 }
 
 function formatarDiaCurtoPT(dataISO: string): string {
@@ -115,7 +138,7 @@ function normalizarTextoComparacao(valor: string): string {
 
 function formatarMotivoBloqueio(motivo: string): string {
     const limpo = String(motivo || '')
-        .replace(/^bloqueio\s*[-•:]\s*/i, '')
+        .replace(/^(?:bloqueio\s*[-•:]\s*)+/i, '')
         .trim();
     return limpo ? `Bloqueio • ${limpo}` : 'Bloqueio';
 }
@@ -153,6 +176,7 @@ export default function AbaMapaDia({
                                        escuro,
                                        classes,
                                        modoTelaCheia = false,
+                                       onAlternarTelaCheiaAction,
                                        onRecarregarDadosAction,
                                    }: {
     roleUsuario?: RoleSistema;
@@ -176,7 +200,11 @@ export default function AbaMapaDia({
     const [dataGlobal, setDataGlobal] = useState<string>(() => obterHojeISO());
     const [datasPorProfessor, setDatasPorProfessor] = useState<Record<number, string>>({});
     const [busca, setBusca] = useState<string>('');
-    const [slotAtivoKey, setSlotAtivoKey] = useState<string | null>(null);
+    const [professorSemanaId, setProfessorSemanaId] = useState(0);
+    const [filtroStatus, setFiltroStatus] = useState('todos');
+    const [agora, setAgora] = useState<ReturnType<typeof relogioBahia> | null>(null);
+    const [erroBloqueio, setErroBloqueio] = useState('');
+    const [erroTransferencia, setErroTransferencia] = useState('');
 
     const [modalNovoAberto, setModalNovoAberto] = useState<boolean>(false);
     const [modalNovoModo, setModalNovoModo] = useState<'aula' | 'bloqueio'>('aula');
@@ -214,150 +242,104 @@ export default function AbaMapaDia({
     // Hover Card flutuante
     const [hoverCard, setHoverCard] = useState<HoverCardEstado | null>(null);
 
-    // Sincronização de scroll horizontal superior <-> grade
-    const scrollTopoRef = useRef<HTMLDivElement | null>(null);
     const scrollGradeRef = useRef<HTMLDivElement | null>(null);
-    const tabelaRef = useRef<HTMLTableElement | null>(null);
-    const inputDataGlobalRef = useRef<HTMLInputElement | null>(null);
-    const sincronizandoScrollRef = useRef<boolean>(false);
-    const [larguraTabela, setLarguraTabela] = useState<number>(1200);
-
+    const [rolagem, setRolagem] = useState({ anterior: false, proximo: false });
     const unidadeIdAtiva = unidadeId || unidades[0]?.id || 0;
+    const semana = modoVisualizacao === 'semana';
+
+    useEffect(() => {
+        const atualizar = () => setAgora(relogioBahia());
+        atualizar();
+        const timer = window.setInterval(atualizar, 15000);
+        return () => window.clearInterval(timer);
+    }, []);
 
     const professoresVisiveis = useMemo(() => {
         if (ehProfessor) {
-            return Array.from(
-                new Map(professores.map((p) => [p.nome.trim().toLowerCase(), p])).values()
-            );
+            const principal = professores.find((p) => p.id === professorTravadoId);
+            return principal ? [principal] : [];
         }
+        const termo = normalizarTextoComparacao(busca);
+        return professores.filter((p) => p.ativo &&
+            (!unidadeIdAtiva || p.unidade_id === unidadeIdAtiva) &&
+            (!termo || [p.nome, ...filtrarMateriasVisiveis(p.materias)]
+                .some((texto) => normalizarTextoComparacao(texto).includes(termo))));
+    }, [ehProfessor, professorTravadoId, professores, unidadeIdAtiva, busca]);
 
-        return professores.filter((p) => {
-            if (!p.ativo) return false;
-            if (unidadeIdAtiva && p.unidade_id !== unidadeIdAtiva) return false;
-            if (busca.trim()) {
-                const termo = busca.trim().toLowerCase();
-                const materiasVisiveis = filtrarMateriasVisiveis(p.materias);
-                const bateNome = p.nome.toLowerCase().includes(termo);
-                const bateMateria = materiasVisiveis.some((m) => m.toLowerCase().includes(termo));
-                if (!bateNome && !bateMateria) return false;
-            }
-            return true;
-        });
-    }, [ehProfessor, professores, unidadeIdAtiva, busca]);
+    const professorSemana = professoresVisiveis.find((p) => p.id === professorSemanaId) ||
+        professoresVisiveis[0];
 
-    // Faixa rápida de 7 dias ao redor da data selecionada
     const faixaDiasSemana = useMemo(() => {
-        const diasSigla = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
-        return Array.from({ length: 7 }, (_, idx) => {
-            const offset = idx - 2;
-            const iso = adicionarDiasISO(dataGlobal, offset);
-            const [ano, mes, dia] = iso.split('-').map(Number);
-            const dt = new Date(ano, (mes || 1) - 1, dia || 1);
-            return {
-                iso,
-                sigla: diasSigla[dt.getDay()],
-                numero: String(dia).padStart(2, '0'),
-                ativo: iso === dataGlobal,
-            };
-        });
+        const diaSemana = new Date(dataGlobal + 'T12:00:00Z').getUTCDay();
+        const segunda = adicionarDiasISO(dataGlobal, -((diaSemana + 6) % 7));
+        return Array.from({ length: 7 }, (_, idx) => adicionarDiasISO(segunda, idx));
     }, [dataGlobal]);
 
-    // Resumo dinâmico do dia visível
-    const resumoDia = useMemo(() => {
-        const profIdsVisiveis = new Set(professoresVisiveis.map((p) => p.id));
-        const clinCareIdsVisiveis = new Set(
-            professoresVisiveis.map((p) => p.clin_care_id).filter(Boolean)
-        );
+    const colunas = useMemo(() => {
+        const professoresDoProprioPerfil = ehProfessor && professorSemana
+            ? professores.filter((p) => correspondeProfessor({
+                professor_id: professorSemana.id,
+                professor_clin_care_id: professorSemana.clin_care_id,
+            }, p))
+            : [];
+        const dias = semana
+            ? (professorSemana ? faixaDiasSemana.map((data) => ({ prof: professorSemana, data })) : [])
+            : professoresVisiveis.map((prof) => ({ prof, data: datasPorProfessor[prof.id] || dataGlobal }));
 
-        const aulasVisiveis = agendamentos.filter((ag) => {
-            const profCorrespondente = professoresVisiveis.find(
-                (p) =>
-                    p.id === ag.professor_id ||
-                    (p.clin_care_id && ag.professor_clin_care_id === p.clin_care_id)
-            );
-            if (!profCorrespondente && !ehProfessor) return false;
-            const dataEsperada = profCorrespondente
-                ? datasPorProfessor[profCorrespondente.id] || dataGlobal
-                : dataGlobal;
-            if (ag.data !== dataEsperada) return false;
-
-            const st = normalizarStatusAulaR4(ag.status);
-            return st !== 'cancelado';
+        return dias.map(({ prof, data }) => {
+            const perfis = ehProfessor ? professoresDoProprioPerfil : [prof];
+            const aulas = agendamentos.flatMap((aula) => {
+                if (aula.data !== data || !perfis.some((p) => correspondeProfessor(aula, p))) return [];
+                if (!ehProfessor && unidadeIdAtiva && aula.unidade_id && aula.unidade_id !== unidadeIdAtiva) return [];
+                const intervalo = recortarIntervalo(intervaloAula(aula));
+                return intervalo ? [{ ...intervalo, aula }] : [];
+            });
+            const bloqueiosVisiveis = bloqueios.flatMap((bloqueio) => {
+                if (!perfis.some((p) => correspondeProfessor(bloqueio, p))) return [];
+                const original = intervaloBloqueio(bloqueio, data);
+                const intervalo = original && recortarIntervalo(original);
+                return intervalo ? [{ ...intervalo, bloqueio }] : [];
+            });
+            return {
+                prof,
+                data,
+                chave: prof.id + '-' + data,
+                aulas,
+                bloqueios: distribuirSobreposicoes(bloqueiosVisiveis),
+                aulasExibidas: distribuirSobreposicoes(aulas.filter(({ aula }) =>
+                    filtroStatus === 'todos' || normalizarStatusAulaR4(aula.status) === filtroStatus)),
+            };
         });
+    }, [agendamentos, bloqueios, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
+        filtroStatus, professorSemana, professores, professoresVisiveis, semana, unidadeIdAtiva]);
 
-        const confirmadas = aulasVisiveis.filter(
-            (ag) => normalizarStatusAulaR4(ag.status) === 'confirmado'
-        ).length;
-
-        const bloqueiosVisiveis = bloqueios.filter((bl) => {
-            const profCorrespondente = professoresVisiveis.find(
-                (p) =>
-                    p.id === bl.professor_id ||
-                    (p.clin_care_id && bl.professor_clin_care_id === p.clin_care_id)
-            );
-            if (!profCorrespondente && !ehProfessor) {
-                if (
-                    bl.professor_id !== null &&
-                    !profIdsVisiveis.has(bl.professor_id) &&
-                    (!bl.professor_clin_care_id ||
-                        !clinCareIdsVisiveis.has(bl.professor_clin_care_id))
-                ) {
-                    return false;
-                }
-            }
-            const dataEsperada = profCorrespondente
-                ? datasPorProfessor[profCorrespondente.id] || dataGlobal
-                : dataGlobal;
-            return bl.data === dataEsperada;
-        });
-
-        return {
-            totalAulas: aulasVisiveis.length,
-            confirmadas,
-            totalBloqueios: bloqueiosVisiveis.length,
-        };
-    }, [
-        agendamentos,
-        bloqueios,
-        professoresVisiveis,
-        datasPorProfessor,
-        dataGlobal,
-        ehProfessor,
-    ]);
+    const resumoAulas = new Map(colunas.flatMap((coluna) =>
+        coluna.aulas.map(({ aula }) => [aula.id, aula] as const)));
+    const resumoBloqueios = new Set(colunas.flatMap((coluna) =>
+        coluna.bloqueios.map(({ bloqueio }) => bloqueio.id)));
+    const confirmadas = [...resumoAulas.values()].filter((aula) =>
+        normalizarStatusAulaR4(aula.status) === 'confirmado').length;
 
     useEffect(() => {
-        const atualizarLargura = () => {
-            if (tabelaRef.current) {
-                setLarguraTabela(tabelaRef.current.scrollWidth);
-            }
+        const grade = scrollGradeRef.current;
+        if (!grade) return;
+        function medir() {
+            if (!grade) return;
+            setRolagem({
+                anterior: grade.scrollLeft > 1,
+                proximo: grade.scrollLeft + grade.clientWidth < grade.scrollWidth - 1,
+            });
+        }
+        const observer = new ResizeObserver(medir);
+        observer.observe(grade);
+        if (grade.firstElementChild) observer.observe(grade.firstElementChild);
+        grade.addEventListener('scroll', medir, { passive: true });
+        medir();
+        return () => {
+            observer.disconnect();
+            grade.removeEventListener('scroll', medir);
         };
-        atualizarLargura();
-        window.addEventListener('resize', atualizarLargura);
-        return () => window.removeEventListener('resize', atualizarLargura);
-    }, [professoresVisiveis.length, modoTelaCheia, modoVisualizacao]);
-
-    function handleScrollTopo() {
-        if (sincronizandoScrollRef.current) return;
-        if (scrollTopoRef.current && scrollGradeRef.current) {
-            sincronizandoScrollRef.current = true;
-            scrollGradeRef.current.scrollLeft = scrollTopoRef.current.scrollLeft;
-            requestAnimationFrame(() => {
-                sincronizandoScrollRef.current = false;
-            });
-        }
-    }
-
-    function handleScrollGrade() {
-        setHoverCard(null);
-        if (sincronizandoScrollRef.current) return;
-        if (scrollTopoRef.current && scrollGradeRef.current) {
-            sincronizandoScrollRef.current = true;
-            scrollTopoRef.current.scrollLeft = scrollGradeRef.current.scrollLeft;
-            requestAnimationFrame(() => {
-                sincronizandoScrollRef.current = false;
-            });
-        }
-    }
+    }, [colunas.length]);
 
     function obterDataDoProfessor(profId: number): string {
         return datasPorProfessor[profId] || dataGlobal;
@@ -389,20 +371,19 @@ export default function AbaMapaDia({
         horaSlot?: string,
         dataSlot?: string
     ) {
-        const pId = profId || professoresVisiveis[0]?.id || 0;
+        const pId = profId || (semana ? professorSemana?.id : professoresVisiveis[0]?.id) || 0;
         setModalNovoModo(ehProfessor ? 'bloqueio' : modo);
         setModalProfInicial(pId);
-        setModalDataInicial(dataSlot || obterDataDoProfessor(pId));
+        setModalDataInicial(dataSlot || (semana ? dataGlobal : obterDataDoProfessor(pId)));
         setModalHoraInicial(horaSlot || '08:00');
         setModalNovoAberto(true);
     }
 
     function abrirDetalhesBloqueio(
-        e: React.MouseEvent,
         bl: BloqueioAdmin,
         professorNome: string
     ) {
-        e.stopPropagation();
+        setErroBloqueio('');
         setBloqueioSelecionado({ bloqueio: bl, professorNome });
     }
 
@@ -410,10 +391,9 @@ export default function AbaMapaDia({
         if (!bloqueioSelecionado) return;
         const { bloqueio, professorNome } = bloqueioSelecionado;
         const [hIni, mIni] = (bloqueio.hora_inicio || '08:00').split(':');
-        const duracaoTotal = Math.max(
-            10,
-            horaParaMinutos(bloqueio.hora_fim) - horaParaMinutos(bloqueio.hora_inicio)
-        );
+        const inicio = horaParaMinutos(bloqueio.hora_inicio);
+        const fim = horaParaMinutos(bloqueio.hora_fim);
+        const duracaoTotal = Math.max(10, fim - inicio + (fim < inicio ? 1440 : 0));
         const dHoras = Math.floor(duracaoTotal / 60);
         const dMinutos = duracaoTotal % 60;
 
@@ -425,7 +405,7 @@ export default function AbaMapaDia({
             descricao: bloqueio.descricao || '',
             data: bloqueio.data,
             hora: HORAS_BLOQUEIO.includes(hIni) ? hIni : '08',
-            minuto: MINUTOS_BLOQUEIO.includes(mIni) ? mIni : '00',
+            minuto: MINUTOS_INICIO.includes(mIni) ? mIni : '00',
             duracaoHoras: dHoras,
             duracaoMinutos: dMinutos,
         });
@@ -433,6 +413,7 @@ export default function AbaMapaDia({
 
     async function excluirBloqueioSelecionado() {
         if (!bloqueioSelecionado) return;
+        setErroBloqueio('');
         setSalvandoBloqueio(true);
         try {
             const res = await fetch(
@@ -442,7 +423,12 @@ export default function AbaMapaDia({
             if (res.ok) {
                 setBloqueioSelecionado(null);
                 await onRecarregarDadosAction();
+            } else {
+                const resposta = await res.json().catch(() => null);
+                setErroBloqueio(resposta?.error || 'Não foi possível excluir o bloqueio.');
             }
+        } catch {
+            setErroBloqueio('Falha na conexão. Tente novamente.');
         } finally {
             setSalvandoBloqueio(false);
         }
@@ -453,8 +439,17 @@ export default function AbaMapaDia({
         if (!bloqueioEditando) return;
         const totalMinutos =
             bloqueioEditando.duracaoHoras * 60 + bloqueioEditando.duracaoMinutos;
-        if (totalMinutos < 10) return;
+        if (totalMinutos < 10 || totalMinutos > 840) {
+            setErroBloqueio('Escolha uma duração entre 10 minutos e 14 horas.');
+            return;
+        }
+        const inicio = horaParaMinutos(`${bloqueioEditando.hora}:${bloqueioEditando.minuto}`);
+        if (inicio + totalMinutos > 23 * 60 + 50) {
+            setErroBloqueio('O bloqueio editado precisa terminar até 23:50. Para cobrir o dia seguinte, crie outro bloqueio.');
+            return;
+        }
 
+        setErroBloqueio('');
         setSalvandoBloqueio(true);
         try {
             const res = await fetch('/api/admin/bloqueios', {
@@ -472,7 +467,12 @@ export default function AbaMapaDia({
             if (res.ok) {
                 setBloqueioEditando(null);
                 await onRecarregarDadosAction();
+            } else {
+                const resposta = await res.json().catch(() => null);
+                setErroBloqueio(resposta?.error || 'Não foi possível atualizar o bloqueio.');
             }
+        } catch {
+            setErroBloqueio('Falha na conexão. Tente novamente.');
         } finally {
             setSalvandoBloqueio(false);
         }
@@ -497,9 +497,10 @@ export default function AbaMapaDia({
         if (!aulaArrastando || ehProfessor) return;
 
         const horaOriginal = aulaArrastando.hora_inicio || (aulaArrastando.horario || '').slice(0, 5);
-        const [, minOrig] = horaOriginal.split(':');
-        const [horaFaixaBase] = horaFaixa.split(':');
-        const novoHorario = `${horaFaixaBase}:${minOrig || '00'}`;
+        const minutoOriginal = horaParaMinutos(horaOriginal);
+        const inicioSlot = horaParaMinutos(horaFaixa);
+        const novoHorario = minutoOriginal >= inicioSlot && minutoOriginal < inicioSlot + 30
+            ? horaOriginal : horaFaixa;
 
         const mudouProf = aulaArrastando.professor_id !== profDestino.id;
         const mudouData = aulaArrastando.data !== dataDestino;
@@ -537,6 +538,7 @@ export default function AbaMapaDia({
         }
 
         setServicoEscolhidoId('');
+        setErroTransferencia('');
         setTransferenciaPendente({
             aula: aulaArrastando,
             professorDestino: profDestino,
@@ -563,6 +565,7 @@ export default function AbaMapaDia({
             novaDuracao = escolhida.duracao;
         }
 
+        setErroTransferencia('');
         setSalvandoTransferencia(true);
         try {
             const { aula, professorDestino, novaData, novoHorario } = transferenciaPendente;
@@ -583,7 +586,12 @@ export default function AbaMapaDia({
                 setTransferenciaPendente(null);
                 setServicoEscolhidoId('');
                 await onRecarregarDadosAction();
+            } else {
+                const resposta = await res.json().catch(() => null);
+                setErroTransferencia(resposta?.error || 'Não foi possível transferir a aula.');
             }
+        } catch {
+            setErroTransferencia('Falha na conexão. Tente novamente.');
         } finally {
             setSalvandoTransferencia(false);
         }
@@ -608,850 +616,259 @@ export default function AbaMapaDia({
         setHoverCard({ aula, x, y });
     }
 
-    function calcularEstiloBloqueioContinuo(bl: BloqueioAdmin) {
-        const iniMin = Math.max(HORA_INICIAL_GRADE * 60, horaParaMinutos(bl.hora_inicio));
-        const fimMin = Math.min(23 * 60, horaParaMinutos(bl.hora_fim));
-        const duracaoMin = Math.max(30, fimMin - iniMin);
-        const offsetMin = iniMin - HORA_INICIAL_GRADE * 60;
-
-        return {
-            top: `${(offsetMin / 60) * ALTURA_LINHA_PX + 6}px`,
-            height: `${(duracaoMin / 60) * ALTURA_LINHA_PX - 12}px`,
-        };
-    }
-
-    function obterEstiloCardAula(statusBruto: string) {
-        const status = normalizarStatusAulaR4(statusBruto);
-        if (status === 'confirmado') {
-            return {
-                card: escuro
-                    ? 'bg-[#122923] border-emerald-500/50 border-l-emerald-400 text-stone-100'
-                    : 'bg-[#ECFDF3] border-[#A7F3D0] border-l-[#16A34A] text-slate-900',
-                materia: escuro ? 'text-emerald-300' : 'text-slate-600',
-                badgeIcone: 'bg-[#16A34A] text-white',
-            };
-        }
-        if (status === 'agendado') {
-            return {
-                card: escuro
-                    ? 'bg-[#10262B] border-[#1496A1]/50 border-l-[#1496A1] text-stone-100'
-                    : 'bg-[#F0FDFA] border-[#99F6E4] border-l-[#0E7C86] text-slate-900',
-                materia: escuro ? 'text-[#5EEAD4]' : 'text-[#0F766E]',
-                badgeIcone: 'bg-[#0E7C86] text-white',
-            };
-        }
-        if (status === 'realizado') {
-            return {
-                card: escuro
-                    ? 'bg-[#2A2412] border-amber-500/50 border-l-amber-400 text-stone-100'
-                    : 'bg-amber-50 border-amber-200 border-l-amber-500 text-slate-900',
-                materia: escuro ? 'text-amber-300' : 'text-amber-800',
-                badgeIcone: 'bg-amber-500 text-white',
-            };
-        }
-        return {
-            card: escuro
-                ? 'bg-stone-800 border-stone-700 border-l-stone-400 text-stone-300'
-                : 'bg-slate-100 border-slate-300 border-l-slate-400 text-slate-600',
-            materia: escuro ? 'text-stone-400' : 'text-slate-500',
-            badgeIcone: 'bg-slate-400 text-white',
-        };
-    }
-
-    const clsBordaGrade = escuro ? 'border-[#26303D]' : 'border-slate-200';
-    const clsLinhaHora = escuro ? 'divide-[#26303D]' : 'divide-slate-200';
-    const clsCabecalhoClaro = escuro
-        ? 'bg-[#11161D] text-stone-100 border-[#26303D]'
-        : 'bg-white text-slate-900 border-slate-200';
-
-    const legendaCompacta = [
-        { rotulo: 'Agendada', cor: 'bg-[#0E7C86]' },
-        { rotulo: 'Confirmada', cor: 'bg-[#16A34A]' },
-        { rotulo: 'Realizada', cor: 'bg-[#EAB308]' },
-        { rotulo: 'Cancelada', cor: 'bg-slate-400' },
-        { rotulo: 'Bloqueio', cor: 'bg-[#F87171]' },
-    ];
-
     const duracaoTotalEdicaoBloqueio = bloqueioEditando
         ? bloqueioEditando.duracaoHoras * 60 + bloqueioEditando.duracaoMinutos
         : 0;
 
+    function moverGrade(direcao: number) {
+        const grade = scrollGradeRef.current;
+        if (grade) grade.scrollBy({ left: direcao * grade.clientWidth * 0.75, behavior: 'smooth' });
+    }
+
+    function alterarPeriodo(direcao: number) {
+        alterarDataGlobal(adicionarDiasISO(dataGlobal, direcao * (semana ? 7 : 1)));
+    }
+
+    const primeiroDia = faixaDiasSemana[0];
+    const ultimoDia = faixaDiasSemana[6];
+
     return (
-        <section className={modoTelaCheia ? 'space-y-2.5' : 'space-y-3.5'}>
-            {/* Barra de Controle Superior + Resumo do Dia */}
-            <div className={`border rounded-2xl p-3 sm:p-3.5 space-y-2.5 shadow-2xs ${clsCard}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    {/* Grupo Esquerdo: Dia/Semana, Data, Hoje, Faixa 7 dias, Unidade, Busca */}
-                    <div className="flex flex-wrap items-center gap-2">
-                        {/* Toggle Dia / Semana */}
-                        <div
-                            className={`inline-flex items-center rounded-xl border p-0.5 ${
-                                escuro
-                                    ? 'bg-[#0E1319] border-[#26303D]'
-                                    : 'bg-slate-100/90 border-slate-200'
-                            }`}
-                        >
-                            <button
-                                type="button"
-                                onClick={() => setModoVisualizacao('dia')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                    modoVisualizacao === 'dia'
-                                        ? 'bg-[#0E7C86] text-white shadow-2xs'
-                                        : `${clsSubtexto} hover:text-[#0E7C86]`
-                                }`}
-                            >
-                                Dia
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setModoVisualizacao('semana')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                    modoVisualizacao === 'semana'
-                                        ? 'bg-[#0E7C86] text-white shadow-2xs'
-                                        : `${clsSubtexto} hover:text-[#0E7C86]`
-                                }`}
-                            >
-                                Semana
-                            </button>
+        <section className={styles.mapa} data-tema={escuro ? 'escuro' : 'claro'}>
+            <div className={styles.painel}>
+                <div className={styles.topo}>
+                    <div className={styles.controles}>
+                        <div className={styles.segmentado} role="group" aria-label="Visualização">
+                            <button type="button" aria-pressed={!semana} onClick={() => setModoVisualizacao('dia')}>Dia</button>
+                            <button type="button" aria-pressed={semana} onClick={() => setModoVisualizacao('semana')}>Semana</button>
                         </div>
-
-                        {/* Seletor de Data Global (< 23/11/2026 📅 >) */}
-                        <div
-                            className={`inline-flex items-center rounded-xl border overflow-hidden ${
-                                escuro
-                                    ? 'bg-[#11161D] border-[#26303D]'
-                                    : 'bg-white border-slate-200'
-                            }`}
-                        >
-                            <button
-                                type="button"
-                                onClick={() => alterarDataGlobal(adicionarDiasISO(dataGlobal, -1))}
-                                title="Dia anterior"
-                                className={`p-2 transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
-                            >
-                                <ChevronLeft className="w-3.5 h-3.5" />
+                        <div className={styles.periodo}>
+                            <button type="button" aria-label={semana ? 'Semana anterior' : 'Dia anterior'} onClick={() => alterarPeriodo(-1)}>
+                                <ChevronLeft />
                             </button>
-
-                            <label
-                                onClick={() => inputDataGlobalRef.current?.showPicker?.()}
-                                className={`relative inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-bold cursor-pointer select-none ${clsTitulo}`}
-                            >
-                                <span>{formatarDataBR(dataGlobal)}</span>
-                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                                <input
-                                    ref={inputDataGlobalRef}
-                                    type="date"
-                                    value={dataGlobal}
-                                    onChange={(e) => alterarDataGlobal(e.target.value)}
-                                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                                />
+                            <label className={styles.data}>
+                                <Calendar />
+                                {semana ? `${formatarDataBR(primeiroDia).slice(0, 5)} – ${formatarDataBR(ultimoDia)}` : formatarDataBR(dataGlobal)}
+                                <input type="date" aria-label="Escolher data" value={dataGlobal} onChange={(e) => alterarDataGlobal(e.target.value)} />
                             </label>
-
-                            <button
-                                type="button"
-                                onClick={() => alterarDataGlobal(adicionarDiasISO(dataGlobal, 1))}
-                                title="Próximo dia"
-                                className={`p-2 transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
-                            >
-                                <ChevronRight className="w-3.5 h-3.5" />
+                            <button type="button" aria-label={semana ? 'Próxima semana' : 'Próximo dia'} onClick={() => alterarPeriodo(1)}>
+                                <ChevronRight />
                             </button>
                         </div>
-
-                        {/* Botão Hoje */}
-                        <button
-                            type="button"
-                            onClick={() => alterarDataGlobal(obterHojeISO())}
-                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition ${
-                                escuro
-                                    ? 'bg-[#11161D] border-[#26303D] text-stone-200 hover:border-[#0E7C86]'
-                                    : 'bg-white border-slate-200 text-slate-700 hover:border-[#0E7C86] hover:text-[#0E7C86]'
-                            }`}
-                        >
-                            Hoje
-                        </button>
-
-                        {/* Faixa rápida de 7 dias */}
-                        <div
-                            className={`hidden xl:inline-flex items-center gap-0.5 rounded-xl border p-0.5 ${
-                                escuro
-                                    ? 'bg-[#0E1319] border-[#26303D]'
-                                    : 'bg-slate-50 border-slate-200'
-                            }`}
-                        >
-                            {faixaDiasSemana.map((diaItem) => (
-                                <button
-                                    key={diaItem.iso}
-                                    type="button"
-                                    onClick={() => alterarDataGlobal(diaItem.iso)}
-                                    className={`px-2 py-1 rounded-lg flex flex-col items-center leading-tight transition cursor-pointer min-w-[34px] ${
-                                        diaItem.ativo
-                                            ? escuro
-                                                ? 'bg-[#0E7C86]/30 text-[#5EEAD4] font-bold'
-                                                : 'bg-[#CCFBF1] text-[#0F766E] font-bold'
-                                            : `${clsSubtexto} hover:bg-slate-200/60 dark:hover:bg-white/5`
-                                    }`}
-                                >
-                                    <span className="text-[9px] font-semibold tracking-tight">
-                                        {diaItem.sigla}
-                                    </span>
-                                    <span className="text-xs font-extrabold">{diaItem.numero}</span>
-                                </button>
-                            ))}
-                        </div>
-
-                        {temDatasIndividuais && (
-                            <button
-                                type="button"
-                                onClick={() => setDatasPorProfessor({})}
-                                title="Voltar todos os professores para a data principal"
-                                className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-amber-500/25"
-                            >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                Sincronizar
-                            </button>
-                        )}
-
-                        {!ehProfessor && (
-                            <>
-                                {/* Seletor de Unidade */}
-                                <select
-                                    value={unidadeIdAtiva}
-                                    onChange={(e) => setUnidadeId(Number(e.target.value))}
-                                    className={`border rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none cursor-pointer ${
-                                        escuro
-                                            ? clsInput
-                                            : 'bg-white border-slate-200 text-slate-800'
-                                    }`}
-                                >
-                                    {unidades.map((u) => (
-                                        <option key={u.id} value={u.id}>
-                                            {u.nome}
-                                        </option>
-                                    ))}
-                                </select>
-
-                                {/* Campo de Busca */}
-                                <div className="relative">
-                                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                    <input
-                                        type="text"
-                                        value={busca}
-                                        onChange={(e) => setBusca(e.target.value)}
-                                        placeholder="Filtrar professor ou matéria..."
-                                        className={`border rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none w-44 sm:w-52 ${
-                                            escuro
-                                                ? clsInput
-                                                : 'bg-white border-slate-200 text-slate-800 placeholder:text-slate-400 focus:border-[#0E7C86]'
-                                        }`}
-                                    />
-                                </div>
-                            </>
-                        )}
+                        <button type="button" className={styles.botao} onClick={() => alterarDataGlobal(obterHojeISO())}>Hoje</button>
                     </div>
-
-                    {/* Grupo Direito: Apenas botão principal de ação (sem < PROFS >) */}
-                    <div className="flex flex-wrap items-center gap-2">
-                        {ehProfessor ? (
-                            <button
-                                type="button"
-                                onClick={() => abrirModalCriacao('bloqueio')}
-                                className="px-3.5 py-2 rounded-xl bg-[#C24124] hover:bg-[#A93218] text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
-                            >
-                                <Ban className="w-3.5 h-3.5" />
-                                <span>Bloquear Horário</span>
-                            </button>
-                        ) : (
-                            <button
-                                type="button"
-                                onClick={() => abrirModalCriacao('aula')}
-                                className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-                            >
-                                <CalendarPlus className="w-3.5 h-3.5" />
-                                <span>Agendar Aula</span>
+                    <div className={styles.controles}>
+                        {!ehProfessor && (
+                            <button type="button" className={styles.botao} disabled={!colunas.length} onClick={() => abrirModalCriacao('bloqueio')}>
+                                <Ban /> Bloquear
                             </button>
                         )}
+                        <button type="button" className={styles.primario} disabled={!colunas.length}
+                            onClick={() => abrirModalCriacao(ehProfessor ? 'bloqueio' : 'aula')}>
+                            {ehProfessor ? <Ban /> : <CalendarPlus />}
+                            {ehProfessor ? 'Bloquear horário' : 'Agendar aula'}
+                        </button>
                     </div>
                 </div>
-
-                {/* Segunda Linha: Resumo do dia + Legenda compacta + Dica */}
-                <div
-                    className={`flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t text-xs ${
-                        escuro ? 'border-[#232B35]' : 'border-slate-100'
-                    }`}
-                >
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className={`font-bold text-xs ${clsTitulo}`}>Resumo do dia:</span>
-
-                        <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
-                                escuro
-                                    ? 'bg-[#11161D] border-[#26303D] text-stone-200'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700'
-                            }`}
-                        >
-                            <Calendar className="w-3 h-3 text-slate-500" />
-                            <strong className="font-extrabold">{resumoDia.totalAulas}</strong>{' '}
-                            {resumoDia.totalAulas === 1 ? 'aula' : 'aulas'}
-                        </span>
-
-                        <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
-                                escuro
-                                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
-                                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                            }`}
-                        >
-                            <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
-                            <strong className="font-extrabold">{resumoDia.confirmadas}</strong>{' '}
-                            {resumoDia.confirmadas === 1 ? 'confirmada' : 'confirmadas'}
-                        </span>
-
-                        <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
-                                escuro
-                                    ? 'bg-rose-500/15 border-rose-500/35 text-rose-300'
-                                    : 'bg-rose-50 border-rose-200 text-rose-700'
-                            }`}
-                        >
-                            <Ban className="w-3.5 h-3.5 text-[#DC2626]" />
-                            <strong className="font-extrabold">{resumoDia.totalBloqueios}</strong>{' '}
-                            {resumoDia.totalBloqueios === 1 ? 'bloqueio' : 'bloqueios'}
-                        </span>
-
-                        <span
-                            className={`hidden md:inline-block h-4 w-px mx-1 ${
-                                escuro ? 'bg-[#26303D]' : 'bg-slate-200'
-                            }`}
-                        />
-
-                        {/* Legenda compacta */}
-                        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px]">
-                            {legendaCompacta.map((item) => (
-                                <span
-                                    key={item.rotulo}
-                                    className={`inline-flex items-center gap-1.5 font-medium ${clsSubtexto}`}
-                                >
-                                    <span className={`w-2.5 h-2.5 rounded-full ${item.cor}`} />
-                                    {item.rotulo}
-                                </span>
-                            ))}
-                        </div>
+                <div className={styles.filtros}>
+                    <div className={styles.dias} role="group" aria-label="Dias da semana">
+                        {faixaDiasSemana.map((data) => (
+                            <button type="button" key={data} aria-pressed={data === dataGlobal}
+                                aria-label={formatarDataExtensoPT(data)} onClick={() => alterarDataGlobal(data)}>
+                                <small>{formatarDiaCurtoPT(data).split(' ')[0]}</small>{data.slice(-2)}
+                            </button>
+                        ))}
                     </div>
-
-                    {!ehProfessor && (
-                        <span className={`text-[11px] ${clsSubtexto}`}>
-                            Dica: arraste uma aula para trocar de professor/horário.
-                        </span>
-                    )}
+                    <div className={styles.controles}>
+                        {!ehProfessor && (
+                            <>
+                                <select aria-label="Unidade" value={unidadeIdAtiva} onChange={(e) => setUnidadeId(Number(e.target.value))}>
+                                    {unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                                </select>
+                                <label className={styles.busca}>
+                                    <Search />
+                                    <input type="search" aria-label="Buscar professor ou matéria" placeholder="Professor ou matéria" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                                </label>
+                            </>
+                        )}
+                        {semana && !ehProfessor && professoresVisiveis.length > 0 && (
+                            <select aria-label="Professor da semana" value={professorSemana?.id ?? ''}
+                                onChange={(e) => setProfessorSemanaId(Number(e.target.value))}>
+                                {professoresVisiveis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                            </select>
+                        )}
+                        <label className={styles.seletorStatus}>
+                            <SlidersHorizontal />
+                            <select aria-label="Filtrar por status da aula" value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+                                <option value="todos">Todos os status</option>
+                                {LISTA_STATUS_AULA_R4.map((status) => <option key={status.valor} value={status.valor}>{status.rotulo}</option>)}
+                            </select>
+                        </label>
+                        {!semana && temDatasIndividuais && (
+                            <button type="button" className={styles.botao} onClick={() => setDatasPorProfessor({})}>
+                                <RotateCcw /> Sincronizar datas
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* Grade Principal */}
-            {professoresVisiveis.length === 0 ? (
-                <div className={`border rounded-2xl p-8 text-center text-sm ${clsCard} ${clsSubtexto}`}>
-                    Nenhum professor encontrado para a unidade/filtro selecionado.
-                </div>
-            ) : (
-                <div className={`border rounded-2xl overflow-hidden shadow-2xs ${clsCard}`}>
-                    {/* Barra de Rolagem Horizontal Superior */}
-                    <div
-                        ref={scrollTopoRef}
-                        onScroll={handleScrollTopo}
-                        className={`overflow-x-auto border-b ${
-                            escuro
-                                ? 'bg-[#0E1319] border-[#26303D]'
-                                : 'bg-slate-100/80 border-slate-200'
-                        }`}
-                        style={{ height: '10px' }}
-                    >
-                        <div style={{ width: `${larguraTabela}px`, height: '1px' }} />
+            <div className={styles.agenda}>
+                <div className={styles.barraGrade}>
+                    <div>
+                        <h2>{semana ? 'Visão semanal' : 'Agenda por professor'}</h2>
+                        <p>{semana ? professorSemana?.nome || 'Nenhum professor' : formatarDataExtensoPT(dataGlobal)}</p>
                     </div>
-
-                    {/* Container Rolável da Grade */}
-                    <div
-                        ref={scrollGradeRef}
-                        onScroll={handleScrollGrade}
-                        className={`overflow-x-auto overflow-y-auto ${
-                            modoTelaCheia ? 'max-h-[calc(100vh-195px)]' : 'max-h-[75vh]'
-                        }`}
-                    >
-                        <table
-                            ref={tabelaRef}
-                            className="w-full text-left border-collapse min-w-[920px]"
-                        >
-                            <thead className="sticky top-0 z-30">
-                            <tr className={`border-b text-xs ${clsCabecalhoClaro}`}>
-                                <th
-                                    className={`py-4 px-3 font-bold w-20 text-center sticky left-0 z-40 border-r ${clsCabecalhoClaro}`}
-                                >
-                                    Horário
-                                </th>
-
-                                {professoresVisiveis.map((prof) => {
-                                    const dataProf =
-                                        modoVisualizacao === 'semana'
-                                            ? dataGlobal
-                                            : obterDataDoProfessor(prof.id);
-                                    const dataCustomizada =
-                                        modoVisualizacao === 'dia' &&
-                                        Boolean(datasPorProfessor[prof.id]);
-                                    const materiasLimpas = filtrarMateriasVisiveis(
-                                        prof.materias
-                                    );
-
-                                    return (
-                                        <th
-                                            key={prof.id}
-                                            className={`p-0 font-bold min-w-[215px] max-w-[240px] border-r align-top ${
-                                                escuro
-                                                    ? 'border-[#26303D] bg-[#11161D]'
-                                                    : 'border-slate-200 bg-white'
-                                            }`}
-                                        >
-                                            {/* Cabeçalho Claro do Professor (sem Acompanhamento Escolar) */}
-                                            <div className="px-3 pt-3 pb-2 flex items-center gap-2.5">
-                                                    <span className="w-8 h-8 rounded-full bg-[#0E7C86] text-white text-xs font-extrabold flex items-center justify-center shrink-0">
-                                                        {obterIniciais(prof.nome)}
-                                                    </span>
-                                                <div className="min-w-0 flex-1">
-                                                    <p
-                                                        className={`text-xs font-bold truncate ${
-                                                            escuro
-                                                                ? 'text-stone-100'
-                                                                : 'text-slate-900'
-                                                        }`}
-                                                    >
-                                                        {prof.nome}
-                                                    </p>
-                                                    <p
-                                                        className={`text-[10.5px] truncate font-normal mt-0.5 ${
-                                                            escuro
-                                                                ? 'text-stone-400'
-                                                                : 'text-slate-500'
-                                                        }`}
-                                                        title={materiasLimpas.join(' • ')}
-                                                    >
-                                                        {materiasLimpas.join(' • ') || '—'}
-                                                    </p>
+                    <div className={styles.resumo} aria-label="Resumo da agenda">
+                        <span><Calendar /> <b>{resumoAulas.size}</b> {resumoAulas.size === 1 ? 'aula' : 'aulas'}</span>
+                        <span data-cor="verde"><CheckCircle2 /> <b>{confirmadas}</b> {confirmadas === 1 ? 'confirmada' : 'confirmadas'}</span>
+                        <span data-cor="coral"><Ban /> <b>{resumoBloqueios.size}</b> {resumoBloqueios.size === 1 ? 'bloqueio' : 'bloqueios'}</span>
+                    </div>
+                    <div className={styles.controles}>
+                        {onAlternarTelaCheiaAction && (
+                            <button type="button" className={styles.botao} onClick={onAlternarTelaCheiaAction}>
+                                {modoTelaCheia ? 'Reduzir' : 'Expandir'}
+                            </button>
+                        )}
+                        <div className={styles.periodo} role="group" aria-label="Navegação horizontal na grade">
+                            <button type="button" aria-label="Rolar grade para esquerda" disabled={!rolagem.anterior} onClick={() => moverGrade(-1)}><ChevronLeft /></button>
+                            <button type="button" aria-label="Rolar grade para direita" disabled={!rolagem.proximo} onClick={() => moverGrade(1)}><ChevronRight /></button>
+                        </div>
+                    </div>
+                </div>
+                {colunas.length === 0 ? (
+                    <p className={styles.vazio}>Nenhum professor encontrado com os filtros atuais.</p>
+                ) : (
+                    <div ref={scrollGradeRef} onScroll={() => { if (hoverCard) setHoverCard(null); }}
+                        className={styles.scroll} data-expandido={modoTelaCheia} data-arrastando={Boolean(aulaArrastando)}
+                        tabIndex={0} aria-label="Grade de horários">
+                        <div className={styles.grade} style={{
+                            gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${semana ? 148 : 188}px, 1fr))`,
+                        }}>
+                            <div className={`${styles.cabecalho} ${styles.canto}`}>Horário</div>
+                            {colunas.map(({ chave, prof, data }) => (
+                                <div className={styles.cabecalho} key={chave}>
+                                    {semana ? (
+                                        <div className={styles.professor}>
+                                            <span className={styles.avatar}><Calendar /></span>
+                                            <div><strong>{formatarDiaCurtoPT(data)}</strong>{data === agora?.data && <small>Hoje</small>}</div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className={styles.professor}>
+                                                <span className={styles.avatar}>{obterIniciais(prof.nome)}</span>
+                                                <div>
+                                                    <strong title={prof.nome}>{prof.nome}</strong>
+                                                    <small title={filtrarMateriasVisiveis(prof.materias).join(' · ')}>
+                                                        {filtrarMateriasVisiveis(prof.materias).join(' · ') || '—'}
+                                                    </small>
                                                 </div>
                                             </div>
-
-                                            {/* Sub-barra de Data Individual do Professor */}
-                                            <div
-                                                className={`px-2 py-1.5 flex items-center justify-between gap-1 ${
-                                                    dataCustomizada
-                                                        ? escuro
-                                                            ? 'bg-[#0E7C86]/25'
-                                                            : 'bg-[#CCFBF1]/60'
-                                                        : ''
-                                                }`}
-                                            >
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        alterarDataProfessor(
-                                                            prof.id,
-                                                            adicionarDiasISO(dataProf, -1)
-                                                        )
-                                                    }
-                                                    title={`Dia anterior para ${prof.nome}`}
-                                                    className={`p-1 rounded hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer ${clsSubtexto}`}
-                                                >
-                                                    <ChevronLeft className="w-3.5 h-3.5" />
-                                                </button>
-
-                                                <label
-                                                    className={`relative flex items-center justify-center gap-1.5 text-[11px] font-bold cursor-pointer px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-white/10 ${
-                                                        escuro
-                                                            ? 'text-stone-200'
-                                                            : 'text-slate-700'
-                                                    }`}
-                                                    title="Clique para escolher uma data só para este professor"
-                                                >
-                                                    <Calendar className="w-3 h-3 text-[#0E7C86]" />
-                                                    <span>{formatarDiaCurtoPT(dataProf)}</span>
-                                                    <input
-                                                        type="date"
-                                                        value={dataProf}
-                                                        onChange={(e) =>
-                                                            alterarDataProfessor(
-                                                                prof.id,
-                                                                e.target.value
-                                                            )
-                                                        }
-                                                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                                    />
+                                            <div className={styles.dataProfessor} data-individual={data !== dataGlobal}>
+                                                <button type="button" aria-label={`Dia anterior para ${prof.nome}`}
+                                                    onClick={() => alterarDataProfessor(prof.id, adicionarDiasISO(data, -1))}><ChevronLeft /></button>
+                                                <label className={styles.data}>
+                                                    {formatarDiaCurtoPT(data)}
+                                                    <input type="date" aria-label={`Data de ${prof.nome}`} value={data}
+                                                        onChange={(e) => alterarDataProfessor(prof.id, e.target.value)} />
                                                 </label>
-
-                                                <div className="flex items-center">
-                                                    {dataCustomizada && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                alterarDataProfessor(
-                                                                    prof.id,
-                                                                    dataGlobal
-                                                                )
-                                                            }
-                                                            title="Voltar para data geral"
-                                                            className="p-1 rounded hover:bg-amber-500/15 text-amber-500 cursor-pointer"
-                                                        >
-                                                            <RotateCcw className="w-3 h-3" />
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            alterarDataProfessor(
-                                                                prof.id,
-                                                                adicionarDiasISO(dataProf, 1)
-                                                            )
-                                                        }
-                                                        title={`Próximo dia para ${prof.nome}`}
-                                                        className={`p-1 rounded hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer ${clsSubtexto}`}
-                                                    >
-                                                        <ChevronRight className="w-3.5 h-3.5" />
-                                                    </button>
-                                                </div>
+                                                <button type="button" aria-label={`Próximo dia para ${prof.nome}`}
+                                                    onClick={() => alterarDataProfessor(prof.id, adicionarDiasISO(data, 1))}><ChevronRight /></button>
                                             </div>
-                                        </th>
-                                    );
-                                })}
-                            </tr>
-                            </thead>
-
-                            {/* Corpo da Grade */}
-                            <tbody className={`divide-y text-xs ${clsLinhaHora}`}>
-                            {HORAS_GRADE_R4.map((horaFaixa, idxHora) => {
-                                const faixaIniMin = horaParaMinutos(horaFaixa);
-                                const faixaFimMin = faixaIniMin + 60;
-
-                                return (
-                                    <tr
-                                        key={horaFaixa}
-                                        style={{ height: `${ALTURA_LINHA_PX}px` }}
-                                        className={escuro ? 'bg-[#151A21]' : 'bg-white'}
-                                    >
-                                        {/* Coluna de Horário Fixa à Esquerda */}
-                                        <td
-                                            className={`py-2.5 px-2.5 align-top font-bold text-xs text-center sticky left-0 z-25 border-r ${clsBordaGrade} ${
-                                                escuro
-                                                    ? 'bg-[#11161D] text-stone-200'
-                                                    : 'bg-slate-50/70 text-slate-800'
-                                            }`}
-                                        >
-                                                <span className="text-[13px] font-extrabold tracking-tight">
-                                                    {horaFaixa}
+                                        </>
+                                    )}
+                                </div>
+                            ))}
+                            <div className={styles.horas} style={{ height: ALTURA_GRADE }}>
+                                {HORAS_GRADE_R4.map((hora) => (
+                                    <div key={hora} className={styles.hora} style={{ height: ALTURA_HORA }}>
+                                        <b>{hora}</b><small>{hora.slice(0, 2)}:30</small>
+                                    </div>
+                                ))}
+                                {agora && colunas.some((c) => c.data === agora.data) && agora.minuto >= INICIO_MAPA && agora.minuto < FIM_MAPA && (
+                                    <span className={styles.relogio} style={{ top: posicao(agora.minuto) }}>{minutosParaHora(agora.minuto)}</span>
+                                )}
+                            </div>
+                            {colunas.map(({ chave, prof, data, aulas, bloqueios, aulasExibidas }) => (
+                                <div className={styles.coluna} key={chave} style={{ height: ALTURA_GRADE }}>
+                                    {HORARIOS_GRADE.map((minuto) => {
+                                        const hora = minutosParaHora(minuto);
+                                        const chaveSlot = chave + '-' + hora;
+                                        const ocupado = bloqueios.some((b) => minuto < b.fim && minuto + 30 > b.inicio) ||
+                                            aulas.some(({ aula, inicio, fim }) =>
+                                                obterMetaStatusR4(aula.status).ocupaHorario && minuto < fim && minuto + 30 > inicio);
+                                        return (
+                                            <div key={hora} className={styles.slot} data-cheio={ocupado}
+                                                data-drop={alvoDrop === chaveSlot} style={{ height: ALTURA_HORA / 2 }}
+                                                onDragOver={(e) => {
+                                                    if (!aulaArrastando || ehProfessor) return;
+                                                    e.preventDefault();
+                                                    setAlvoDrop(chaveSlot);
+                                                }}
+                                                onDragLeave={(e) => {
+                                                    if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget))
+                                                        setAlvoDrop((atual) => atual === chaveSlot ? null : atual);
+                                                }}
+                                                onDrop={(e) => soltarAulaNaCelula(e, prof, data, hora)}>
+                                                {!ocupado && (
+                                                    <button type="button"
+                                                        aria-label={`${ehProfessor ? 'Bloquear' : 'Agendar'} ${hora}, ${prof.nome}, ${formatarDiaCurtoPT(data)}`}
+                                                        onClick={() => abrirModalCriacao(ehProfessor ? 'bloqueio' : 'aula', prof.id, hora, data)}>
+                                                        <Plus /><span>{hora}</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                    {bloqueios.map(({ bloqueio, inicio, fim, faixa, totalFaixas }) => (
+                                        <button type="button" key={bloqueio.id} className={styles.bloqueio}
+                                            style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
+                                                left: `${faixa / totalFaixas * 100}%`, width: `${100 / totalFaixas}%` }}
+                                            title={`${formatarMotivoBloqueio(bloqueio.motivo)} · ${bloqueio.hora_inicio}–${bloqueio.hora_fim}`}
+                                            onClick={() => abrirDetalhesBloqueio(bloqueio, prof.nome)}>
+                                            <span><Ban />{bloqueio.data === data
+                                                ? `${bloqueio.hora_inicio}–${bloqueio.hora_fim}`
+                                                : `Até ${bloqueio.hora_fim}`}</span>
+                                            <strong>{formatarMotivoBloqueio(bloqueio.motivo)}</strong>
+                                        </button>
+                                    ))}
+                                    {aulasExibidas.map(({ aula, inicio, fim, faixa, totalFaixas }) => {
+                                        const meta = obterMetaStatusR4(aula.status);
+                                        return (
+                                            <button type="button" key={aula.id} className={styles.aula}
+                                                data-status={meta.valor} data-arrastando={aulaArrastando?.id === aula.id}
+                                                aria-label={`${aula.nome_aluno}, ${aula.materia}, ${formatarIntervaloCard(aula)}, ${meta.rotulo}`}
+                                                style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
+                                                    left: `${faixa / totalFaixas * 100}%`, width: `${100 / totalFaixas}%` }}
+                                                draggable={!ehProfessor && meta.ocupaHorario}
+                                                onDragStart={(e) => iniciarArrasteAula(e, aula)}
+                                                onDragEnd={() => { setAulaArrastando(null); setAlvoDrop(null); }}
+                                                onMouseEnter={(e) => abrirHoverCard(e, aula)}
+                                                onMouseLeave={() => setHoverCard(null)}
+                                                onClick={() => { setHoverCard(null); setAulaSelecionada(aula); }}>
+                                                <span className={styles.aulaHora}>
+                                                    {meta.valor === 'confirmado' ? <Check /> : <i />}
+                                                    {totalFaixas > 2 ? formatarIntervaloCard(aula).split(' – ')[0] : formatarIntervaloCard(aula)}
                                                 </span>
-                                            <span
-                                                className={`block text-[10px] font-medium mt-1.5 ${
-                                                    escuro ? 'text-stone-500' : 'text-slate-400'
-                                                }`}
-                                            >
-                                                    {horaFaixa.slice(0, 2)}:30
-                                                </span>
-                                        </td>
-
-                                        {/* Células dos Professores */}
-                                        {professoresVisiveis.map((prof) => {
-                                            const dataProf = obterDataDoProfessor(prof.id);
-                                            const chaveCelula = `${prof.id}-${dataProf}-${horaFaixa}`;
-                                            const estaSobreDrop = alvoDrop === chaveCelula;
-                                            const estaSelecionada =
-                                                slotAtivoKey === chaveCelula;
-
-                                            const aulasNaFaixa = agendamentos.filter((ag) => {
-                                                if (ag.data !== dataProf) return false;
-                                                const mesmoProf = ehProfessor
-                                                    ? true
-                                                    : ag.professor_id === prof.id ||
-                                                    (prof.clin_care_id &&
-                                                        ag.professor_clin_care_id ===
-                                                        prof.clin_care_id);
-                                                if (!mesmoProf) return false;
-                                                const iniMin = horaParaMinutos(
-                                                    ag.hora_inicio || ag.horario
-                                                );
-                                                return (
-                                                    iniMin >= faixaIniMin &&
-                                                    iniMin < faixaFimMin
-                                                );
-                                            });
-
-                                            // Bloqueios contínuos renderizados na primeira linha (z-10, clicáveis para editar/excluir)
-                                            const bloqueiosContinuosProf =
-                                                idxHora === 0
-                                                    ? bloqueios.filter((b) => {
-                                                        if (b.data !== dataProf) return false;
-                                                        return ehProfessor
-                                                            ? true
-                                                            : b.professor_id === prof.id ||
-                                                            (prof.clin_care_id &&
-                                                                b.professor_clin_care_id ===
-                                                                prof.clin_care_id);
-                                                    })
-                                                    : [];
-
-                                            const temBloqueioNaFaixa = bloqueios.some((b) => {
-                                                if (b.data !== dataProf) return false;
-                                                const mesmoProf = ehProfessor
-                                                    ? true
-                                                    : b.professor_id === prof.id ||
-                                                    (prof.clin_care_id &&
-                                                        b.professor_clin_care_id ===
-                                                        prof.clin_care_id);
-                                                if (!mesmoProf) return false;
-                                                const bIni = horaParaMinutos(b.hora_inicio);
-                                                const bFim = horaParaMinutos(b.hora_fim);
-                                                return (
-                                                    faixaIniMin < bFim && bIni < faixaFimMin
-                                                );
-                                            });
-
-                                            return (
-                                                <td
-                                                    key={prof.id}
-                                                    onClick={() => setSlotAtivoKey(chaveCelula)}
-                                                    onDragOver={(e) => {
-                                                        if (ehProfessor) return;
-                                                        e.preventDefault();
-                                                        if (alvoDrop !== chaveCelula) {
-                                                            setAlvoDrop(chaveCelula);
-                                                        }
-                                                    }}
-                                                    onDragLeave={() => {
-                                                        if (alvoDrop === chaveCelula) {
-                                                            setAlvoDrop(null);
-                                                        }
-                                                    }}
-                                                    onDrop={(e) =>
-                                                        soltarAulaNaCelula(
-                                                            e,
-                                                            prof,
-                                                            dataProf,
-                                                            horaFaixa
-                                                        )
-                                                    }
-                                                    className={`relative p-1.5 align-top border-r transition-colors group/cell ${clsBordaGrade} ${
-                                                        estaSobreDrop
-                                                            ? 'bg-[#0E7C86]/15 ring-2 ring-inset ring-[#0E7C86]'
-                                                            : ''
-                                                    }`}
-                                                >
-                                                    {/* Linha divisória sutil de 30 minutos */}
-                                                    <div
-                                                        className={`pointer-events-none absolute inset-x-0 top-1/2 border-t ${
-                                                            escuro
-                                                                ? 'border-[#232B35]/55'
-                                                                : 'border-slate-100'
-                                                        }`}
-                                                    />
-
-                                                    {/* Bloqueios Contínuos (z-10: ficam abaixo das aulas sobrepostas e abrem modal ao clicar) */}
-                                                    {bloqueiosContinuosProf.map((bl) => (
-                                                        <div
-                                                            key={bl.id}
-                                                            role="button"
-                                                            tabIndex={0}
-                                                            onClick={(e) =>
-                                                                abrirDetalhesBloqueio(
-                                                                    e,
-                                                                    bl,
-                                                                    prof.nome
-                                                                )
-                                                            }
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    abrirDetalhesBloqueio(
-                                                                        e as unknown as React.MouseEvent,
-                                                                        bl,
-                                                                        prof.nome
-                                                                    );
-                                                                }
-                                                            }}
-                                                            style={calcularEstiloBloqueioContinuo(
-                                                                bl
-                                                            )}
-                                                            title="Clique para editar ou excluir este bloqueio"
-                                                            className={`absolute inset-x-1.5 z-10 rounded-xl border p-2.5 flex flex-col justify-start text-left transition cursor-pointer ${
-                                                                escuro
-                                                                    ? 'bg-[#C24124]/25 border-[#E07A5F]/50 text-[#FCA5A5] hover:bg-[#C24124]/35'
-                                                                    : 'bg-[#FDE2E1]/90 border-[#F5A8A5] text-[#B91C1C] hover:bg-[#FBD5D3]'
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center justify-between gap-1">
-                                                                    <span className="text-[11px] font-bold tracking-tight">
-                                                                        {bl.hora_inicio} –{' '}
-                                                                        {bl.hora_fim}
-                                                                    </span>
-                                                                <Ban className="w-4 h-4 shrink-0 opacity-85" />
-                                                            </div>
-                                                            <p className="text-xs sm:text-[13px] font-extrabold leading-snug mt-1">
-                                                                {formatarMotivoBloqueio(
-                                                                    bl.motivo
-                                                                )}
-                                                            </p>
-                                                        </div>
-                                                    ))}
-
-                                                    {/* Cards de Aula (z-20: sempre visíveis mesmo quando sobrepostos a um bloqueio) */}
-                                                    <div className="relative z-20 space-y-1.5">
-                                                        {/* Badge DUPLA / TRIO */}
-                                                        {aulasNaFaixa.length > 1 && (
-                                                            <div
-                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide shadow-2xs ${
-                                                                    escuro
-                                                                        ? 'bg-[#0E7C86] text-white'
-                                                                        : 'bg-[#CCFBF1] text-[#0F766E]'
-                                                                }`}
-                                                            >
-                                                                <Users className="w-3 h-3" />
-                                                                {aulasNaFaixa.length === 2
-                                                                    ? 'DUPLA'
-                                                                    : aulasNaFaixa.length === 3
-                                                                        ? 'TRIO'
-                                                                        : `${aulasNaFaixa.length} ALUNOS`}
-                                                            </div>
-                                                        )}
-
-                                                        {aulasNaFaixa.map((aula) => {
-                                                            const estilo = obterEstiloCardAula(
-                                                                aula.status
-                                                            );
-                                                            const meta = obterMetaStatusR4(
-                                                                aula.status
-                                                            );
-                                                            const estaSendoArrastada =
-                                                                aulaArrastando?.id === aula.id;
-
-                                                            return (
-                                                                <button
-                                                                    key={aula.id}
-                                                                    type="button"
-                                                                    draggable={!ehProfessor}
-                                                                    onDragStart={(e) =>
-                                                                        iniciarArrasteAula(
-                                                                            e,
-                                                                            aula
-                                                                        )
-                                                                    }
-                                                                    onDragEnd={() => {
-                                                                        setAulaArrastando(null);
-                                                                        setAlvoDrop(null);
-                                                                    }}
-                                                                    onMouseEnter={(e) =>
-                                                                        abrirHoverCard(e, aula)
-                                                                    }
-                                                                    onMouseLeave={() =>
-                                                                        setHoverCard(null)
-                                                                    }
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setHoverCard(null);
-                                                                        setAulaSelecionada(
-                                                                            aula
-                                                                        );
-                                                                    }}
-                                                                    className={`w-full text-left border border-l-4 rounded-xl px-2.5 py-2 transition cursor-pointer ${
-                                                                        temBloqueioNaFaixa
-                                                                            ? 'shadow-md ring-1 ring-black/10'
-                                                                            : 'shadow-2xs'
-                                                                    } ${estilo.card} ${
-                                                                        estaSendoArrastada
-                                                                            ? 'opacity-40 scale-95'
-                                                                            : 'hover:brightness-97 dark:hover:brightness-110'
-                                                                    }`}
-                                                                >
-                                                                    <div className="flex items-center justify-between gap-1.5">
-                                                                            <span className="font-extrabold text-[12px] leading-tight truncate inline-flex items-center gap-1">
-                                                                                {!ehProfessor && (
-                                                                                    <GripVertical className="w-3 h-3 opacity-35 shrink-0" />
-                                                                                )}
-                                                                                {aula.nome_aluno}
-                                                                            </span>
-
-                                                                        <span className="inline-flex items-center gap-1 text-[10.5px] font-bold shrink-0 opacity-85">
-                                                                                {formatarIntervaloCard(
-                                                                                    aula
-                                                                                )}
-                                                                            <span
-                                                                                title={
-                                                                                    meta.rotulo
-                                                                                }
-                                                                                className={`w-4 h-4 rounded-full inline-flex items-center justify-center ${estilo.badgeIcone}`}
-                                                                            >
-                                                                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                                                                </span>
-                                                                            </span>
-                                                                    </div>
-
-                                                                    <div className="flex items-center justify-between gap-1.5 mt-1 text-[10.5px]">
-                                                                            <span
-                                                                                className={`font-medium truncate ${estilo.materia}`}
-                                                                            >
-                                                                                {aula.materia}
-                                                                            </span>
-                                                                        <span
-                                                                            className={`shrink-0 font-semibold ${clsSubtexto}`}
-                                                                        >
-                                                                                {aula.duracao_minutos ||
-                                                                                    100}
-                                                                            &apos;
-                                                                            </span>
-                                                                    </div>
-                                                                </button>
-                                                            );
-                                                        })}
-
-                                                        {/* Slot vazio limpo: mostra caixa suave com "+" no hover ou quando selecionado */}
-                                                        {aulasNaFaixa.length === 0 &&
-                                                            !temBloqueioNaFaixa && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setSlotAtivoKey(
-                                                                            chaveCelula
-                                                                        );
-                                                                        abrirModalCriacao(
-                                                                            ehProfessor
-                                                                                ? 'bloqueio'
-                                                                                : 'aula',
-                                                                            prof.id,
-                                                                            horaFaixa,
-                                                                            dataProf
-                                                                        );
-                                                                    }}
-                                                                    title={
-                                                                        ehProfessor
-                                                                            ? `Bloquear ${horaFaixa}`
-                                                                            : `Agendar aula às ${horaFaixa}`
-                                                                    }
-                                                                    className={`w-full h-[66px] rounded-xl border flex items-center justify-center text-lg font-medium transition cursor-pointer ${
-                                                                        estaSelecionada
-                                                                            ? escuro
-                                                                                ? 'opacity-100 bg-[#0E7C86]/15 border-[#1496A1]/40 text-[#5EEAD4]'
-                                                                                : 'opacity-100 bg-[#F0FDFA] border-[#99F6E4] text-[#0E7C86]'
-                                                                            : escuro
-                                                                                ? 'opacity-0 group-hover/cell:opacity-100 bg-[#0E7C86]/10 border-[#1496A1]/30 text-[#5EEAD4]'
-                                                                                : 'opacity-0 group-hover/cell:opacity-100 bg-[#F0FDFA] border-[#99F6E4] text-[#0E7C86]'
-                                                                    }`}
-                                                                >
-                                                                    +
-                                                                </button>
-                                                            )}
-                                                    </div>
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                );
-                            })}
-                            </tbody>
-                        </table>
+                                                <strong>{aula.nome_aluno}</strong>
+                                                <small>{aula.materia}</small>
+                                            </button>
+                                        );
+                                    })}
+                                    {agora && data === agora.data && agora.minuto >= INICIO_MAPA && agora.minuto < FIM_MAPA && (
+                                        <span className={styles.linhaAgora} style={{ top: posicao(agora.minuto) }} aria-hidden="true" />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
+                )}
+                <div className={styles.legenda}>
+                    {LISTA_STATUS_AULA_R4.map((status) => (
+                        <span key={status.valor} data-status={status.valor}><i />{status.rotulo}</span>
+                    ))}
+                    <span data-status="bloqueio"><i />Bloqueio</span>
                 </div>
-            )}
+            </div>
 
             {/* Hover Card Flutuante ao Passar o Mouse na Aula */}
             {hoverCard && (
@@ -1533,6 +950,7 @@ export default function AbaMapaDia({
                     <div
                         className={`border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl ${clsCard}`}
                     >
+                        {erroTransferencia && <p role="alert" className={styles.erro}>{erroTransferencia}</p>}
                         {transferenciaPendente.materiaIncompativel ? (
                             <>
                                 <h3 className={`text-xl font-extrabold ${clsTitulo}`}>
@@ -1668,6 +1086,7 @@ export default function AbaMapaDia({
                     <div
                         className={`border rounded-2xl max-w-md w-full p-5 space-y-5 shadow-2xl ${clsCard}`}
                     >
+                        {erroBloqueio && <p role="alert" className={styles.erro}>{erroBloqueio}</p>}
                         <div className="flex items-start justify-between gap-3">
                             <div className="flex items-center gap-3.5">
                                 <div
@@ -1760,6 +1179,7 @@ export default function AbaMapaDia({
                         onSubmit={(e) => void salvarEdicaoBloqueio(e)}
                         className={`border rounded-2xl max-w-md w-full p-5 space-y-3.5 shadow-2xl ${clsCard}`}
                     >
+                        {erroBloqueio && <p role="alert" className={styles.erro}>{erroBloqueio}</p>}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <CalendarX className="w-5 h-5 text-[#0E7C86]" />
@@ -1910,7 +1330,7 @@ export default function AbaMapaDia({
                                     }
                                     className={`border rounded-xl px-2 py-1.5 text-xs font-bold ${clsInput}`}
                                 >
-                                    {MINUTOS_BLOQUEIO.map((m) => (
+                                    {MINUTOS_INICIO.map((m) => (
                                         <option key={m} value={m}>
                                             {m}
                                         </option>
@@ -1932,7 +1352,7 @@ export default function AbaMapaDia({
                                     }
                                     className={`border rounded-xl px-2.5 py-1.5 text-xs font-bold ${clsInput}`}
                                 >
-                                    {[0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14].map((hr) => (
+                                    {Array.from({ length: Math.max(14, bloqueioEditando.duracaoHoras) + 1 }, (_, hr) => hr).map((hr) => (
                                         <option key={hr} value={hr}>
                                             {hr}
                                         </option>
@@ -1950,7 +1370,7 @@ export default function AbaMapaDia({
                                     }
                                     className={`border rounded-xl px-2.5 py-1.5 text-xs font-bold ${clsInput}`}
                                 >
-                                    {MINUTOS_BLOQUEIO.map((m) => (
+                                    {MINUTOS_INICIO.map((m) => (
                                         <option key={m} value={Number(m)}>
                                             {Number(m)}
                                         </option>

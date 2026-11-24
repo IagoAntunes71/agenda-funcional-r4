@@ -177,11 +177,9 @@ export default function PainelAdmin({
     }
 
     function alternarTelaCheiaMapa() {
-        setMapaTelaCheia((prev) => {
-            const proximo = !prev;
-            setSidebarRecolhida(proximo);
-            return proximo;
-        });
+        const proximo = !(mapaTelaCheia || sidebarRecolhida);
+        setMapaTelaCheia(proximo);
+        setSidebarRecolhida(proximo);
     }
 
     useEffect(() => {
@@ -1124,7 +1122,7 @@ export default function PainelAdmin({
     }
 
     return (
-        <div className={`min-h-screen flex transition-colors ${clsBgApp}`}>
+        <div className={`min-h-screen flex transition-colors ${aba === 'mapa' && escuro ? 'bg-[#0b2028] text-stone-100' : clsBgApp}`}>
             <input
                 ref={inputFotoRapidaRef}
                 type="file"
@@ -1135,7 +1133,7 @@ export default function PainelAdmin({
 
             {/* Sidebar Desktop com Seta Flutuante para Expandir/Recolher */}
             <aside
-                className={`hidden lg:block shrink-0 border-r sticky top-0 h-screen relative transition-all duration-200 ${clsSidebar} ${
+                className={`hidden lg:block shrink-0 border-r sticky top-0 h-screen relative transition-all duration-200 ${aba === 'mapa' && escuro ? 'bg-[#10272f] border-[#29414a]' : clsSidebar} ${
                     sidebarRecolhida ? 'w-[74px]' : 'w-72'
                 }`}
             >
@@ -1183,7 +1181,7 @@ export default function PainelAdmin({
                 <header
                     className={`sticky top-0 z-30 border-b px-4 sm:px-8 py-3.5 backdrop-blur-md ${
                         escuro
-                            ? 'bg-[#0B0E11]/90 border-[#1F262E]'
+                            ? aba === 'mapa' ? 'bg-[#0d242c]/95 border-[#29414a]' : 'bg-[#0B0E11]/90 border-[#1F262E]'
                             : 'bg-[#F8FAFC]/95 border-slate-300 shadow-2xs'
                     }`}
                 >

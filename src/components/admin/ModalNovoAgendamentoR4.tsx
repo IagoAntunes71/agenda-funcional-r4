@@ -11,7 +11,7 @@ import {
     UnidadeAdmin,
 } from './types';
 
-const HORAS_INICIO = Array.from({ length: 14 }, (_, i) =>
+const HORAS_INICIO = Array.from({ length: 15 }, (_, i) =>
     String(8 + i).padStart(2, '0')
 );
 const MINUTOS_PASSO = ['00', '10', '20', '30', '40', '50'];
