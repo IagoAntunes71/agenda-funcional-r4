@@ -1,3 +1,4 @@
+import { unidadeOnline } from '@/lib/unidade-online';
 import { lerOperacaoR4, professorDaAula } from '@/lib/operacao-r4-db';
 import { podeOperacao } from '@/lib/operacao-r4';
 import { obterAgoraBahia, adicionarDiasISO } from '@/lib/horarios-reforco';
@@ -263,7 +264,7 @@ async function buscarAula(id: number, sessao: SessaoAdmin, outras = false) {
         SELECT a.*, to_char(a.data, 'YYYY-MM-DD') AS data_iso,
             to_char(coalesce(a.hora_inicio, a.horario), 'HH24:MI') AS inicio,
             to_char(a.hora_fim, 'HH24:MI') AS fim,
-            p.nome AS professor_nome, p.clin_care_id AS professor_clin_care_id, u.nome AS unidade_nome
+            p.nome AS professor_nome, p.clin_care_id AS professor_clin_care_id, u.nome AS unidade_nome, u.clin_care_id AS unidade_clin_care_id
         FROM agendamentos a
         LEFT JOIN professores p ON p.id = a.professor_id
         LEFT JOIN unidades u ON u.id = a.unidade_id
@@ -328,19 +329,20 @@ export async function GET(req: NextRequest) {
                 },
             });
         }
+        const professor = sessao.role === 'professor';
+        const exibirContato = !professor || unidadeOnline(aula.unidade_nome, aula.unidade_clin_care_id);
         const [historico, anexos] = await Promise.all([
-            sql`SELECT id, acao, responsavel, campos, criado_em FROM r4_agendamento_historico
+            professor ? [] : sql`SELECT id, acao, responsavel, campos, criado_em FROM r4_agendamento_historico
                 WHERE agendamento_id = ${id} ORDER BY id DESC`,
             sql`SELECT id, nome, tamanho, criado_em FROM r4_agendamento_anexos
                 WHERE agendamento_id = ${id} ORDER BY id DESC`,
         ]);
-        if (!historico.some((item) => item.acao === 'Agendamento criado') && aula.criado_em) {
-            historico.push({
+        const registroOriginal = !professor && aula.criado_em && !historico.some((item) => item.acao === 'Agendamento criado')
+            ? [{
                 id: 'original', acao: 'Registro original do agendamento',
                 responsavel: aula.criado_por_nome || 'Responsável não registrado',
                 criado_em: aula.criado_em, campos: [],
-            });
-        }
+            }] : [];
         return NextResponse.json({
             aula: {
                 status: aula.status, aluno_id: aula.aluno_id, data: aula.data_iso,
@@ -350,12 +352,13 @@ export async function GET(req: NextRequest) {
                 nome_aluno: aula.aluno_nome || aula.nome_aluno,
                 serie_aluno: aula.serie || aula.serie_aluno,
                 colegio_aluno: aula.colegio_nome || aula.colegio_aluno,
-                nome_responsavel: aula.responsavel_nome || aula.nome_responsavel,
-                whatsapp_responsavel: aula.aluno_telefone || aula.whatsapp_responsavel,
+                nome_responsavel: exibirContato ? aula.responsavel_nome || aula.nome_responsavel : '',
+                whatsapp_responsavel: exibirContato ? aula.aluno_telefone || aula.whatsapp_responsavel : '',
                 observacoes: aula.observacoes, feedback_professor: aula.feedback_professor,
                 excluido_em: aula.excluido_em,
             },
-            historico, anexos, podeEditarFeedback: await feedbackPermitido(sessao, aula, cfg.prazoFeedback),
+            historico: [...historico, ...registroOriginal], anexos,
+            podeEditarFeedback: await feedbackPermitido(sessao, aula, cfg.prazoFeedback),
             podeEditarAgenda: podeOperacao(cfg, sessao.role, 'agenda') && !aula.excluido_em &&
                 (sessao.role !== 'professor' || professorDaAula(await professorVinculado(sessao), { id: aula.professor_id, clin_care_id: aula.professor_clin_care_id })),
             podeAnexar: podeOperacao(cfg, sessao.role, 'anexos') && !aula.excluido_em &&

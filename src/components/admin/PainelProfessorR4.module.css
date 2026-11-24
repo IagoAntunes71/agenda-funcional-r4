@@ -74,6 +74,14 @@
 .detalhes li button:hover { background: var(--suave); }
 .detalhes li small, .repasses li small { display: block; color: var(--muted); }
 .situacao { font-size: 11px; }
+.indicadoresAula { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.feedbackAula {
+    color: #854d0e; background: #fef3c7; border-radius: 999px;
+    padding: 3px 9px; font-size: 11px; font-weight: 700;
+}
+.feedbackAula[data-feito='true'] { color: #166534; background: #dcfce7; }
+:global(.r4-admin[data-tema='escuro']) .feedbackAula { color: #fcd34d; background: #483a22; }
+:global(.r4-admin[data-tema='escuro']) .feedbackAula[data-feito='true'] { color: #bbf7d0; background: #194434; }
 .resumos { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
 .resumos[data-financeiro='false'] { grid-template-columns: 1fr; }
 .resumos > section { padding: 13px 15px; }
@@ -91,5 +99,5 @@
 @media (max-width: 660px) {
     .resumos { grid-template-columns: 1fr; }
     .detalhes li button { grid-template-columns: auto minmax(0,1fr); gap: 3px 9px; }
-    .situacao { grid-column: 2; }
+    .indicadoresAula { grid-column: 2; }
 }

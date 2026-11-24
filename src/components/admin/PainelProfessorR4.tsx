@@ -163,7 +163,13 @@ export default function PainelProfessorR4({ perfil, mes, onMes, aulas, carregand
                             return <li key={aula.id}><button type="button" onClick={() => setSelecionada(aula)}>
                                 <strong>{(aula.hora_inicio || aula.horario).slice(0, 5)}{aula.hora_fim && '–' + aula.hora_fim.slice(0, 5)}</strong>
                                 <span><b>{aula.nome_aluno}</b><small>{[aula.materia, aula.unidade_nome].filter(Boolean).join(' · ')}</small></span>
-                                <span className={css.situacao}><i style={{ backgroundColor: corStatus(status.valor) }} />{status.rotulo}</span>
+                                <span className={css.indicadoresAula}>
+                                    {status.valor === 'realizado' && <span className={css.feedbackAula}
+                                        data-feito={aula.feedback_feito === true}>
+                                        {aula.feedback_feito ? 'Feedback Feito' : 'Sem Feedback'}
+                                    </span>}
+                                    <span className={css.situacao}><i style={{ backgroundColor: corStatus(status.valor) }} />{status.rotulo}</span>
+                                </span>
                             </button></li>;
                         })}</ul>}
             </div>

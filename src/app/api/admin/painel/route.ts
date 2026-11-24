@@ -1,3 +1,4 @@
+import { unidadeOnline } from '@/lib/unidade-online';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { podeOperacao } from '@/lib/operacao-r4';
 import { NextRequest, NextResponse } from 'next/server';
@@ -202,6 +203,7 @@ export async function GET(req: NextRequest) {
             ''
           ) AS serie_aluno,
           a.observacoes,
+          nullif(trim(a.feedback_professor), '') IS NOT NULL AS feedback_feito,
           COALESCE(a.status, 'confirmado') AS status,
           COALESCE(a.lancado_clincare, a.sincronizado_clincare, false) AS sincronizado_clincare,
           COALESCE(a.clincare_reserva_status, 'pendente') AS clincare_reserva_status,
@@ -354,7 +356,11 @@ export async function GET(req: NextRequest) {
             responsaveis: listaResponsaveis,
             alunos: listaAlunos,
             datasLiberadas,
-            agendamentos,
+            agendamentos: sessao.role === 'professor' ? agendamentos.map((aula) => {
+                const unidade = unidades.find((item) => item.id === aula.unidade_id);
+                return unidadeOnline(aula.unidade_nome, unidade?.clin_care_id) ? aula :
+                    { ...aula, nome_responsavel: '', whatsapp_responsavel: '' };
+            }) : agendamentos,
             bloqueios,
             ultimaSincronizacao: syncInfo[0]?.ultima_sincronizacao || null,
         });

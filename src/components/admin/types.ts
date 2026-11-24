@@ -86,6 +86,7 @@ export interface AgendamentoAdmin {
     serie_aluno: string;
     observacoes: string | null;
     feedback_professor?: string | null;
+    feedback_feito?: boolean;
     criado_por_nome?: string | null;
     origem?: string;
     status: StatusAulaR4 | 'concluido';

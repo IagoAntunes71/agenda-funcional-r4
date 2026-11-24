@@ -74,7 +74,7 @@ export default function ModalDetalhesAulaR4(props: Props) {
 function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro, iniciarNoHistorico, onFecharAction, onAtualizadoAction }: Props & { inicial: AgendamentoAdmin }) {
     const textoR4 = useTextoR4();
     const [aula, setAula] = useState(inicial);
-    const [tela, setTela] = useState<Tela>(iniciarNoHistorico ? 'historico' : 'detalhes');
+    const [tela, setTela] = useState<Tela>(iniciarNoHistorico && roleUsuario !== 'professor' ? 'historico' : 'detalhes');
     const [form, setForm] = useState(() => montarFormulario(inicial));
     const [observacoes, setObservacoes] = useState(inicial.observacoes || '');
     const [podeEditarFeedback, setPodeEditarFeedback] = useState(false);
@@ -235,7 +235,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         </p>}
                         {aula.observacoes && <section className={css.nota}><strong>{textoR4("Assuntos e observações")}</strong><p>{aula.observacoes}</p></section>}
                         <div className={css.lista}>
-                            <Linha titulo={textoR4("Histórico do atendimento")} icone={<History />} onClick={() => abrir('historico')} />
+                            {!professor && <Linha titulo={textoR4("Histórico do atendimento")} icone={<History />} onClick={() => abrir('historico')} />}
                             {!podeEditar && (anexos.length > 0 || podeAnexar) && <Linha titulo={textoR4("Anexos da aula")} icone={<Paperclip />} onClick={() => abrir('anexos')} />}
                         </div>
                     </>}
@@ -327,7 +327,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         </div>)}
                     </>}
 
-                    {tela === 'historico' && <>
+                    {!professor && tela === 'historico' && <>
                         <p className={css.filtroHistorico}><Calendar /> {aula.nome_aluno} · {formatarDataBR(aula.data)}</p>
                         {!historico.length && !erro && <p className={css.mudo}>{carregando ? textoR4("Carregando histórico…") : textoR4("Nenhuma ação registrada.")}</p>}
                         <ol className={css.historico}>
