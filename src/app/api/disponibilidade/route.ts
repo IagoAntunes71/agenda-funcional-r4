@@ -175,7 +175,7 @@ export async function GET(req: NextRequest) {
       WHERE LEFT(a.data::text, 10) = ${dataAtiva}
         AND a.hora_inicio IS NOT NULL
         AND a.hora_fim IS NOT NULL
-        AND COALESCE(a.status, 'confirmado') <> 'cancelado'
+        AND COALESCE(a.status, 'confirmado') NOT IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca')
     `) as BloqueioRow[];
 
         // Filtra as matérias de cada professor conforme a série do aluno

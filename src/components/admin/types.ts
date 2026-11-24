@@ -65,6 +65,8 @@ export interface DataAdmin {
 }
 
 export interface AgendamentoAdmin {
+    aluno_id?: number | null;
+    excluido_em?: string | null;
     id: number;
     unidade_id: number;
     unidade_nome: string;

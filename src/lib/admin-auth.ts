@@ -22,11 +22,9 @@ export interface SessaoAdmin {
 }
 
 function obterSegredoAssinatura(): string {
-    return (
-        process.env.ADMIN_SESSION_SECRET ||
-        process.env.ADMIN_PASSWORD ||
-        'r4-ensina-admin-secret-2026'
-    );
+    const segredo = process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD;
+    if (!segredo) throw new Error('Configure ADMIN_SESSION_SECRET para autenticar o painel.');
+    return segredo;
 }
 
 export function normalizarRoleSistema(valor: unknown): RoleSistema {
@@ -98,16 +96,6 @@ export async function lerSessaoAdmin(): Promise<SessaoAdmin | null> {
         const cookieStore = await cookies();
         const valor = cookieStore.get(NOME_COOKIE_ADMIN)?.value;
         if (!valor) return null;
-
-        if (valor === 'authenticated' || valor === 'true') {
-            return {
-                id: 0,
-                nome: 'Administrador R4',
-                email: '',
-                role: 'admin',
-                professor_id: null,
-            };
-        }
 
         const [payloadBase64, assinatura] = valor.split('.');
         if (!payloadBase64 || !assinatura) return null;

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
 import {
     dispararRoboReservaClinCare,
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
+        await garantirHistoricoAgendamento();
         const agendamentos = await sql`
       SELECT
         a.id,
@@ -42,6 +44,7 @@ export async function GET(req: NextRequest) {
         '^55(?=\d{10,11}$)',
         ''
       ) = ANY(${variantes}::text[])
+        AND a.excluido_em IS NULL
         AND a.data >= (now() AT TIME ZONE 'America/Bahia')::date
       ORDER BY a.data ASC, COALESCE(a.hora_inicio, a.horario) ASC
       LIMIT 20
@@ -60,6 +63,7 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
     try {
         await garantirColunasFilaReserva();
+        await garantirHistoricoAgendamento();
 
         const { id, whatsapp } = await req.json();
         const whatsappRaw = String(whatsapp || '');
@@ -70,7 +74,9 @@ export async function PATCH(req: NextRequest) {
             return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 });
         }
 
-        const atualizados = (await sql`
+        const [, atualizados] = await sql.transaction([
+            sql`SELECT set_config('r4.ator_agenda', 'Responsável · Portal do Aluno', true)`,
+            sql`
       UPDATE agendamentos
       SET
         status = 'cancelado',
@@ -84,9 +90,10 @@ export async function PATCH(req: NextRequest) {
           '^55(?=\d{10,11}$)',
           ''
         ) = ANY(${variantes}::text[])
-        AND status = 'confirmado'
+        AND status = 'confirmado' AND excluido_em IS NULL
       RETURNING id, clincare_reserva_status
-    `) as { id: number; clincare_reserva_status: string }[];
+    `,
+        ]);
 
         if (atualizados.length === 0) {
             return NextResponse.json(

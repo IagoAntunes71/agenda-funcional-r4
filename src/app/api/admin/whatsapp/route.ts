@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
+import { lerSessaoAdmin, verificarAdminAutenticado } from '@/lib/admin-auth';
 import {
     enviarTextoParaGrupo,
     formatarDestinoApi,
@@ -63,10 +64,12 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-    if (!(await verificarAdminAutenticado())) {
+    const sessao = await lerSessaoAdmin();
+    if (!sessao) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    if (sessao.role === 'professor') return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
     try {
         await garantirTabelaConfigWhatsApp();
         const body = await req.json();
@@ -242,11 +245,12 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            await sql`
-        UPDATE agendamentos
-        SET notificado_whatsapp = true
-        WHERE id = ${agendamentoId}
-      `;
+            await garantirHistoricoAgendamento();
+            await sql.transaction([
+                sql`SELECT set_config('r4.ator_agenda', ${sessao.nome}, true)`,
+                sql`UPDATE agendamentos SET notificado_whatsapp = true
+                    WHERE id = ${agendamentoId} AND excluido_em IS NULL`,
+            ]);
 
             const dados = await carregarPainelWhatsApp();
             return NextResponse.json({ sucesso: true, ...dados });
@@ -256,11 +260,12 @@ export async function POST(req: NextRequest) {
             const agendamentoId = Number(body?.agendamentoId || 0);
             const lancado = Boolean(body?.lancado);
 
-            await sql`
-        UPDATE agendamentos
-        SET lancado_clincare = ${lancado}
-        WHERE id = ${agendamentoId}
-      `;
+            await garantirHistoricoAgendamento();
+            await sql.transaction([
+                sql`SELECT set_config('r4.ator_agenda', ${sessao.nome}, true)`,
+                sql`UPDATE agendamentos SET lancado_clincare = ${lancado}
+                    WHERE id = ${agendamentoId} AND excluido_em IS NULL`,
+            ]);
 
             const dados = await carregarPainelWhatsApp();
             return NextResponse.json({ sucesso: true, ...dados });

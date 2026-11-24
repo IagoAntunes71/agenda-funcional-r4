@@ -4,6 +4,7 @@ import {
     buscarFamiliaPorTelefone,
     lerSessaoCliente,
 } from '@/lib/cliente-auth';
+import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
 import {
     IntervaloOcupado,
@@ -88,6 +89,7 @@ function garantirTabelaAgendamentos(): Promise<void> {
 export async function POST(req: NextRequest) {
     try {
         await garantirTabelaAgendamentos();
+        await garantirHistoricoAgendamento();
 
         const modoChaveMestra = await obterModoChaveMestra();
         const statusSistema = avaliarStatusChaveMestra(modoChaveMestra);
@@ -247,7 +249,7 @@ export async function POST(req: NextRequest) {
       LEFT JOIN professores p ON p.id = a.professor_id
       WHERE LEFT(a.data::text, 10) = ${data}
         AND LEFT(COALESCE(a.hora_inicio, a.horario)::text, 5) = ${slotEscolhido.inicio}
-        AND COALESCE(a.status, 'confirmado') <> 'cancelado'
+        AND COALESCE(a.status, 'confirmado') NOT IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca')
         AND (
           (${alunoId}::int IS NOT NULL AND a.aluno_id = ${alunoId})
           OR (
@@ -311,7 +313,7 @@ export async function POST(req: NextRequest) {
       WHERE LEFT(a.data::text, 10) = ${data}
         AND a.hora_inicio IS NOT NULL
         AND a.hora_fim IS NOT NULL
-        AND COALESCE(a.status, 'confirmado') <> 'cancelado'
+        AND COALESCE(a.status, 'confirmado') NOT IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca')
         AND (
           a.professor_id = ${prof.id}
           OR (${prof.clin_care_id}::text IS NOT NULL AND p.clin_care_id = ${prof.clin_care_id})
@@ -353,7 +355,9 @@ export async function POST(req: NextRequest) {
             ? 'pendente'
             : 'nao_aplicavel';
 
-        const inserido = (await sql`
+        const [, inserido] = await sql.transaction([
+            sql`SELECT set_config('r4.ator_agenda', ${(responsavelFinal || 'Responsável') + ' · Portal do Aluno'}, true)`,
+            sql`
       INSERT INTO agendamentos (
         unidade_id,
         professor_id,
@@ -393,7 +397,8 @@ export async function POST(req: NextRequest) {
         ${statusInicialReserva}
       )
       RETURNING id
-    `) as { id: number }[];
+    `,
+        ]);
 
         const agendamentoId = inserido[0]?.id;
 

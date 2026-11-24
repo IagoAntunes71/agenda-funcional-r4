@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
 import {
     formatarTelefone,
@@ -370,11 +371,12 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            await sql`
-        UPDATE agendamentos
-        SET status = 'cancelado'
-        WHERE id = ${agendamentoId}
-      `;
+            await garantirHistoricoAgendamento();
+            await sql.transaction([
+                sql`SELECT set_config('r4.ator_agenda', ${(ag.responsavel_nome || 'Responsável') + ' · Portal do Aluno'}, true)`,
+                sql`UPDATE agendamentos SET status = 'cancelado'
+                    WHERE id = ${agendamentoId} AND excluido_em IS NULL`,
+            ]);
 
             await notificarGrupoCancelamentoAgendamento({
                 id: ag.id,

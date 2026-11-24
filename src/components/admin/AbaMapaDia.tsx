@@ -43,6 +43,7 @@ import {
     relogioBahia,
 } from './mapa-dia-horarios';
 import styles from './MapaDia.module.css';
+import ArquivoAgendamentosR4 from './ArquivoAgendamentosR4';
 import ModalDetalhesAulaR4 from './ModalDetalhesAulaR4';
 import ModalNovoAgendamentoR4 from './ModalNovoAgendamentoR4';
 import {
@@ -211,6 +212,7 @@ export default function AbaMapaDia({
     const [modalProfInicial, setModalProfInicial] = useState<number>(0);
     const [modalDataInicial, setModalDataInicial] = useState<string>(() => obterHojeISO());
     const [modalHoraInicial, setModalHoraInicial] = useState<string>('08:00');
+    const [arquivoAberto, setArquivoAberto] = useState(false);
     const [aulaSelecionada, setAulaSelecionada] = useState<AgendamentoAdmin | null>(null);
 
     // Drag & Drop entre professores/horários
@@ -657,11 +659,12 @@ export default function AbaMapaDia({
                         <button type="button" className={styles.botao} onClick={() => alterarDataGlobal(obterHojeISO())}>Hoje</button>
                     </div>
                     <div className={styles.controles}>
-                        {!ehProfessor && (
+                        {!ehProfessor && <>
+                            <button type="button" className={styles.botao} onClick={() => setArquivoAberto(true)}>Aulas excluídas</button>
                             <button type="button" className={styles.botao} disabled={!colunas.length} onClick={() => abrirModalCriacao('bloqueio')}>
                                 <Ban /> Bloquear
                             </button>
-                        )}
+                        </>}
                         <button type="button" className={styles.primario} disabled={!colunas.length}
                             onClick={() => abrirModalCriacao(ehProfessor ? 'bloqueio' : 'aula')}>
                             {ehProfessor ? <Ban /> : <CalendarPlus />}
@@ -1418,12 +1421,19 @@ export default function AbaMapaDia({
                 classes={classes}
             />
 
+            {arquivoAberto && <ArquivoAgendamentosR4 escuro={escuro} onFechar={() => setArquivoAberto(false)}
+                onSelecionar={(aula) => { setAulaSelecionada(aula); setArquivoAberto(false); }} />}
+
             <ModalDetalhesAulaR4
                 aula={aulaSelecionada}
+                iniciarNoHistorico={Boolean(aulaSelecionada?.excluido_em)}
                 onFecharAction={() => setAulaSelecionada(null)}
                 roleUsuario={roleUsuario}
                 onAtualizadoAction={onRecarregarDadosAction}
-                classes={classes}
+                unidades={unidades}
+                professores={professores}
+                alunos={alunos}
+                escuro={escuro}
             />
         </section>
     );

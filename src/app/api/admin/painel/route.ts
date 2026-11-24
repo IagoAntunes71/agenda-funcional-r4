@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
-import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { lerSessaoAdmin } from '@/lib/admin-auth';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
 import { CONFIG_SYNC_MODOS } from '@/app/api/admin/sincronizar/route';
@@ -8,12 +9,13 @@ import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
 import { garantirColunasFilaReserva } from '@/lib/clincare-fila';
 
 export async function GET() {
-    const autenticado = await verificarAdminAutenticado();
-    if (!autenticado) {
+    const sessao = await lerSessaoAdmin();
+    if (!sessao) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
     try {
+        await garantirHistoricoAgendamento();
         const modoChaveMestra = await obterModoChaveMestra();
         const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
 
@@ -119,6 +121,8 @@ export async function GET() {
         SELECT
           a.id,
           a.unidade_id,
+          a.aluno_id,
+          to_char(a.hora_fim, 'HH24:MI') AS hora_fim,
           COALESCE(u.nome, 'Unidade') AS unidade_nome,
           a.professor_id,
           COALESCE(p.nome, 'Professor') AS professor_nome,
@@ -185,6 +189,11 @@ export async function GET() {
         LEFT JOIN professores p ON p.id = a.professor_id
         LEFT JOIN alunos al ON al.id = a.aluno_id
         LEFT JOIN responsaveis r ON r.id = al.responsavel_id
+        WHERE a.excluido_em IS NULL
+          AND (${sessao.role !== 'professor'} OR EXISTS (
+            SELECT 1 FROM professores vinculado WHERE vinculado.id = ${sessao.professor_id}
+              AND (vinculado.id = p.id OR vinculado.clin_care_id = p.clin_care_id)
+          ))
         ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
         LIMIT 250
       `,
@@ -273,6 +282,7 @@ export async function GET() {
         }
 
         return NextResponse.json({
+            sessao,
             chaveMestra: {
                 modo: modoChaveMestra,
                 aberto: statusChaveMestra.aberto,
