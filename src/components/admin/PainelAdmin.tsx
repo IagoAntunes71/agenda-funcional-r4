@@ -51,6 +51,7 @@ import {
 } from '@/lib/horarios-reforco';
 import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos-padrao';
 import AbaAlunos from './AbaAlunos';
+import FichaAlunosR4 from './FichaAlunosR4';
 import AbaDatas from './AbaDatas';
 import AbaMapaDia from './AbaMapaDia';
 import PainelProfessorR4 from './PainelProfessorR4';
@@ -1979,11 +1980,10 @@ export default function PainelAdmin({
                     )}
 
                     {aba === 'alunos' && (
-                        <AbaAlunos
-                            responsaveis={responsaveis}
-                            classes={classesCompartilhadas}
-                            onRecarregarDadosAction={carregarDados}
-                        />
+                        <FichaAlunosR4 atualizarPainel={carregarDados} contas={
+                            <AbaAlunos responsaveis={responsaveis} classes={classesCompartilhadas}
+                                onRecarregarDadosAction={carregarDados} />
+                        } />
                     )}
 
                     {aba === 'textos' && admin && (

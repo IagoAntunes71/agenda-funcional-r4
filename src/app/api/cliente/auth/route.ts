@@ -1,3 +1,4 @@
+import { alunoImportadoAguardandoVinculo } from '@/lib/cadastro-aluno-r4';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
@@ -303,6 +304,10 @@ export async function POST(req: NextRequest) {
                         { status: validacaoOtp.status || 400 }
                     );
                 }
+            }
+
+            if (await alunoImportadoAguardandoVinculo(nomeAluno, telefoneNorm)) {
+                return NextResponse.json({ error: 'Peça à recepção para confirmar o vínculo do aluno com sua conta.' }, { status: 409 });
             }
 
             const pinHash = gerarHashPin(pin);

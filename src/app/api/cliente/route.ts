@@ -1,3 +1,4 @@
+import { alunoImportadoAguardandoVinculo } from '@/lib/cadastro-aluno-r4';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { NextRequest, NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
@@ -686,6 +687,10 @@ export async function POST(req: NextRequest) {
 
             colegioIdFinal = colRows[0].id;
             colegioNomeFinal = colRows[0].nome;
+        }
+
+        if (await alunoImportadoAguardandoVinculo(nomeAluno, telefone)) {
+            return NextResponse.json({ error: 'Peça à recepção para confirmar o vínculo do aluno com sua conta.' }, { status: 409 });
         }
 
         const telFormatado = formatarTelefone(telefone);

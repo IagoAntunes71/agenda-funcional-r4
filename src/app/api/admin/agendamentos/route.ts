@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
                     COALESCE(al.serie, '') AS serie
                 FROM alunos al
                 LEFT JOIN responsaveis r ON r.id = al.responsavel_id
-                WHERE al.id = ${alunoId}
+                WHERE al.id = ${alunoId} AND coalesce(al.ativo,true)
                 LIMIT 1
             `) as {
                 nome_aluno: string;
@@ -134,6 +134,7 @@ export async function POST(req: NextRequest) {
                 serie: string;
             }[];
 
+            if (!alunosDb[0]) return erro('Aluno não encontrado ou inativo.', 404);
             if (alunosDb[0]) {
                 nomeAluno = alunosDb[0].nome_aluno;
                 nomeResponsavel = alunosDb[0].responsavel_nome;

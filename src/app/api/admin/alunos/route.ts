@@ -1,3 +1,4 @@
+import { prepararCadastroAlunoR4 } from '@/lib/cadastro-aluno-r4';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { podeOperacao } from '@/lib/operacao-r4';
 import { NextRequest, NextResponse } from 'next/server';
@@ -286,6 +287,13 @@ export async function DELETE(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const responsavelId = Number(searchParams.get('responsavelId') || 0);
         const id = Number(searchParams.get('id') || 0);
+
+        await prepararCadastroAlunoR4();
+        const [importado] = await sql`SELECT id FROM alunos WHERE clin_care_aluno_id IS NOT NULL
+            AND ((${responsavelId} > 0 AND responsavel_id = ${responsavelId}) OR (${id} > 0 AND id = ${id})) LIMIT 1`;
+        if (importado) return NextResponse.json({
+            error: 'Este cadastro está integrado à agenda. Use a opção de inativação na ficha do aluno.',
+        }, { status: 409 });
 
         // Excluir conta inteira do responsável (preservando histórico de agendamentos)
         if (responsavelId > 0) {
