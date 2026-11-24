@@ -39,7 +39,7 @@ export default function DiretorioProfessoresR4({ professores, classes }: {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {visiveis.map(([chave, perfil]) => <article key={chave} className={`border rounded-xl p-4 space-y-3 ${classes.clsCard}`}>
                 <div className="flex items-center gap-3">
-                    <span className="w-9 h-9 grid place-items-center rounded-lg bg-[#0E7C86] text-white font-bold">{obterIniciais(perfil.nome)}</span>
+                    <span className="w-9 h-9 grid place-items-center rounded-lg r4-acao font-bold">{obterIniciais(perfil.nome)}</span>
                     <h2 className="font-bold">{perfil.nome}</h2>
                 </div>
                 <p className={`text-sm ${classes.clsSubtexto}`}>{[...perfil.materias].join(' · ')}</p>

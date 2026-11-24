@@ -7,6 +7,7 @@ import { ArrowLeft, BookOpen, Building2, Calendar, ChevronRight, Clock3, Graduat
 import type { RoleSistema } from '@/lib/admin-auth';
 import { LISTA_STATUS_AULA_R4, normalizarStatusAulaR4 } from '@/lib/agenda-status-r4';
 import { filtrarMateriasVisiveis } from '@/lib/cliente-helpers';
+import { materiaBase, materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import { horaParaMinutos } from '@/lib/horarios-reforco';
 import { formatarDataBR, obterIniciais, type AgendamentoAdmin, type AlunoAdmin, type ProfessorAdmin, type UnidadeAdmin } from './types';
 import css from './DetalhesAula.module.css';
@@ -49,7 +50,7 @@ function duracaoReal(aula: AgendamentoAdmin) {
 function montarFormulario(aula: AgendamentoAdmin) {
     return {
         unidade_id: aula.unidade_id, professor_id: aula.professor_id, aluno_id: aula.aluno_id ?? 0,
-        materia: aula.materia, data: aula.data, hora_inicio: aula.hora_inicio?.slice(0, 5) || '08:00',
+        materia: materiaBase(aula.materia), data: aula.data, hora_inicio: aula.hora_inicio?.slice(0, 5) || '08:00',
         duracao_minutos: duracaoReal(aula),
     };
 }
@@ -87,7 +88,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const podeEditar = !professor && !aula.excluido_em;
     const status = normalizarStatusAulaR4(aula.status);
     const destino = professores.find((p) => p.id === form.professor_id);
-    const materias = [...new Set([...(destino ? filtrarMateriasVisiveis(destino.materias) : []), form.materia].filter(Boolean))];
+    const materias = materiasBase([...(destino ? filtrarMateriasVisiveis(destino.materias) : []), form.materia]);
     const professoresUnidade = professores.filter((p) => p.unidade_id === form.unidade_id && (p.ativo || p.id === aula.professor_id));
 
     useEffect(() => {
@@ -128,6 +129,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
             const resposta = await fetch(caminho, opcoes);
             const resultado = await resposta.json();
             if (!resposta.ok) throw new Error(resultado.error || 'Não foi possível salvar a alteração.');
+            if (resultado.status) setAula((anterior) => ({ ...anterior, status: resultado.status }));
             if (proxima) setTela(proxima);
             setAviso(resultado.aviso || mensagem);
             const [atualizacao] = await Promise.allSettled([
@@ -187,7 +189,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                     <div>
                         {tela === 'detalhes' && <small>{textoR4("R4 ·") + ' '}{textoR4(titulos[tela])}</small>}
                         <h2 id="r4-detalhes-titulo">{tela === 'detalhes' ? aula.nome_aluno : textoR4(titulos[tela])}</h2>
-                        <p>{(tela === 'detalhes' ? [aula.serie_aluno, aula.colegio_aluno] : [aula.nome_aluno, aula.materia]).filter(Boolean).join(' · ')}</p>
+                        <p>{(tela === 'detalhes' ? [aula.serie_aluno, aula.colegio_aluno] : [aula.nome_aluno, rotuloMateriaAula(aula.materia, duracaoReal(aula))]).filter(Boolean).join(' · ')}</p>
                     </div>
                     <button type="button" className={css.fechar} aria-label={textoR4("Fechar agendamento")} onClick={onFecharAction} disabled={ocupado}><X /></button>
                 </header>
@@ -213,7 +215,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                                 <Dado icone={<Calendar />} cor="azul" titulo={textoR4("Data")} valor={formatarDataBR(aula.data)} />
                                 <Dado icone={<Clock3 />} cor="teal" titulo={textoR4("Horário")} valor={
                                     (aula.hora_inicio || '—') + (aula.hora_fim ? ' – ' + aula.hora_fim : '') + ' (' + duracaoReal(aula) + ' min)'} />
-                                <Dado icone={<BookOpen />} cor="violeta" titulo={textoR4("Matéria")} valor={aula.materia} />
+                                <Dado icone={<BookOpen />} cor="violeta" titulo={textoR4("Matéria")} valor={rotuloMateriaAula(aula.materia, duracaoReal(aula))} />
                                 <Dado icone={<Building2 />} cor="coral" titulo={textoR4("Unidade")} valor={aula.unidade_nome} />
                             </div>
                         </section>
@@ -257,15 +259,17 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         </select></label>
                         <label>{textoR4("Professor")}<select required value={form.professor_id || ''} onChange={(e) => {
                             const p = professores.find((item) => item.id === Number(e.target.value));
-                            const opcoes = p ? filtrarMateriasVisiveis(p.materias) : [];
+                            const opcoes = p ? materiasBase(filtrarMateriasVisiveis(p.materias)) : [];
                             setForm({ ...form, professor_id: p?.id ?? 0, materia: opcoes.includes(form.materia) ? form.materia : opcoes[0] || '' });
                         }}>
                             <option value="" disabled>{textoR4("Selecione um professor")}</option>
                             {professoresUnidade.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
                         </select></label>
-                        <label>{textoR4("Matéria")}<input required list="r4-materias-edicao" value={form.materia} maxLength={150}
-                            onChange={(e) => setForm({ ...form, materia: e.target.value })} /></label>
-                        <datalist id="r4-materias-edicao">{materias.map((materia) => <option key={materia} value={materia} />)}</datalist>
+                        <label>{textoR4("Matéria")}<select required value={form.materia}
+                            onChange={(e) => setForm({ ...form, materia: e.target.value })}>
+                            <option value="" disabled>Selecione a matéria</option>
+                            {materias.map((materia) => <option key={materia} value={materia}>{materia}</option>)}
+                        </select></label>
                         <div className={css.campos}>
                             <label>{textoR4("Data")}<input required type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></label>
                             <label>{textoR4("Início")}<input required type="time" value={form.hora_inicio} onChange={(e) => setForm({ ...form, hora_inicio: e.target.value })} /></label>

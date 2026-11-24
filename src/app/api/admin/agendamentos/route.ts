@@ -5,13 +5,16 @@ import {
     dispararRoboReservaClinCare,
     garantirColunasFilaReserva,
 } from '@/lib/clincare-fila';
+import { garantirStatusAgendamentoR4 } from '@/lib/agendamento-status-schema';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
+import { materiaBase, materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import { LISTA_STATUS_AULA_R4 } from '@/lib/agenda-status-r4';
 import { horaParaMinutos, minutosParaHora } from '@/lib/horarios-reforco';
 
 async function garantirColunasExtrasAgendamento() {
     await garantirColunasFilaReserva();
     await garantirHistoricoAgendamento();
+    await garantirStatusAgendamentoR4();
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS duracao_minutos INTEGER DEFAULT 100`;
@@ -33,7 +36,7 @@ export async function POST(req: NextRequest) {
 
         const unidadeId = Number(body?.unidade_id || 0);
         const professorId = Number(body?.professor_id || 0);
-        const materia = String(body?.materia || '').trim();
+        const materia = materiaBase(String(body?.materia || ''));
         const data = String(body?.data || '').trim();
         const horaInicio = String(body?.hora_inicio || '').trim();
         const duracaoMinutos = Number(body?.duracao_minutos || 100);
@@ -48,6 +51,16 @@ export async function POST(req: NextRequest) {
                 { error: 'Preencha unidade, professor, matéria, data e horário.' },
                 { status: 400 }
             );
+        }
+
+        if (!Number.isInteger(duracaoMinutos) || duracaoMinutos < 10 || duracaoMinutos > 300 ||
+            !/^([01]\d|2[0-3]):[0-5]\d$/.test(horaInicio) || horaParaMinutos(horaInicio) + duracaoMinutos >= 1440) {
+            return erro('Horário ou duração inválidos.', 400);
+        }
+        const [destino] = await sql`SELECT materias FROM professores
+            WHERE id = ${professorId} AND unidade_id = ${unidadeId} AND ativo`;
+        if (!destino || !materiasBase(destino.materias).includes(materia)) {
+            return erro('Selecione uma matéria cadastrada para o professor.', 400);
         }
 
         let alunoId = Number(body?.aluno_id || 0);
@@ -144,7 +157,7 @@ export async function POST(req: NextRequest) {
                     ${telefoneAluno},
                     ${colegioAluno},
                     ${serieAluno},
-                    ${materia},
+                    ${rotuloMateriaAula(materia, duracaoMinutos)},
                     ${dataSemana}::date,
                     ${horaInicio}::time,
                     ${horaFim}::time,
@@ -314,7 +327,7 @@ export async function PATCH(req: NextRequest) {
         const professor = Number(body.professor_id ?? aula.professor_id);
         const unidade = Number(body.unidade_id ?? aula.unidade_id);
         const alunoId = body.aluno_id === undefined ? null : Number(body.aluno_id);
-        const materia = String(body.materia ?? aula.materia ?? '').trim();
+        const materia = materiaBase(String(body.materia ?? aula.materia ?? ''));
         const data = String(body.data ?? aula.data_iso);
         const inicio = String(body.hora_inicio ?? aula.inicio);
         const duracaoOriginal = aula.fim && aula.inicio
@@ -331,11 +344,15 @@ export async function PATCH(req: NextRequest) {
                 return erro('Confira aluno, unidade, professor, matéria, data e duração.', 400);
             }
             const [destino] = await sql`
-                SELECT p.id FROM professores p JOIN unidades u ON u.id = p.unidade_id
+                SELECT p.id, p.materias FROM professores p JOIN unidades u ON u.id = p.unidade_id
                 WHERE p.id = ${professor} AND u.id = ${unidade}
                 AND ((p.ativo AND u.ativa) OR (p.id = ${aula.professor_id} AND u.id = ${aula.unidade_id}))
             `;
             if (!destino) return erro('Escolha um professor vinculado à unidade selecionada.', 400);
+            if ((professor !== aula.professor_id || materia !== materiaBase(aula.materia)) &&
+                !materiasBase(destino.materias).includes(materia)) {
+                return erro('Selecione uma matéria cadastrada para o professor de destino.', 400);
+            }
         }
         const aluno = alunoId === null ? null : (await sql`
             SELECT al.id, al.nome_aluno, al.serie, al.colegio_nome,
@@ -351,7 +368,7 @@ export async function PATCH(req: NextRequest) {
             UPDATE agendamentos a SET
                 unidade_id = CASE WHEN ${edicao} THEN ${unidade} ELSE a.unidade_id END,
                 professor_id = CASE WHEN ${edicao} THEN ${professor} ELSE a.professor_id END,
-                materia = CASE WHEN ${edicao} THEN ${materia} ELSE a.materia END,
+                materia = CASE WHEN ${edicao} THEN ${rotuloMateriaAula(materia, duracao)} ELSE a.materia END,
                 data = CASE WHEN ${edicao} THEN ${edicao ? data : null}::date ELSE a.data END,
                 hora_inicio = CASE WHEN ${edicao} THEN ${edicao ? inicio : null}::time ELSE a.hora_inicio END,
                 hora_fim = CASE WHEN ${edicao} THEN ${edicao ? minutosParaHora(fimMinutos) : null}::time ELSE a.hora_fim END,
@@ -382,7 +399,7 @@ export async function PATCH(req: NextRequest) {
                     ELSE a.clincare_reserva_status END,
                 clincare_reserva_erro = CASE WHEN ${cancelar} THEN NULL ELSE a.clincare_reserva_erro END
             WHERE a.id = ${id} AND a.excluido_em IS NULL AND a.professor_id IS NOT DISTINCT FROM ${aula.professor_id}
-            RETURNING clincare_reserva_status
+            RETURNING status, clincare_reserva_status
         `]);
         if (!linhas.length) return erro('A aula foi alterada. Reabra e tente novamente.', 409);
         const reativar = status === 'confirmado' && aula.status === 'cancelado' && linhas[0].clincare_reserva_status === 'pendente';
@@ -395,9 +412,12 @@ export async function PATCH(req: NextRequest) {
             : mudouAgenda && (aula.clincare_reserva_status === 'reservado' || aula.lancado_clincare)
                 ? 'Alteração salva no R4. Atualize também a reserva já lançada no ClinCare.'
                 : null;
-        return NextResponse.json({ sucesso: true, aviso });
+        return NextResponse.json({ sucesso: true, status: linhas[0].status, aviso });
     } catch (error) {
         console.error('Atualização do agendamento:', error);
+        if (typeof error === 'object' && error && 'code' in error && error.code === '23514') {
+            return erro('O banco recusou a alteração por uma restrição de dados. Confira a configuração da agenda.', 409);
+        }
         return erro('Não foi possível salvar a alteração.', 500);
     }
 }

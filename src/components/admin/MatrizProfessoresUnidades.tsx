@@ -329,7 +329,7 @@ export default function MatrizProfessoresUnidades({
                                                 }
                                                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
                                                     ativoNaUnidade
-                                                        ? 'bg-[#0E7C86] text-white border-[#1496A1] shadow-xs'
+                                                        ? 'r4-acao border-[#1496A1] shadow-xs'
                                                         : `${clsCard} ${clsSubtexto} hover:border-[#0E7C86]`
                                                 }`}
                                             >

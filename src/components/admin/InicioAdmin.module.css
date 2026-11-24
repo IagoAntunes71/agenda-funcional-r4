@@ -76,3 +76,16 @@
 .resumo { border-top: 3px solid var(--teal); }
 .icone, .avatar { color: var(--coral); }
 .unidades a:first-child { border-color: var(--teal); }
+
+.inicio, .inicio[data-tema='escuro'] {
+    --painel: var(--r4-painel);
+    --fundo: color-mix(in srgb, var(--r4-base) 75%, var(--painel));
+    --borda: color-mix(in srgb, var(--r4-leitura) 20%, var(--painel));
+    --texto: var(--r4-leitura);
+    --secundario: var(--texto);
+    --teal: var(--r4-principal);
+    --verde: var(--r4-confirmado);
+    --coral: var(--r4-destaque);
+}
+.destaque { background: var(--r4-botao); color: var(--r4-botao-texto); }
+.destaque:hover { background: var(--r4-botao); filter: brightness(.92); }

@@ -5,6 +5,8 @@ import {
     lerSessaoCliente,
 } from '@/lib/cliente-auth';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
+import { materiaBase, rotuloMateriaAula } from '@/lib/materia-aula';
+import { horaParaMinutos } from '@/lib/horarios-reforco';
 import { sql } from '@/lib/db';
 import {
     IntervaloOcupado,
@@ -14,6 +16,7 @@ import {
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
 import {
+    filtrarMateriasProfessorPorSerie,
     gerarVariantesTelefone,
     normalizarTelefone,
 } from '@/lib/cliente-helpers';
@@ -73,6 +76,7 @@ function garantirTabelaAgendamentos(): Promise<void> {
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS notificado_whatsapp BOOLEAN DEFAULT false`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ DEFAULT now()`,
+                sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`,
                 sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`,
                 sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`,
                 sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`,
@@ -164,6 +168,7 @@ export async function POST(req: NextRequest) {
         nome,
         clin_care_id,
         unidade_id,
+        materias, materias_series,
         COALESCE(manha_ativo, false) AS manha_ativo,
         to_char(manha_inicio, 'HH24:MI') AS manha_inicio,
         to_char(manha_fim, 'HH24:MI') AS manha_fim,
@@ -179,6 +184,8 @@ export async function POST(req: NextRequest) {
             nome: string;
             clin_care_id: string | null;
             unidade_id: number;
+            materias: string[];
+            materias_series: Record<string, string[]> | null;
             manha_ativo: boolean;
             manha_inicio: string | null;
             manha_fim: string | null;
@@ -227,6 +234,11 @@ export async function POST(req: NextRequest) {
                 { error: 'Aluno não vinculado ao WhatsApp autenticado.' },
                 { status: 403 }
             );
+        }
+
+        const materiasPermitidas = filtrarMateriasProfessorPorSerie(prof.materias, prof.materias_series, alunoSelecionado.serie);
+        if (!materiasPermitidas.some((opcao) => materiaBase(opcao) === materiaBase(materia))) {
+            return NextResponse.json({ error: 'Selecione uma matéria disponível para o professor e a série do aluno.' }, { status: 400 });
         }
 
         if (
@@ -355,6 +367,7 @@ export async function POST(req: NextRequest) {
             ? 'pendente'
             : 'nao_aplicavel';
 
+        const materiaAgendada = rotuloMateriaAula(materia, horaParaMinutos(slotEscolhido.fim) - horaParaMinutos(slotEscolhido.inicio));
         const [, inserido] = await sql.transaction([
             sql`SELECT set_config('r4.ator_agenda', ${(responsavelFinal || 'Responsável') + ' · Portal do Aluno'}, true)`,
             sql`
@@ -381,7 +394,7 @@ export async function POST(req: NextRequest) {
         ${unidadeId},
         ${prof.id},
         ${alunoId},
-        ${materia},
+        ${materiaAgendada},
         ${data}::date,
         ${slotEscolhido.inicio}::time,
         ${slotEscolhido.fim}::time,
@@ -410,7 +423,7 @@ export async function POST(req: NextRequest) {
             id: agendamentoId,
             unidade: nomeUnidade,
             professor: prof.nome,
-            materia,
+            materia: materiaAgendada,
             data,
             horario: slotEscolhido.label,
             responsavelNome: responsavelFinal,
@@ -437,7 +450,7 @@ export async function POST(req: NextRequest) {
                     id: agendamentoId,
                     unidade: nomeUnidade,
                     professor: prof.nome,
-                    materia,
+                    materia: materiaAgendada,
                     data,
                     horario: slotEscolhido.label,
                     alunoNome,

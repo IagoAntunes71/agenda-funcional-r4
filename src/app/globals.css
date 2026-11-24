@@ -53,3 +53,38 @@ body {
   background: var(--r4-topo);
   border-color: var(--r4-borda);
 }
+
+.r4-admin, .r4-portal {
+  color: var(--r4-leitura, #352522);
+  background: var(--r4-base, #faf2ec);
+}
+.r4-admin {
+  --r4-texto: var(--r4-leitura);
+  --r4-topo: var(--r4-painel);
+  --r4-coral: var(--r4-destaque);
+  --r4-borda: color-mix(in srgb, var(--r4-leitura) 20%, var(--r4-painel));
+}
+.r4-admin[data-tema='escuro'] {
+  --r4-texto: var(--r4-leitura);
+  --r4-topo: var(--r4-painel);
+  --r4-borda: color-mix(in srgb, var(--r4-leitura) 22%, var(--r4-painel));
+  background: var(--r4-base);
+}
+.r4-acao { background: var(--r4-botao, #096d75); color: var(--r4-botao-texto, white); }
+.r4-acao:hover:not(:disabled) { filter: brightness(.92); }
+.r4-painel {
+  color: var(--r4-leitura);
+  background: var(--r4-painel);
+  border-color: var(--r4-borda, currentColor);
+}
+.r4-painel-secundario {
+  color: var(--r4-leitura);
+  background: color-mix(in srgb, var(--r4-base) 75%, var(--r4-painel));
+  border-color: var(--r4-borda, currentColor);
+}
+.r4-texto { color: var(--r4-leitura); }
+.r4-subtexto { color: var(--r4-leitura); }
+.r4-status[data-status='confirmado'] { color: var(--r4-confirmado); }
+.r4-status[data-status='cancelado'] { color: var(--r4-cancelado); }
+.r4-status[data-status='agendado'] { color: var(--r4-principal); }
+.r4-status[data-status^='desmarcado'] { color: var(--r4-bloqueio); }

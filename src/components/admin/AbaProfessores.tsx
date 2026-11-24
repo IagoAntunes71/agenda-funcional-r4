@@ -611,7 +611,7 @@ export default function AbaProfessores({
                 <button
                     type="submit"
                     disabled={cadastrandoProf}
-                    className="w-full py-3 px-4 bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-white font-semibold rounded-xl text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3 px-4 r4-acao disabled:opacity-50  font-semibold rounded-xl text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
                 >
                     <Plus className="w-4 h-4" />
                     {cadastrandoProf ? textoR4("Cadastrando...") : textoR4("Cadastrar Professor")}

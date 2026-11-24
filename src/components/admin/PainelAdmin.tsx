@@ -1,4 +1,7 @@
 'use client';
+import { LISTA_STATUS_AULA_R4, normalizarStatusAulaR4, type StatusAulaR4 } from '@/lib/agenda-status-r4';
+import { materiaBase, rotuloMateriaAula } from '@/lib/materia-aula';
+import { intervaloAula } from './mapa-dia-horarios';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -15,7 +18,6 @@ import {
     CalendarDays,
     CalendarPlus,
     Camera,
-    CheckCircle2,
     ChevronLeft,
     ChevronRight,
     ClipboardCheck,
@@ -53,6 +55,8 @@ import AbaDatas from './AbaDatas';
 import AbaMapaDia from './AbaMapaDia';
 import DiretorioProfessoresR4 from './DiretorioProfessoresR4';
 import AbaProfessores from './AbaProfessores';
+import EditorCoresInterface from './EditorCoresInterface';
+import { useCoresR4, variaveisCoresR4 } from '@/components/CoresInterfaceR4';
 import EditorTextosInterface from './EditorTextosInterface';
 import AbaTextosPortal from './AbaTextosPortal';
 import AbaUnidades from './AbaUnidades';
@@ -81,6 +85,11 @@ function formatarCronometro(segundos: number): string {
     return `${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}`;
 }
 
+function materiaAgendamento(aula: AgendamentoAdmin) {
+    const intervalo = intervaloAula(aula);
+    return rotuloMateriaAula(aula.materia, intervalo.fim - intervalo.inicio);
+}
+
 function escaparCelulaCSV(valor: unknown): string {
     const texto = String(valor ?? '').replace(/\r?\n/g, ' ').trim();
     if (texto.includes(';') || texto.includes('"')) {
@@ -97,6 +106,7 @@ export default function PainelAdmin({
     pagina: AbaAdmin;
 }) {
     const textoR4 = useTextoR4();
+    const { paleta } = useCoresR4();
     const router = useRouter();
     const [autenticado, setAutenticado] = useState(Boolean(sessaoInicial));
     const [modoLogin, setModoLogin] = useState<'perfil' | 'master'>('perfil');
@@ -175,7 +185,9 @@ export default function PainelAdmin({
     const [filtroUnidade, setFiltroUnidade] = useState<string>('todas');
     const [filtroProfessor, setFiltroProfessor] = useState<string>('todos');
     const [filtroColegio, setFiltroColegio] = useState<string>('todos');
-    const [filtroStatus, setFiltroStatus] = useState<string>('confirmado');
+    const [filtroStatus, setFiltroStatus] = useState<string>('todos');
+    const [salvandoStatusId, setSalvandoStatusId] = useState<number | null>(null);
+    const [retornoStatus, setRetornoStatus] = useState<{ texto: string; erro: boolean } | null>(null);
     const [filtroClinCare, setFiltroClinCare] = useState<string>('todos');
 
     useEffect(() => {
@@ -451,16 +463,24 @@ export default function PainelAdmin({
         if (pagina !== 'inicio') router.replace('/admin');
     }
 
-    async function alterarStatusAgendamento(
-        id: number,
-        status: 'confirmado' | 'cancelado' | 'concluido'
-    ) {
-        await fetch('/api/admin/agendamentos', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, status }),
-        });
-        await carregarDados();
+    async function alterarStatusAgendamento(id: number, status: StatusAulaR4) {
+        if (salvandoStatusId !== null) return;
+        setSalvandoStatusId(id);
+        setRetornoStatus(null);
+        try {
+            const resposta = await fetch('/api/admin/agendamentos', {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, status }),
+            });
+            const dados = await resposta.json().catch(() => ({}));
+            if (!resposta.ok) throw new Error(dados.error || 'Não foi possível atualizar o status.');
+            setAgendamentos((atuais) => atuais.map((aula) => aula.id === id ? { ...aula, status: dados.status || status } : aula));
+            setRetornoStatus({ texto: dados.aviso || 'Status atualizado.', erro: false });
+        } catch (erro) {
+            setRetornoStatus({ texto: erro instanceof Error ? erro.message : 'Falha ao atualizar o status.', erro: true });
+        } finally {
+            setSalvandoStatusId(null);
+        }
     }
 
     async function alternarLancadoClinCare(id: number, lancadoAtual: boolean) {
@@ -475,20 +495,13 @@ export default function PainelAdmin({
     const escuro = tema === 'escuro';
 
     // Paleta com alto contraste no Modo Claro e identidade R4 no Modo Escuro
-    const clsBgApp = escuro
-        ? 'bg-[#221918] text-stone-100'
-        : 'bg-[#faf2ec] text-slate-900';
-    const clsCard = escuro
-        ? 'bg-[#312320] border-[#513932] shadow-lg shadow-black/25'
-        : 'bg-white border-slate-300 shadow-xs';
-    const clsSubCard = escuro
-        ? 'bg-[#251b19] border-[#513932]'
-        : 'bg-[#f8eae1] border-slate-300/90';
+    const clsCard = 'r4-painel shadow-xs';
+    const clsSubCard = 'r4-painel-secundario';
     const clsInput = escuro
         ? 'bg-[#251b19] border-[#60443d] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
         : 'bg-white border-slate-400/80 text-slate-900 font-medium placeholder:text-slate-500 focus:border-[#0E7C86] focus:ring-2 focus:ring-[#0E7C86]/20';
-    const clsTitulo = escuro ? 'text-stone-100' : 'text-slate-900';
-    const clsSubtexto = escuro ? 'text-stone-400' : 'text-slate-600';
+    const clsTitulo = 'r4-texto';
+    const clsSubtexto = 'r4-subtexto';
 
     const classesCompartilhadas: TemaClasses = {
         clsCard,
@@ -501,7 +514,8 @@ export default function PainelAdmin({
     if (!autenticado) {
         return (
             <div
-                className={`min-h-screen flex items-center justify-center p-4 transition-colors ${clsBgApp}`}
+                className="r4-admin min-h-screen flex items-center justify-center p-4 transition-colors"
+                data-tema={tema} style={variaveisCoresR4(paleta[tema])}
             >
                 <div
                     className={`max-w-md w-full border rounded-2xl p-7 sm:p-8 space-y-6 ${clsCard}`}
@@ -543,7 +557,7 @@ export default function PainelAdmin({
                             }}
                             className={`py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
                                 modoLogin === 'perfil'
-                                    ? 'bg-[#0E7C86] text-white shadow-xs'
+                                    ? 'r4-acao shadow-xs'
                                     : `${clsSubtexto} hover:text-[#0E7C86]`
                             }`}
                         >{textoR4("Perfil (E-mail e Senha)")}</button>
@@ -555,7 +569,7 @@ export default function PainelAdmin({
                             }}
                             className={`py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer inline-flex items-center justify-center gap-1.5 ${
                                 modoLogin === 'master'
-                                    ? 'bg-[#0E7C86] text-white shadow-xs'
+                                    ? 'r4-acao shadow-xs'
                                     : `${clsSubtexto} hover:text-[#0E7C86]`
                             }`}
                         >
@@ -629,7 +643,7 @@ export default function PainelAdmin({
                         <button
                             type="submit"
                             disabled={entrando}
-                            className="w-full py-3 px-4 bg-[#0E7C86] hover:bg-[#118E99] text-white font-semibold rounded-xl text-base shadow-md shadow-[#0E7C86]/25 transition cursor-pointer"
+                            className="w-full py-3 px-4 r4-acao  font-semibold rounded-xl text-base shadow-md shadow-[#0E7C86]/25 transition cursor-pointer"
                         >
                             {entrando
                                 ? textoR4("Verificando...")
@@ -774,7 +788,7 @@ export default function PainelAdmin({
             (a.colegio_aluno || '').trim() !== filtroColegio
         )
             return false;
-        if (filtroStatus !== 'todos' && a.status !== filtroStatus) return false;
+        if (filtroStatus !== 'todos' && normalizarStatusAulaR4(a.status) !== filtroStatus) return false;
         if (filtroClinCare === 'pendentes' && a.sincronizado_clincare) return false;
         if (filtroClinCare === 'lancados' && !a.sincronizado_clincare) return false;
         return true;
@@ -782,7 +796,7 @@ export default function PainelAdmin({
 
     const demandaPorMateria = Object.entries(
         agendamentosFiltrados.reduce<Record<string, number>>((acc, ag) => {
-            const mat = (ag.materia || 'Outros').trim();
+            const mat = materiaBase(ag.materia) || 'Outros';
             acc[mat] = (acc[mat] || 0) + 1;
             return acc;
         }, {})
@@ -812,7 +826,7 @@ export default function PainelAdmin({
             ag.horario || ag.hora_inicio,
             ag.unidade_nome,
             ag.professor_nome,
-            ag.materia,
+            materiaAgendamento(ag),
             ag.nome_aluno,
             ag.colegio_aluno,
             ag.serie_aluno,
@@ -859,7 +873,7 @@ export default function PainelAdmin({
                                     setSidebarRecolhida(false);
                                 }}
                                 title={textoR4("Expandir menu lateral")}
-                                className="w-10 h-10 mx-auto rounded-xl bg-[#0E7C86] text-white font-extrabold text-xs flex items-center justify-center shadow-sm cursor-pointer"
+                                className="w-10 h-10 mx-auto rounded-xl r4-acao font-extrabold text-xs flex items-center justify-center shadow-sm cursor-pointer"
                             >{textoR4("R4")}</button>
                         ) : (
                             <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
@@ -961,7 +975,7 @@ export default function PainelAdmin({
                                         title={textoR4(item.rotulo)}
                                         className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer ${
                                             ativo
-                                                ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
+                                                ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
                                                 : escuro
                                                     ? 'text-stone-400 hover:bg-[#181E26] hover:text-white'
                                                     : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
@@ -992,7 +1006,7 @@ export default function PainelAdmin({
                                         <span
                                             className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition ${
                                                 ativo
-                                                    ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
+                                                    ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
                                                     : escuro
                                                         ? 'bg-[#251b19] text-stone-400 group-hover:text-white border border-[#513932]'
                                                         : 'bg-slate-200/90 text-slate-700 group-hover:text-[#0E7C86] border border-slate-300'
@@ -1022,7 +1036,7 @@ export default function PainelAdmin({
                                         <span
                                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                                                 ativo
-                                                    ? 'bg-[#0E7C86] text-white'
+                                                    ? 'r4-acao'
                                                     : escuro
                                                         ? 'bg-[#251b19] text-stone-300 border border-[#513932]'
                                                         : 'bg-slate-200 text-slate-800 border border-slate-300'
@@ -1094,7 +1108,7 @@ export default function PainelAdmin({
     }
 
     return (
-        <div className="r4-admin min-h-screen flex transition-colors" data-tema={escuro ? 'escuro' : 'claro'}>
+        <div className="r4-admin min-h-screen flex transition-colors" data-tema={escuro ? 'escuro' : 'claro'} style={variaveisCoresR4(paleta[tema])}>
             <input
                 ref={inputFotoRapidaRef}
                 type="file"
@@ -1292,6 +1306,11 @@ export default function PainelAdmin({
                         <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
                             modulos={itensVisiveis.filter((item) => item.id !== 'inicio')} escuro={escuro} />
                     )}
+                    {aba === 'agendamentos' && retornoStatus && (
+                        <p className={`mb-3 rounded-lg border p-3 text-sm ${clsCard}`} role={retornoStatus.erro ? 'alert' : 'status'}>
+                            {retornoStatus.texto}
+                        </p>
+                    )}
                     {aba === 'agendamentos' && (
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
                             <section className="xl:col-span-8 space-y-4">
@@ -1380,10 +1399,10 @@ export default function PainelAdmin({
                                                 }
                                                 className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${clsInput}`}
                                             >
-                                                <option value="confirmado">{textoR4("Confirmados")}</option>
-                                                <option value="concluido">{textoR4("Concluídos")}</option>
-                                                <option value="cancelado">{textoR4("Cancelados")}</option>
                                                 <option value="todos">{textoR4("Todos os Status")}</option>
+                                                {LISTA_STATUS_AULA_R4.map((item) => <option key={item.valor} value={item.valor}>
+                                                    {textoR4(item.rotulo)}
+                                                </option>)}
                                             </select>
                                         </div>
 
@@ -1445,7 +1464,7 @@ export default function PainelAdmin({
                                             type="button"
                                             disabled={agendamentosFiltrados.length === 0}
                                             onClick={exportarRelatorioCSV}
-                                            className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-40 text-xs font-semibold text-white inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition"
+                                            className="px-4 py-2 rounded-xl r4-acao disabled:opacity-40 text-xs font-semibold  inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition"
                                         >
                                             <Download className="w-3.5 h-3.5" />{textoR4("Exportar CSV")}</button>
                                     </div>
@@ -1483,17 +1502,16 @@ export default function PainelAdmin({
                                                         </div>
 
                                                         <div className="flex flex-col items-end gap-1.5">
-                                                            <span
-                                                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                                                                    ag.status === 'confirmado'
-                                                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
-                                                                        : ag.status === 'concluido'
-                                                                            ? 'bg-[#0E7C86]/20 text-[#0E7C86] dark:text-[#25A4AF]'
-                                                                            : 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400'
-                                                                }`}
-                                                            >
-                                                                {ag.status.toUpperCase()}
-                                                            </span>
+                                                            <select aria-label={`Status de ${ag.nome_aluno}`}
+                                                                className={`r4-status rounded-lg border px-2 py-1 text-xs font-bold ${clsInput}`}
+                                                                data-status={normalizarStatusAulaR4(ag.status)}
+                                                                disabled={salvandoStatusId !== null}
+                                                                value={normalizarStatusAulaR4(ag.status)}
+                                                                onChange={(e) => void alterarStatusAgendamento(ag.id, e.target.value as StatusAulaR4)}>
+                                                                {LISTA_STATUS_AULA_R4.map((item) => <option key={item.valor} value={item.valor}>
+                                                                    {textoR4(item.rotulo)}
+                                                                </option>)}
+                                                            </select>
 
                                                             {ag.status !== 'cancelado' && (
                                                                 <span
@@ -1533,7 +1551,7 @@ export default function PainelAdmin({
                                                         <p>
                                                             <strong>{textoR4("Unidade:")}</strong>{' '}
                                                             {ag.unidade_nome} •{' '}
-                                                            <strong>{textoR4("Matéria:")}</strong> {ag.materia}
+                                                            <strong>{textoR4("Matéria:")}</strong> {materiaAgendamento(ag)}
                                                         </p>
                                                         <p>
                                                             <strong>{textoR4("Professor(a):")}</strong>{' '}
@@ -1656,32 +1674,6 @@ export default function PainelAdmin({
                                                             </button>
                                                         )}
 
-                                                        {ag.status === 'confirmado' && (
-                                                            <>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        void alterarStatusAgendamento(
-                                                                            ag.id,
-                                                                            'concluido'
-                                                                        )
-                                                                    }
-                                                                    className="px-3 py-1.5 rounded-xl bg-[#0E7C86]/15 border border-[#0E7C86]/45 text-[#0B5C63] dark:text-[#25A4AF] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                                                                >
-                                                                    <CheckCircle2 className="w-3.5 h-3.5" />{' '}{textoR4("Concluir")}</button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        void alterarStatusAgendamento(
-                                                                            ag.id,
-                                                                            'cancelado'
-                                                                        )
-                                                                    }
-                                                                    className="px-3 py-1.5 rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/45 text-rose-700 dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                                                                >
-                                                                    <XCircle className="w-3.5 h-3.5" />{' '}{textoR4("Cancelar")}</button>
-                                                            </>
-                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -1694,7 +1686,7 @@ export default function PainelAdmin({
                                 {admin && <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="flex items-center gap-2.5">
-                                            <div className="w-9 h-9 rounded-xl bg-[#0E7C86] text-white flex items-center justify-center shadow-xs">
+                                            <div className="w-9 h-9 rounded-xl r4-acao flex items-center justify-center shadow-xs">
                                                 <Power className="w-4 h-4" />
                                             </div>
                                             <div>
@@ -1912,6 +1904,7 @@ export default function PainelAdmin({
 
                     {aba === 'textos' && admin && (
                         <div className="space-y-5">
+                        <EditorCoresInterface classes={classesCompartilhadas} />
                         <EditorTextosInterface classes={classesCompartilhadas} />
                         <AbaTextosPortal
                             textosIniciais={textosPortal}

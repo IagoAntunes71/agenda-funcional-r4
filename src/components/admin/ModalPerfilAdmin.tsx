@@ -217,7 +217,7 @@ export default function ModalPerfilAdmin({
                             }}
                             className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
                                 abaModalPerfil === 'meu'
-                                    ? 'bg-[#0E7C86] text-white'
+                                    ? 'r4-acao'
                                     : `${clsSubCard} ${clsSubtexto}`
                             }`}
                         >{textoR4("Meu Perfil & Foto")}</button>
@@ -229,7 +229,7 @@ export default function ModalPerfilAdmin({
                             }}
                             className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
                                 abaModalPerfil === 'equipe'
-                                    ? 'bg-[#0E7C86] text-white'
+                                    ? 'r4-acao'
                                     : `${clsSubCard} ${clsSubtexto}`
                             }`}
                         >{textoR4("Criar / Gerenciar Perfis (")}{perfisAdmin.length})
@@ -340,7 +340,7 @@ export default function ModalPerfilAdmin({
                             <button
                                 type="submit"
                                 disabled={salvandoMeuPerfil}
-                                className="px-5 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                className="px-5 py-2 rounded-xl r4-acao text-xs font-bold  inline-flex items-center gap-1.5 cursor-pointer"
                             >
                                 <Save className="w-3.5 h-3.5" />
                                 {salvandoMeuPerfil ? textoR4("Salvando...") : textoR4("Salvar Perfil")}
@@ -465,7 +465,7 @@ export default function ModalPerfilAdmin({
                                 <button
                                     type="submit"
                                     disabled={criandoNovo}
-                                    className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                    className="px-4 py-2 rounded-xl r4-acao text-xs font-bold  inline-flex items-center gap-1.5 cursor-pointer"
                                 >
                                     <Plus className="w-3.5 h-3.5" />
                                     {criandoNovo ? textoR4("Criando...") : textoR4("Criar Perfil")}

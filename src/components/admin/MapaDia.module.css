@@ -255,3 +255,21 @@
 }
 .scroll[data-expandido='true'] { max-height: max(360px, calc(100dvh - 270px)); }
 .topo a.botao { font-size: 12px; font-weight: 700; border-radius: 8px; }
+
+.mapa, .mapa[data-tema='escuro'] {
+    --surface: var(--r4-painel);
+    --raised: color-mix(in srgb, var(--r4-base) 65%, var(--surface));
+    --ink: var(--r4-leitura);
+    --muted: var(--ink);
+    --line: color-mix(in srgb, var(--ink) 20%, var(--surface));
+    --fine: color-mix(in srgb, var(--ink) 12%, var(--surface));
+    --accent: var(--r4-principal);
+    --wash: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    --scheduled: var(--r4-principal);
+    --confirmed: var(--r4-confirmado);
+    --cancelled: var(--r4-cancelado);
+    --blocked: var(--r4-bloqueio);
+    --block-bg: color-mix(in srgb, var(--blocked) 8%, var(--surface));
+}
+.topo .primario { background: var(--r4-botao); color: var(--r4-botao-texto); border-color: var(--r4-botao); }
+.topo .primario:hover:not(:disabled) { background: var(--r4-botao); filter: brightness(.92); }

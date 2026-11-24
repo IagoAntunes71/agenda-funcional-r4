@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { materiaBase, rotuloMateriaAula } from '../src/lib/materia-aula';
 dotenv.config({ path: '.env.local' });
 
 import { BrowserContext, chromium, Locator, Page } from 'playwright';
@@ -34,6 +35,7 @@ interface ReservaFilaRow {
     data: string;
     hora_inicio: string;
     materia: string;
+    duracao_minutos: number;
     nome_aluno: string;
     nome_responsavel: string;
     whatsapp_responsavel: string;
@@ -872,7 +874,6 @@ async function criarReservaNoClinCare(
     baseUrl: string,
     ag: ReservaFilaRow
 ): Promise<void> {
-    const servicoPadrao = (process.env.CLINCARE_SERVICO_PADRAO || '').trim();
     const salaPadrao = (process.env.CLINCARE_SALA_PADRAO || '').trim();
 
     let nomeProfExatoClinCare = ag.professor_nome;
@@ -949,18 +950,9 @@ async function criarReservaNoClinCare(
     await preencherCampoDropdownModal(
         page,
         'Selecione o serviço',
-        [
-            `${ag.materia} 100`,
-            ag.materia,
-            servicoPadrao,
-            'Acompanhamento Escolar 100',
-            'Aulas',
-            'Reforço',
-            'Aula',
-        ],
+        [rotuloMateriaAula(ag.materia, ag.duracao_minutos)],
         {
-            textoBusca: ag.materia,
-            preferirDuracao100: true,
+            textoBusca: materiaBase(ag.materia),
             pausaPosSelecaoMs: 900,
         }
     );
@@ -1870,6 +1862,8 @@ async function processarFilaReservas(
       to_char(a.data, 'YYYY-MM-DD') AS data,
       to_char(a.hora_inicio, 'HH24:MI') AS hora_inicio,
       a.materia,
+      coalesce(nullif(extract(epoch FROM (a.hora_fim - a.hora_inicio)) / 60, 0),
+          CASE WHEN a.materia ~ ' 50$' THEN 50 ELSE 100 END)::int AS duracao_minutos,
       a.nome_aluno,
       COALESCE(a.nome_responsavel, '') AS nome_responsavel,
       COALESCE(a.whatsapp_responsavel, '') AS whatsapp_responsavel,

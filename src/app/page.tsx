@@ -1,4 +1,5 @@
 'use client';
+import { useCoresR4, variaveisCoresR4 } from '@/components/CoresInterfaceR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -114,6 +115,7 @@ function formatarDiaSemana(isoDate: string): string {
 
 export default function PaginaAgendamentoReforco() {
     const textoR4 = useTextoR4();
+    const { paleta } = useCoresR4();
   const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
   const [textos, setTextos] = useState<TextosPortal>(TEXTOS_PORTAL_PADRAO);
 
@@ -1059,16 +1061,14 @@ export default function PaginaAgendamentoReforco() {
   const clsBg = escuro
       ? 'bg-[#221918] text-stone-100'
       : 'bg-[#faf2ec] text-stone-900';
-  const clsCard = escuro
-      ? 'bg-[#312320] border-[#513932] shadow-lg shadow-black/25'
-      : 'bg-white border-stone-200/90 shadow-xs';
+  const clsCard = 'r4-painel shadow-xs';
   const clsSubCard = escuro
       ? 'bg-[#251b19] border-[#513932]'
       : 'bg-stone-50 border-stone-200/80';
   const clsInput = escuro
       ? 'bg-[#251b19] border-[#60443d] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
       : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400 focus:border-[#0E7C86]';
-  const clsTitulo = escuro ? 'text-stone-100' : 'text-stone-900';
+  const clsTitulo = 'r4-texto';
   const clsSubtexto = escuro ? 'text-stone-400' : 'text-stone-500';
 
   const unidadeAtual = unidades.find((u) => u.id === unidadeId);
@@ -1087,7 +1087,7 @@ export default function PaginaAgendamentoReforco() {
       : 0;
 
   return (
-      <main className={`min-h-screen transition-colors ${clsBg}`}>
+      <main className={`r4-portal min-h-screen transition-colors ${clsBg}`} style={variaveisCoresR4(paleta[escuro ? 'escuro' : 'claro'])}>
         <div
             className={`border-b backdrop-blur-md sticky top-0 z-30 ${
                 escuro
@@ -1243,7 +1243,7 @@ export default function PaginaAgendamentoReforco() {
                         <button
                             type="submit"
                             disabled={buscandoCliente}
-                            className="w-full py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                            className="w-full py-3 rounded-xl r4-acao disabled:opacity-50 text-sm font-semibold  transition cursor-pointer"
                         >
                           {buscandoCliente ? textoR4("Verificando...") : textoR4("Continuar")}
                         </button>
@@ -1306,7 +1306,7 @@ export default function PaginaAgendamentoReforco() {
                           <button
                               type="submit"
                               disabled={buscandoCliente || pinInput.length < 4}
-                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                              className="flex-1 py-3 rounded-xl r4-acao disabled:opacity-50 text-sm font-semibold  transition cursor-pointer"
                           >
                             {buscandoCliente ? textoR4("Validando...") : textoR4("Entrar na Agenda")}
                           </button>
@@ -1459,7 +1459,7 @@ export default function PaginaAgendamentoReforco() {
                                   codigoOtpInput.length < 4 ||
                                   pinInput.length < 4
                               }
-                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                              className="flex-1 py-3 rounded-xl r4-acao disabled:opacity-50 text-sm font-semibold  transition cursor-pointer"
                           >
                             {buscandoCliente
                                 ? textoR4("Salvando...")
@@ -1549,7 +1549,7 @@ export default function PaginaAgendamentoReforco() {
                           <button
                               type="submit"
                               disabled={buscandoCliente}
-                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                              className="flex-1 py-3 rounded-xl r4-acao disabled:opacity-50 text-sm font-semibold  transition cursor-pointer"
                           >
                             {buscandoCliente ? textoR4("Salvando...") : textoR4("Salvar PIN e Entrar")}
                           </button>
@@ -1712,7 +1712,7 @@ export default function PaginaAgendamentoReforco() {
                           <button
                               type="submit"
                               disabled={buscandoCliente || enviandoCodigoOtp}
-                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                              className="flex-1 py-3 rounded-xl r4-acao disabled:opacity-50 text-sm font-semibold  transition cursor-pointer"
                           >
                             {enviandoCodigoOtp
                                 ? textoR4("Enviando código...")
@@ -1811,7 +1811,7 @@ export default function PaginaAgendamentoReforco() {
                               disabled={
                                   buscandoCliente || codigoOtpInput.length < 4
                               }
-                              className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
+                              className="flex-1 py-3 rounded-xl r4-acao disabled:opacity-50 text-sm font-semibold  transition cursor-pointer"
                           >
                             {buscandoCliente
                                 ? textoR4("Concluindo...")
@@ -2023,7 +2023,7 @@ export default function PaginaAgendamentoReforco() {
                         <button
                             type="submit"
                             disabled={salvandoAluno}
-                            className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
+                            className="px-5 py-2.5 rounded-xl r4-acao disabled:opacity-50 text-xs font-semibold  cursor-pointer"
                         >
                           {salvandoAluno
                               ? textoR4("Salvando...")
@@ -2488,7 +2488,7 @@ export default function PaginaAgendamentoReforco() {
                     <button
                         type="submit"
                         disabled={enviandoAgendamento}
-                        className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-bold text-white shadow-md cursor-pointer"
+                        className="px-5 py-2.5 rounded-xl r4-acao disabled:opacity-50 text-xs font-bold  shadow-md cursor-pointer"
                     >
                       {enviandoAgendamento
                           ? textoR4("Agendando...")

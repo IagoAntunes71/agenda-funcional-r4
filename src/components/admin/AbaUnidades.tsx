@@ -84,7 +84,7 @@ export default function AbaUnidades({
                                     type="button"
                                     disabled={salvandoId === u.id}
                                     onClick={() => void salvarUnidade(u)}
-                                    className="px-3.5 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                    className="px-3.5 py-2 rounded-xl r4-acao text-xs font-semibold  inline-flex items-center gap-1.5 cursor-pointer"
                                 >
                                     <Save className="w-3.5 h-3.5" />
                                     {salvandoId === u.id ? textoR4("Salvando...") : textoR4("Salvar")}

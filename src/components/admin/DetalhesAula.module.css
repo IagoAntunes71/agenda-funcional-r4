@@ -132,3 +132,16 @@
     --mudo: #d9c1b7;
     --coral: #ffac97;
 }
+
+.dialogo, .dialogo[data-tema='escuro'] {
+    --painel: var(--r4-painel);
+    --fundo: color-mix(in srgb, var(--r4-base) 70%, var(--painel));
+    --linha: color-mix(in srgb, var(--r4-leitura) 20%, var(--painel));
+    --texto: var(--r4-leitura);
+    --mudo: var(--texto);
+    --teal: var(--r4-principal);
+    --verde: var(--r4-confirmado);
+    --coral: var(--r4-destaque);
+}
+.primario { background: var(--r4-botao); color: var(--r4-botao-texto); }
+.status[data-status='cancelado'] { color: var(--r4-cancelado); }

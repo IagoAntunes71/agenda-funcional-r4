@@ -2,6 +2,7 @@
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
+import { materiaBase, materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { enderecoMapa } from '@/lib/admin-navegacao';
@@ -124,6 +125,11 @@ function formatarDataExtensoPT(dataISO: string): string {
     return `${diasSemana[dt.getDay()]}, ${String(dia).padStart(2, '0')} de ${
         meses[dt.getMonth()]
     } de ${ano}`;
+}
+
+function duracaoDaAula(aula: AgendamentoAdmin) {
+    const intervalo = intervaloAula(aula);
+    return intervalo.fim - intervalo.inicio;
 }
 
 function formatarIntervaloCard(aula: AgendamentoAdmin): string {
@@ -550,8 +556,8 @@ export default function AbaMapaDia({
             return;
         }
 
-        const materiasDestino = filtrarMateriasVisiveis(profDestino.materias);
-        const materiaAtualNorm = normalizarTextoComparacao(aulaArrastando.materia);
+        const materiasDestino = materiasBase(filtrarMateriasVisiveis(profDestino.materias));
+        const materiaAtualNorm = normalizarTextoComparacao(materiaBase(aulaArrastando.materia));
         const profTemMateria =
             materiasDestino.length === 0 ||
             materiasDestino.some((m) => normalizarTextoComparacao(m) === materiaAtualNorm);
@@ -895,7 +901,7 @@ export default function AbaMapaDia({
                                                     {totalFaixas > 2 ? formatarIntervaloCard(aula).split(' – ')[0] : formatarIntervaloCard(aula)}
                                                 </span>
                                                 <strong>{aula.nome_aluno}</strong>
-                                                <small>{aula.materia}</small>
+                                                <small>{rotuloMateriaAula(aula.materia, duracaoDaAula(aula))}</small>
                                             </button>
                                         );
                                     })}
@@ -952,7 +958,7 @@ export default function AbaMapaDia({
                     <div className="flex items-center justify-between gap-2 text-xs">
                         <span className="inline-flex items-center gap-1.5 font-semibold">
                             <GraduationCap className="w-3.5 h-3.5 text-[#0E7C86]" />
-                            {hoverCard.aula.materia}{' '}
+                            {rotuloMateriaAula(hoverCard.aula.materia, duracaoDaAula(hoverCard.aula))}{' '}
                             {hoverCard.aula.duracao_minutos || 100}&apos;
                         </span>
                         <span className="inline-flex items-center gap-1 font-bold uppercase text-[11px]">
@@ -1090,7 +1096,7 @@ export default function AbaMapaDia({
                                         type="button"
                                         disabled={salvandoTransferencia}
                                         onClick={() => void confirmarTransferencia()}
-                                        className="py-2.5 px-4 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-white text-sm font-bold transition cursor-pointer shadow-sm"
+                                        className="py-2.5 px-4 rounded-xl r4-acao  text-sm font-bold transition cursor-pointer shadow-sm"
                                     >
                                         {salvandoTransferencia ? textoR4("Transferindo...") : textoR4("Confirmar")}
                                     </button>

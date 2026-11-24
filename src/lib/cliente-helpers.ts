@@ -1,3 +1,4 @@
+import { materiaBase, materiasBase } from './materia-aula';
 export const SERIES_ESCOLARES: string[] = [
     '1º Ano - Ensino Fundamental',
     '2º Ano - Ensino Fundamental',
@@ -58,7 +59,7 @@ export function professorAtendeMateriaNaSerie(
     if (!materiasSeries || typeof materiasSeries !== 'object') return true;
 
     const chaveExata = Object.keys(materiasSeries).find(
-        (k) => k.trim().toLowerCase() === materia.trim().toLowerCase()
+        (k) => materiaBase(k).toLowerCase() === materiaBase(materia).toLowerCase()
     );
     if (!chaveExata) return true;
 
@@ -95,9 +96,9 @@ export function filtrarMateriasProfessorPorSerie(
     materiasSeries: MapaMateriasSeries | null | undefined,
     serieAluno: string | null | undefined
 ): string[] {
-    return filtrarMateriasVisiveis(materias).filter((mat) =>
+    return materiasBase(filtrarMateriasVisiveis(materias).filter((mat) =>
         professorAtendeMateriaNaSerie(materiasSeries, mat, serieAluno)
-    );
+    ));
 }
 
 export function resumirSeriesCurto(series: string[]): string {

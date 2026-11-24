@@ -311,7 +311,7 @@ export default function AbaTextosPortal({
                     <button
                         type="submit"
                         disabled={salvandoTextos}
-                        className="px-6 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-bold text-white inline-flex items-center gap-2 shadow-md cursor-pointer"
+                        className="px-6 py-3 rounded-xl r4-acao disabled:opacity-50 text-sm font-bold  inline-flex items-center gap-2 shadow-md cursor-pointer"
                     >
                         <Save className="w-4 h-4" />
                         {salvandoTextos

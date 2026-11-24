@@ -5,6 +5,7 @@ import { useTextoR4 } from '@/components/TextosInterfaceR4';
 import { useEffect, useState } from 'react';
 import { Ban, CalendarPlus, Check, Plus, Search, UserPlus, X } from 'lucide-react';
 import { RoleSistema } from '@/lib/admin-auth';
+import { materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import { formatarDuracaoLabel } from '@/lib/agenda-status-r4';
 import {
     AlunoAdmin,
@@ -98,7 +99,7 @@ export default function ModalNovoAgendamentoR4({
         setProfessorId(profAlvo);
 
         const profObj = professores.find((p) => p.id === profAlvo);
-        setMateria(profObj?.materias?.[0] || '');
+        setMateria(materiasBase(profObj?.materias)[0] || '');
 
         setData(dataInicial);
         const [h, m] = (horaInicial || '08:00').split(':');
@@ -272,7 +273,7 @@ export default function ModalNovoAgendamentoR4({
                             }}
                             className={`py-2 rounded-lg text-xs font-bold transition cursor-pointer ${
                                 modo === 'aula'
-                                    ? 'bg-[#0E7C86] text-white'
+                                    ? 'r4-acao'
                                     : `${clsSubtexto} hover:text-[#1496A1]`
                             }`}
                         >{textoR4("Agendar Aula")}</button>
@@ -308,7 +309,7 @@ export default function ModalNovoAgendamentoR4({
                                         );
                                         if (primeiroProf) {
                                             setProfessorId(primeiroProf.id);
-                                            setMateria(primeiroProf.materias?.[0] || '');
+                                            setMateria(materiasBase(primeiroProf.materias)[0] || '');
                                         }
                                     }}
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
@@ -331,9 +332,7 @@ export default function ModalNovoAgendamentoR4({
                                     const pid = Number(e.target.value);
                                     setProfessorId(pid);
                                     const prof = professores.find((p) => p.id === pid);
-                                    if (prof?.materias?.length) {
-                                        setMateria(prof.materias[0]);
-                                    }
+                                    setMateria(materiasBase(prof?.materias)[0] || '');
                                 }}
                                 className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                             >
@@ -444,12 +443,14 @@ export default function ModalNovoAgendamentoR4({
                                         onChange={(e) => setMateria(e.target.value)}
                                         className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                     >
-                                        {(profSelecionado?.materias || ['Reforço Geral']).map((m) => (
+                                        <option value="" disabled>Selecione a matéria</option>
+                                        {materiasBase(profSelecionado?.materias).map((m) => (
                                             <option key={m} value={m}>
                                                 {m}
                                             </option>
                                         ))}
                                     </select>
+                                    {materia && <p className={`text-[11px] mt-1 ${clsSubtexto}`}>{rotuloMateriaAula(materia, totalMinutos)}</p>}
                                 </div>
 
                                 <div>

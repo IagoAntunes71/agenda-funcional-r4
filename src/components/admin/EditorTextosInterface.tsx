@@ -59,7 +59,7 @@ export default function EditorTextosInterface({ classes }: { classes: TemaClasse
             <button type="button" disabled={!pagina} onClick={() => setPagina(pagina - 1)}>Anterior</button>
             <span className={classes.clsSubtexto}>{filtrados.length} resultados · Página {pagina + 1}</span>
             <button type="button" disabled={(pagina + 1) * porPagina >= filtrados.length} onClick={() => setPagina(pagina + 1)}>Próxima</button>
-            <button className="ml-auto rounded-lg bg-[#087983] font-bold text-white px-4 py-2 disabled:opacity-50" type="submit"
+            <button className="ml-auto rounded-lg r4-acao font-bold px-4 py-2 disabled:opacity-50" type="submit"
                 disabled={!pronto || salvando || Object.keys(alteracoes).length === 0}>{salvando ? 'Publicando…' : 'Publicar textos'}</button>
         </div>
         {aviso && <p role="status">{aviso}</p>}
