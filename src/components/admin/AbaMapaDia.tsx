@@ -2,22 +2,27 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+    AlignLeft,
     ArrowRightLeft,
     Ban,
     Building2,
     Calendar,
     CalendarPlus,
+    CalendarX,
     Check,
     CheckCircle2,
     ChevronLeft,
     ChevronRight,
     GraduationCap,
     GripVertical,
+    Lock,
+    Pencil,
     RotateCcw,
     Search,
     Trash2,
     User,
     Users,
+    X,
 } from 'lucide-react';
 import { RoleSistema } from '@/lib/admin-auth';
 import {
@@ -25,6 +30,7 @@ import {
     normalizarStatusAulaR4,
     obterMetaStatusR4,
 } from '@/lib/agenda-status-r4';
+import { filtrarMateriasVisiveis } from '@/lib/cliente-helpers';
 import { adicionarDiasISO, horaParaMinutos, minutosParaHora } from '@/lib/horarios-reforco';
 import ModalDetalhesAulaR4 from './ModalDetalhesAulaR4';
 import ModalNovoAgendamentoR4 from './ModalNovoAgendamentoR4';
@@ -41,6 +47,8 @@ import {
 
 const ALTURA_LINHA_PX = 84;
 const HORA_INICIAL_GRADE = 8; // 08:00
+const HORAS_BLOQUEIO = Array.from({ length: 15 }, (_, i) => String(8 + i).padStart(2, '0'));
+const MINUTOS_BLOQUEIO = ['00', '10', '20', '30', '40', '50'];
 
 function obterHojeISO(): string {
     const d = new Date();
@@ -97,18 +105,12 @@ function formatarIntervaloCard(aula: AgendamentoAdmin): string {
     return `${ini} – ${fim}`;
 }
 
-/**
- * Remove "Acompanhamento Escolar" da exibição de matérias dos professores
- */
-function filtrarMateriasProfessor(materias: string[]): string[] {
-    return (materias || []).filter((materia) => {
-        const normalizada = materia
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim()
-            .toLowerCase();
-        return normalizada !== 'acompanhamento escolar';
-    });
+function normalizarTextoComparacao(valor: string): string {
+    return String(valor || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
 }
 
 function formatarMotivoBloqueio(motivo: string): string {
@@ -118,11 +120,20 @@ function formatarMotivoBloqueio(motivo: string): string {
     return limpo ? `Bloqueio • ${limpo}` : 'Bloqueio';
 }
 
+interface OpcaoServicoTransferencia {
+    id: string;
+    materia: string;
+    duracao: number;
+    label: string;
+}
+
 interface TransferenciaPendente {
     aula: AgendamentoAdmin;
     professorDestino: ProfessorAdmin;
     novaData: string;
     novoHorario: string;
+    materiaIncompativel: boolean;
+    opcoesServico: OpcaoServicoTransferencia[];
 }
 
 interface HoverCardEstado {
@@ -179,7 +190,26 @@ export default function AbaMapaDia({
     const [alvoDrop, setAlvoDrop] = useState<string | null>(null);
     const [transferenciaPendente, setTransferenciaPendente] =
         useState<TransferenciaPendente | null>(null);
+    const [servicoEscolhidoId, setServicoEscolhidoId] = useState<string>('');
     const [salvandoTransferencia, setSalvandoTransferencia] = useState<boolean>(false);
+
+    // Modais de visualização/exclusão e edição de bloqueio (Prints 3 e 4)
+    const [bloqueioSelecionado, setBloqueioSelecionado] = useState<{
+        bloqueio: BloqueioAdmin;
+        professorNome: string;
+    } | null>(null);
+    const [bloqueioEditando, setBloqueioEditando] = useState<{
+        id: number;
+        professorNome: string;
+        motivo: string;
+        descricao: string;
+        data: string;
+        hora: string;
+        minuto: string;
+        duracaoHoras: number;
+        duracaoMinutos: number;
+    } | null>(null);
+    const [salvandoBloqueio, setSalvandoBloqueio] = useState<boolean>(false);
 
     // Hover Card flutuante
     const [hoverCard, setHoverCard] = useState<HoverCardEstado | null>(null);
@@ -206,7 +236,7 @@ export default function AbaMapaDia({
             if (unidadeIdAtiva && p.unidade_id !== unidadeIdAtiva) return false;
             if (busca.trim()) {
                 const termo = busca.trim().toLowerCase();
-                const materiasVisiveis = filtrarMateriasProfessor(p.materias);
+                const materiasVisiveis = filtrarMateriasVisiveis(p.materias);
                 const bateNome = p.nome.toLowerCase().includes(termo);
                 const bateMateria = materiasVisiveis.some((m) => m.toLowerCase().includes(termo));
                 if (!bateNome && !bateMateria) return false;
@@ -215,7 +245,7 @@ export default function AbaMapaDia({
         });
     }, [ehProfessor, professores, unidadeIdAtiva, busca]);
 
-    // Faixa rápida de 7 dias ao redor da data selecionada (ex: SÁB 21 ... SEG 23 ... SEX 27)
+    // Faixa rápida de 7 dias ao redor da data selecionada
     const faixaDiasSemana = useMemo(() => {
         const diasSigla = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
         return Array.from({ length: 7 }, (_, idx) => {
@@ -232,7 +262,7 @@ export default function AbaMapaDia({
         });
     }, [dataGlobal]);
 
-    // Resumo dinâmico do dia visível (aulas, confirmadas e bloqueios)
+    // Resumo dinâmico do dia visível
     const resumoDia = useMemo(() => {
         const profIdsVisiveis = new Set(professoresVisiveis.map((p) => p.id));
         const clinCareIdsVisiveis = new Set(
@@ -329,12 +359,6 @@ export default function AbaMapaDia({
         }
     }
 
-    function rolarHorizontal(delta: number) {
-        if (scrollGradeRef.current) {
-            scrollGradeRef.current.scrollBy({ left: delta, behavior: 'smooth' });
-        }
-    }
-
     function obterDataDoProfessor(profId: number): string {
         return datasPorProfessor[profId] || dataGlobal;
     }
@@ -373,11 +397,85 @@ export default function AbaMapaDia({
         setModalNovoAberto(true);
     }
 
-    async function removerBloqueio(e: React.MouseEvent, bloqueioId: number) {
+    function abrirDetalhesBloqueio(
+        e: React.MouseEvent,
+        bl: BloqueioAdmin,
+        professorNome: string
+    ) {
         e.stopPropagation();
-        if (!window.confirm('Deseja remover este bloqueio da agenda?')) return;
-        await fetch(`/api/admin/bloqueios?id=${bloqueioId}`, { method: 'DELETE' });
-        await onRecarregarDadosAction();
+        setBloqueioSelecionado({ bloqueio: bl, professorNome });
+    }
+
+    function iniciarEdicaoBloqueio() {
+        if (!bloqueioSelecionado) return;
+        const { bloqueio, professorNome } = bloqueioSelecionado;
+        const [hIni, mIni] = (bloqueio.hora_inicio || '08:00').split(':');
+        const duracaoTotal = Math.max(
+            10,
+            horaParaMinutos(bloqueio.hora_fim) - horaParaMinutos(bloqueio.hora_inicio)
+        );
+        const dHoras = Math.floor(duracaoTotal / 60);
+        const dMinutos = duracaoTotal % 60;
+
+        setBloqueioSelecionado(null);
+        setBloqueioEditando({
+            id: bloqueio.id,
+            professorNome,
+            motivo: bloqueio.motivo || '',
+            descricao: bloqueio.descricao || '',
+            data: bloqueio.data,
+            hora: HORAS_BLOQUEIO.includes(hIni) ? hIni : '08',
+            minuto: MINUTOS_BLOQUEIO.includes(mIni) ? mIni : '00',
+            duracaoHoras: dHoras,
+            duracaoMinutos: dMinutos,
+        });
+    }
+
+    async function excluirBloqueioSelecionado() {
+        if (!bloqueioSelecionado) return;
+        setSalvandoBloqueio(true);
+        try {
+            const res = await fetch(
+                `/api/admin/bloqueios?id=${bloqueioSelecionado.bloqueio.id}`,
+                { method: 'DELETE' }
+            );
+            if (res.ok) {
+                setBloqueioSelecionado(null);
+                await onRecarregarDadosAction();
+            }
+        } finally {
+            setSalvandoBloqueio(false);
+        }
+    }
+
+    async function salvarEdicaoBloqueio(e: React.FormEvent) {
+        e.preventDefault();
+        if (!bloqueioEditando) return;
+        const totalMinutos =
+            bloqueioEditando.duracaoHoras * 60 + bloqueioEditando.duracaoMinutos;
+        if (totalMinutos < 10) return;
+
+        setSalvandoBloqueio(true);
+        try {
+            const res = await fetch('/api/admin/bloqueios', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: bloqueioEditando.id,
+                    motivo: bloqueioEditando.motivo,
+                    descricao: bloqueioEditando.descricao,
+                    data: bloqueioEditando.data,
+                    hora_inicio: `${bloqueioEditando.hora}:${bloqueioEditando.minuto}`,
+                    duracao_minutos: totalMinutos,
+                }),
+            });
+            if (res.ok) {
+                setBloqueioEditando(null);
+                await onRecarregarDadosAction();
+            }
+        } finally {
+            setSalvandoBloqueio(false);
+        }
     }
 
     function iniciarArrasteAula(e: React.DragEvent, aula: AgendamentoAdmin) {
@@ -412,17 +510,59 @@ export default function AbaMapaDia({
             return;
         }
 
+        const materiasDestino = filtrarMateriasVisiveis(profDestino.materias);
+        const materiaAtualNorm = normalizarTextoComparacao(aulaArrastando.materia);
+        const profTemMateria =
+            materiasDestino.length === 0 ||
+            materiasDestino.some((m) => normalizarTextoComparacao(m) === materiaAtualNorm);
+
+        const opcoesServico: OpcaoServicoTransferencia[] = [];
+        if (!profTemMateria) {
+            for (const mat of materiasDestino) {
+                opcoesServico.push({
+                    id: `${mat}-100`,
+                    materia: mat,
+                    duracao: 100,
+                    label: `${mat} 100'`,
+                });
+            }
+            for (const mat of materiasDestino) {
+                opcoesServico.push({
+                    id: `${mat}-50`,
+                    materia: mat,
+                    duracao: 50,
+                    label: `${mat} 50'`,
+                });
+            }
+        }
+
+        setServicoEscolhidoId('');
         setTransferenciaPendente({
             aula: aulaArrastando,
             professorDestino: profDestino,
             novaData: dataDestino,
             novoHorario,
+            materiaIncompativel: !profTemMateria,
+            opcoesServico,
         });
         setAulaArrastando(null);
     }
 
     async function confirmarTransferencia() {
         if (!transferenciaPendente) return;
+
+        let novaMateria: string | undefined;
+        let novaDuracao: number | undefined;
+
+        if (transferenciaPendente.materiaIncompativel) {
+            const escolhida = transferenciaPendente.opcoesServico.find(
+                (op) => op.id === servicoEscolhidoId
+            );
+            if (!escolhida) return;
+            novaMateria = escolhida.materia;
+            novaDuracao = escolhida.duracao;
+        }
+
         setSalvandoTransferencia(true);
         try {
             const { aula, professorDestino, novaData, novoHorario } = transferenciaPendente;
@@ -435,10 +575,13 @@ export default function AbaMapaDia({
                     unidade_id: professorDestino.unidade_id,
                     data: novaData,
                     hora_inicio: novoHorario,
+                    ...(novaMateria ? { materia: novaMateria } : {}),
+                    ...(novaDuracao ? { duracao_minutos: novaDuracao } : {}),
                 }),
             });
             if (res.ok) {
                 setTransferenciaPendente(null);
+                setServicoEscolhidoId('');
                 await onRecarregarDadosAction();
             }
         } finally {
@@ -482,40 +625,36 @@ export default function AbaMapaDia({
         if (status === 'confirmado') {
             return {
                 card: escuro
-                    ? 'bg-emerald-500/15 border-emerald-500/40 border-l-emerald-400 text-stone-100'
+                    ? 'bg-[#122923] border-emerald-500/50 border-l-emerald-400 text-stone-100'
                     : 'bg-[#ECFDF3] border-[#A7F3D0] border-l-[#16A34A] text-slate-900',
                 materia: escuro ? 'text-emerald-300' : 'text-slate-600',
                 badgeIcone: 'bg-[#16A34A] text-white',
-                confirmado: true,
             };
         }
         if (status === 'agendado') {
             return {
                 card: escuro
-                    ? 'bg-[#0E7C86]/20 border-[#1496A1]/45 border-l-[#1496A1] text-stone-100'
+                    ? 'bg-[#10262B] border-[#1496A1]/50 border-l-[#1496A1] text-stone-100'
                     : 'bg-[#F0FDFA] border-[#99F6E4] border-l-[#0E7C86] text-slate-900',
                 materia: escuro ? 'text-[#5EEAD4]' : 'text-[#0F766E]',
                 badgeIcone: 'bg-[#0E7C86] text-white',
-                confirmado: false,
             };
         }
         if (status === 'realizado') {
             return {
                 card: escuro
-                    ? 'bg-amber-500/15 border-amber-500/40 border-l-amber-400 text-stone-100'
+                    ? 'bg-[#2A2412] border-amber-500/50 border-l-amber-400 text-stone-100'
                     : 'bg-amber-50 border-amber-200 border-l-amber-500 text-slate-900',
                 materia: escuro ? 'text-amber-300' : 'text-amber-800',
                 badgeIcone: 'bg-amber-500 text-white',
-                confirmado: true,
             };
         }
         return {
             card: escuro
-                ? 'bg-stone-800/70 border-stone-700 border-l-stone-400 text-stone-300 opacity-80'
-                : 'bg-slate-100 border-slate-300 border-l-slate-400 text-slate-600 opacity-80',
+                ? 'bg-stone-800 border-stone-700 border-l-stone-400 text-stone-300'
+                : 'bg-slate-100 border-slate-300 border-l-slate-400 text-slate-600',
             materia: escuro ? 'text-stone-400' : 'text-slate-500',
             badgeIcone: 'bg-slate-400 text-white',
-            confirmado: false,
         };
     }
 
@@ -532,6 +671,10 @@ export default function AbaMapaDia({
         { rotulo: 'Cancelada', cor: 'bg-slate-400' },
         { rotulo: 'Bloqueio', cor: 'bg-[#F87171]' },
     ];
+
+    const duracaoTotalEdicaoBloqueio = bloqueioEditando
+        ? bloqueioEditando.duracaoHoras * 60 + bloqueioEditando.duracaoMinutos
+        : 0;
 
     return (
         <section className={modoTelaCheia ? 'space-y-2.5' : 'space-y-3.5'}>
@@ -627,7 +770,7 @@ export default function AbaMapaDia({
                             Hoje
                         </button>
 
-                        {/* Faixa rápida de 7 dias (SÁB 21 ... SEG 23 ... SEX 27) */}
+                        {/* Faixa rápida de 7 dias */}
                         <div
                             className={`hidden xl:inline-flex items-center gap-0.5 rounded-xl border p-0.5 ${
                                 escuro
@@ -706,41 +849,8 @@ export default function AbaMapaDia({
                         )}
                     </div>
 
-                    {/* Grupo Direito: < PROFS > e Agendar Aula */}
+                    {/* Grupo Direito: Apenas botão principal de ação (sem < PROFS >) */}
                     <div className="flex flex-wrap items-center gap-2">
-                        {!ehProfessor && professoresVisiveis.length > 1 && (
-                            <div
-                                className={`inline-flex items-center rounded-xl border px-1 py-0.5 ${
-                                    escuro
-                                        ? 'bg-[#11161D] border-[#26303D]'
-                                        : 'bg-white border-slate-200'
-                                }`}
-                                title="Deslizar colunas de professores"
-                            >
-                                <button
-                                    type="button"
-                                    onClick={() => rolarHorizontal(-320)}
-                                    title="Professores anteriores"
-                                    className={`p-1.5 rounded-lg transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
-                                >
-                                    <ChevronLeft className="w-3.5 h-3.5" />
-                                </button>
-                                <span
-                                    className={`px-1.5 text-[10px] font-bold uppercase tracking-wider ${clsSubtexto}`}
-                                >
-                                    Profs
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => rolarHorizontal(320)}
-                                    title="Próximos professores"
-                                    className={`p-1.5 rounded-lg transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
-                                >
-                                    <ChevronRight className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                        )}
-
                         {ehProfessor ? (
                             <button
                                 type="button"
@@ -869,10 +979,10 @@ export default function AbaMapaDia({
                             ref={tabelaRef}
                             className="w-full text-left border-collapse min-w-[920px]"
                         >
-                            <thead className="sticky top-0 z-20">
+                            <thead className="sticky top-0 z-30">
                             <tr className={`border-b text-xs ${clsCabecalhoClaro}`}>
                                 <th
-                                    className={`py-4 px-3 font-bold w-20 text-center sticky left-0 z-30 border-r ${clsCabecalhoClaro}`}
+                                    className={`py-4 px-3 font-bold w-20 text-center sticky left-0 z-40 border-r ${clsCabecalhoClaro}`}
                                 >
                                     Horário
                                 </th>
@@ -885,7 +995,7 @@ export default function AbaMapaDia({
                                     const dataCustomizada =
                                         modoVisualizacao === 'dia' &&
                                         Boolean(datasPorProfessor[prof.id]);
-                                    const materiasLimpas = filtrarMateriasProfessor(
+                                    const materiasLimpas = filtrarMateriasVisiveis(
                                         prof.materias
                                     );
 
@@ -898,7 +1008,7 @@ export default function AbaMapaDia({
                                                     : 'border-slate-200 bg-white'
                                             }`}
                                         >
-                                            {/* Cabeçalho Claro do Professor */}
+                                            {/* Cabeçalho Claro do Professor (sem Acompanhamento Escolar) */}
                                             <div className="px-3 pt-3 pb-2 flex items-center gap-2.5">
                                                     <span className="w-8 h-8 rounded-full bg-[#0E7C86] text-white text-xs font-extrabold flex items-center justify-center shrink-0">
                                                         {obterIniciais(prof.nome)}
@@ -1010,7 +1120,7 @@ export default function AbaMapaDia({
                             </tr>
                             </thead>
 
-                            {/* Corpo da Grade (Sem linha tracejada 09:22) */}
+                            {/* Corpo da Grade */}
                             <tbody className={`divide-y text-xs ${clsLinhaHora}`}>
                             {HORAS_GRADE_R4.map((horaFaixa, idxHora) => {
                                 const faixaIniMin = horaParaMinutos(horaFaixa);
@@ -1024,7 +1134,7 @@ export default function AbaMapaDia({
                                     >
                                         {/* Coluna de Horário Fixa à Esquerda */}
                                         <td
-                                            className={`py-2.5 px-2.5 align-top font-bold text-xs text-center sticky left-0 z-10 border-r ${clsBordaGrade} ${
+                                            className={`py-2.5 px-2.5 align-top font-bold text-xs text-center sticky left-0 z-25 border-r ${clsBordaGrade} ${
                                                 escuro
                                                     ? 'bg-[#11161D] text-stone-200'
                                                     : 'bg-slate-50/70 text-slate-800'
@@ -1068,7 +1178,7 @@ export default function AbaMapaDia({
                                                 );
                                             });
 
-                                            // Bloqueios contínuos renderizados uma única vez na primeira linha (idxHora === 0)
+                                            // Bloqueios contínuos renderizados na primeira linha (z-10, clicáveis para editar/excluir)
                                             const bloqueiosContinuosProf =
                                                 idxHora === 0
                                                     ? bloqueios.filter((b) => {
@@ -1137,17 +1247,36 @@ export default function AbaMapaDia({
                                                         }`}
                                                     />
 
-                                                    {/* Bloqueios Contínuos (08:00 – 13:00, 08:30 – 11:30, etc.) */}
+                                                    {/* Bloqueios Contínuos (z-10: ficam abaixo das aulas sobrepostas e abrem modal ao clicar) */}
                                                     {bloqueiosContinuosProf.map((bl) => (
                                                         <div
                                                             key={bl.id}
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            onClick={(e) =>
+                                                                abrirDetalhesBloqueio(
+                                                                    e,
+                                                                    bl,
+                                                                    prof.nome
+                                                                )
+                                                            }
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    abrirDetalhesBloqueio(
+                                                                        e as unknown as React.MouseEvent,
+                                                                        bl,
+                                                                        prof.nome
+                                                                    );
+                                                                }
+                                                            }}
                                                             style={calcularEstiloBloqueioContinuo(
                                                                 bl
                                                             )}
-                                                            className={`group/bloq absolute inset-x-1.5 z-20 rounded-xl border p-2.5 flex flex-col justify-start transition ${
+                                                            title="Clique para editar ou excluir este bloqueio"
+                                                            className={`absolute inset-x-1.5 z-10 rounded-xl border p-2.5 flex flex-col justify-start text-left transition cursor-pointer ${
                                                                 escuro
-                                                                    ? 'bg-[#C24124]/25 border-[#E07A5F]/50 text-[#FCA5A5]'
-                                                                    : 'bg-[#FDE2E1] border-[#F5A8A5] text-[#B91C1C]'
+                                                                    ? 'bg-[#C24124]/25 border-[#E07A5F]/50 text-[#FCA5A5] hover:bg-[#C24124]/35'
+                                                                    : 'bg-[#FDE2E1]/90 border-[#F5A8A5] text-[#B91C1C] hover:bg-[#FBD5D3]'
                                                             }`}
                                                         >
                                                             <div className="flex items-center justify-between gap-1">
@@ -1155,22 +1284,7 @@ export default function AbaMapaDia({
                                                                         {bl.hora_inicio} –{' '}
                                                                         {bl.hora_fim}
                                                                     </span>
-                                                                <div className="flex items-center gap-1">
-                                                                    <Ban className="w-4 h-4 shrink-0 opacity-85" />
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) =>
-                                                                            void removerBloqueio(
-                                                                                e,
-                                                                                bl.id
-                                                                            )
-                                                                        }
-                                                                        title="Remover bloqueio"
-                                                                        className="opacity-0 group-hover/bloq:opacity-100 p-0.5 rounded hover:bg-red-500/20 transition cursor-pointer"
-                                                                    >
-                                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                                    </button>
-                                                                </div>
+                                                                <Ban className="w-4 h-4 shrink-0 opacity-85" />
                                                             </div>
                                                             <p className="text-xs sm:text-[13px] font-extrabold leading-snug mt-1">
                                                                 {formatarMotivoBloqueio(
@@ -1180,13 +1294,14 @@ export default function AbaMapaDia({
                                                         </div>
                                                     ))}
 
-                                                    <div className="relative z-10 space-y-1.5">
+                                                    {/* Cards de Aula (z-20: sempre visíveis mesmo quando sobrepostos a um bloqueio) */}
+                                                    <div className="relative z-20 space-y-1.5">
                                                         {/* Badge DUPLA / TRIO */}
                                                         {aulasNaFaixa.length > 1 && (
                                                             <div
-                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide ${
+                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide shadow-2xs ${
                                                                     escuro
-                                                                        ? 'bg-[#0E7C86]/25 text-[#5EEAD4]'
+                                                                        ? 'bg-[#0E7C86] text-white'
                                                                         : 'bg-[#CCFBF1] text-[#0F766E]'
                                                                 }`}
                                                             >
@@ -1199,7 +1314,6 @@ export default function AbaMapaDia({
                                                             </div>
                                                         )}
 
-                                                        {/* Cards das Aulas */}
                                                         {aulasNaFaixa.map((aula) => {
                                                             const estilo = obterEstiloCardAula(
                                                                 aula.status
@@ -1238,9 +1352,11 @@ export default function AbaMapaDia({
                                                                             aula
                                                                         );
                                                                     }}
-                                                                    className={`w-full text-left border border-l-4 rounded-xl px-2.5 py-2 transition cursor-pointer shadow-2xs ${
-                                                                        estilo.card
-                                                                    } ${
+                                                                    className={`w-full text-left border border-l-4 rounded-xl px-2.5 py-2 transition cursor-pointer ${
+                                                                        temBloqueioNaFaixa
+                                                                            ? 'shadow-md ring-1 ring-black/10'
+                                                                            : 'shadow-2xs'
+                                                                    } ${estilo.card} ${
                                                                         estaSendoArrastada
                                                                             ? 'opacity-40 scale-95'
                                                                             : 'hover:brightness-97 dark:hover:brightness-110'
@@ -1411,60 +1527,457 @@ export default function AbaMapaDia({
                 </div>
             )}
 
-            {/* Modal de Confirmação de Transferência (Drag & Drop) */}
+            {/* Modal de Transferência / Selecione o serviço (Print 2) */}
             {transferenciaPendente && (
                 <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
                     <div
                         className={`border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl ${clsCard}`}
                     >
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-9 h-9 rounded-xl bg-[#0E7C86]/15 text-[#0E7C86] flex items-center justify-center">
-                                <ArrowRightLeft className="w-4 h-4" />
-                            </span>
-                            <h3 className={`text-lg font-bold ${clsTitulo}`}>
-                                Confirmar transferência
-                            </h3>
+                        {transferenciaPendente.materiaIncompativel ? (
+                            <>
+                                <h3 className={`text-xl font-extrabold ${clsTitulo}`}>
+                                    Selecione o serviço
+                                </h3>
+
+                                <p className={`text-sm leading-relaxed ${clsSubtexto}`}>
+                                    Transferir para{' '}
+                                    <strong className={clsTitulo}>
+                                        {transferenciaPendente.professorDestino.nome}
+                                    </strong>{' '}
+                                    em{' '}
+                                    <strong className={clsTitulo}>
+                                        {formatarDiaCurtoPT(transferenciaPendente.novaData)}
+                                    </strong>{' '}
+                                    às{' '}
+                                    <strong className={clsTitulo}>
+                                        {transferenciaPendente.novoHorario}
+                                    </strong>
+                                </p>
+
+                                <p className="text-xs font-medium text-[#D97706] dark:text-amber-400 leading-relaxed">
+                                    O serviço atual não está disponível para este profissional.
+                                    Selecione um dos serviços abaixo para continuar.
+                                </p>
+
+                                <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                                    {transferenciaPendente.opcoesServico.map((opcao) => {
+                                        const selecionada = servicoEscolhidoId === opcao.id;
+                                        return (
+                                            <button
+                                                key={opcao.id}
+                                                type="button"
+                                                onClick={() => setServicoEscolhidoId(opcao.id)}
+                                                className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-medium transition cursor-pointer ${
+                                                    selecionada
+                                                        ? 'border-[#0E7C86] bg-[#0E7C86]/10 text-[#0E7C86] dark:text-[#5EEAD4] font-bold ring-1 ring-[#0E7C86]'
+                                                        : escuro
+                                                            ? 'border-[#26303D] bg-[#11161D] text-stone-200 hover:border-[#0E7C86]/60'
+                                                            : 'border-slate-200 bg-white text-slate-800 hover:border-[#0E7C86]/60'
+                                                }`}
+                                            >
+                                                {opcao.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-2">
+                                    <button
+                                        type="button"
+                                        disabled={salvandoTransferencia || !servicoEscolhidoId}
+                                        onClick={() => void confirmarTransferencia()}
+                                        className={`py-2.5 px-4 rounded-xl text-white text-sm font-bold transition ${
+                                            !servicoEscolhidoId
+                                                ? 'bg-slate-400/70 cursor-not-allowed'
+                                                : 'bg-[#0E7C86] hover:bg-[#118E99] cursor-pointer shadow-sm'
+                                        }`}
+                                    >
+                                        {salvandoTransferencia ? 'Transferindo...' : 'Confirmar'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={salvandoTransferencia}
+                                        onClick={() => {
+                                            setTransferenciaPendente(null);
+                                            setServicoEscolhidoId('');
+                                        }}
+                                        className={`py-2.5 px-4 rounded-xl border text-sm font-bold transition cursor-pointer ${clsSubCard} ${clsTitulo}`}
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="flex items-center gap-2.5">
+                                    <span className="w-9 h-9 rounded-xl bg-[#0E7C86]/15 text-[#0E7C86] flex items-center justify-center">
+                                        <ArrowRightLeft className="w-4 h-4" />
+                                    </span>
+                                    <h3 className={`text-lg font-bold ${clsTitulo}`}>
+                                        Confirmar transferência
+                                    </h3>
+                                </div>
+
+                                <p className={`text-sm leading-relaxed ${clsSubtexto}`}>
+                                    Transferir a aula de{' '}
+                                    <strong className={clsTitulo}>
+                                        {transferenciaPendente.aula.nome_aluno}
+                                    </strong>{' '}
+                                    para{' '}
+                                    <strong className={clsTitulo}>
+                                        {transferenciaPendente.professorDestino.nome}
+                                    </strong>{' '}
+                                    em{' '}
+                                    <strong className={clsTitulo}>
+                                        {formatarDiaCurtoPT(transferenciaPendente.novaData)}
+                                    </strong>{' '}
+                                    às{' '}
+                                    <strong className={clsTitulo}>
+                                        {transferenciaPendente.novoHorario}
+                                    </strong>
+                                    ?
+                                </p>
+
+                                <div className="grid grid-cols-2 gap-3 pt-2">
+                                    <button
+                                        type="button"
+                                        disabled={salvandoTransferencia}
+                                        onClick={() => void confirmarTransferencia()}
+                                        className="py-2.5 px-4 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-white text-sm font-bold transition cursor-pointer shadow-sm"
+                                    >
+                                        {salvandoTransferencia ? 'Transferindo...' : 'Confirmar'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={salvandoTransferencia}
+                                        onClick={() => setTransferenciaPendente(null)}
+                                        className={`py-2.5 px-4 rounded-xl border text-sm font-bold transition cursor-pointer ${clsSubCard} ${clsTitulo}`}
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Visualização de Bloqueio (Print 3: Excluir / Editar bloqueio) */}
+            {bloqueioSelecionado && (
+                <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div
+                        className={`border rounded-2xl max-w-md w-full p-5 space-y-5 shadow-2xl ${clsCard}`}
+                    >
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3.5">
+                                <div
+                                    className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                                        escuro
+                                            ? 'bg-[#1D2530] text-stone-300'
+                                            : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                >
+                                    <Lock className="w-6 h-6" />
+                                </div>
+                                <div className="min-w-0">
+                                    <h3 className={`text-lg font-extrabold ${clsTitulo}`}>
+                                        Bloqueio
+                                    </h3>
+                                    <p className="text-xs font-bold text-[#0E7C86] truncate">
+                                        {bloqueioSelecionado.bloqueio.motivo}
+                                    </p>
+                                    <p className={`text-[11px] mt-0.5 ${clsSubtexto}`}>
+                                        {bloqueioSelecionado.professorNome} •{' '}
+                                        {formatarDataBR(bloqueioSelecionado.bloqueio.data)} (
+                                        {bloqueioSelecionado.bloqueio.hora_inicio} –{' '}
+                                        {bloqueioSelecionado.bloqueio.hora_fim})
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setBloqueioSelecionado(null)}
+                                className={`p-1.5 rounded-lg cursor-pointer ${clsSubtexto}`}
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
                         </div>
 
-                        <p className={`text-sm leading-relaxed ${clsSubtexto}`}>
-                            Transferir a aula de{' '}
-                            <strong className={clsTitulo}>
-                                {transferenciaPendente.aula.nome_aluno}
-                            </strong>{' '}
-                            para{' '}
-                            <strong className={clsTitulo}>
-                                {transferenciaPendente.professorDestino.nome}
-                            </strong>{' '}
-                            em{' '}
-                            <strong className={clsTitulo}>
-                                {formatarDiaCurtoPT(transferenciaPendente.novaData)}
-                            </strong>{' '}
-                            às{' '}
-                            <strong className={clsTitulo}>
-                                {transferenciaPendente.novoHorario}
-                            </strong>
-                            ?
-                        </p>
+                        {bloqueioSelecionado.bloqueio.descricao && (
+                            <p
+                                className={`text-xs rounded-xl px-3 py-2 border ${
+                                    escuro
+                                        ? 'bg-[#11161D] border-[#26303D] text-stone-300'
+                                        : 'bg-slate-50 border-slate-200 text-slate-600'
+                                }`}
+                            >
+                                {bloqueioSelecionado.bloqueio.descricao}
+                            </p>
+                        )}
 
-                        <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div
+                            className={`pt-4 border-t grid grid-cols-2 gap-3 ${
+                                escuro ? 'border-[#232B35]' : 'border-slate-100'
+                            }`}
+                        >
                             <button
                                 type="button"
-                                disabled={salvandoTransferencia}
-                                onClick={() => void confirmarTransferencia()}
-                                className="py-2.5 px-4 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-white text-sm font-bold transition cursor-pointer shadow-sm"
+                                disabled={salvandoBloqueio}
+                                onClick={() => void excluirBloqueioSelecionado()}
+                                className={`py-2.5 px-4 rounded-xl border text-sm font-bold inline-flex items-center justify-center gap-2 transition cursor-pointer ${
+                                    escuro
+                                        ? 'border-[#26303D] bg-[#11161D] text-rose-400 hover:bg-rose-500/15'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:text-rose-600 hover:border-rose-300'
+                                }`}
                             >
-                                {salvandoTransferencia ? 'Transferindo...' : 'Confirmar'}
+                                <Trash2 className="w-4 h-4" />
+                                {salvandoBloqueio ? 'Excluindo...' : 'Excluir'}
                             </button>
+
                             <button
                                 type="button"
-                                disabled={salvandoTransferencia}
-                                onClick={() => setTransferenciaPendente(null)}
-                                className={`py-2.5 px-4 rounded-xl border text-sm font-bold transition cursor-pointer ${clsSubCard} ${clsTitulo}`}
+                                disabled={salvandoBloqueio}
+                                onClick={iniciarEdicaoBloqueio}
+                                className={`py-2.5 px-4 rounded-xl border text-sm font-bold inline-flex items-center justify-center gap-2 transition cursor-pointer ${
+                                    escuro
+                                        ? 'border-[#26303D] bg-[#11161D] text-stone-100 hover:border-[#0E7C86]'
+                                        : 'border-slate-200 bg-white text-slate-800 hover:border-[#0E7C86] hover:text-[#0E7C86]'
+                                }`}
                             >
-                                Cancelar
+                                <Pencil className="w-4 h-4" />
+                                Editar bloqueio
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Modal de Edição de Bloqueio (Print 4: SALVAR BLOQUEIO) */}
+            {bloqueioEditando && (
+                <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+                    <form
+                        onSubmit={(e) => void salvarEdicaoBloqueio(e)}
+                        className={`border rounded-2xl max-w-md w-full p-5 space-y-3.5 shadow-2xl ${clsCard}`}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <CalendarX className="w-5 h-5 text-[#0E7C86]" />
+                                <h3 className={`text-base font-extrabold ${clsTitulo}`}>
+                                    Editar bloqueio
+                                </h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setBloqueioEditando(null)}
+                                className={`p-1 rounded-lg cursor-pointer ${clsSubtexto}`}
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Professor */}
+                        <div
+                            className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-bold ${
+                                escuro
+                                    ? 'bg-[#11161D] border-[#26303D] text-stone-200'
+                                    : 'bg-slate-50 border-slate-200 text-slate-800'
+                            }`}
+                        >
+                            <User className="w-4 h-4 text-[#0E7C86] shrink-0" />
+                            <span>{bloqueioEditando.professorNome}</span>
+                        </div>
+
+                        {/* Título do bloqueio */}
+                        <div
+                            className={`flex items-stretch rounded-xl border overflow-hidden ${
+                                escuro
+                                    ? 'bg-[#11161D] border-[#26303D]'
+                                    : 'bg-white border-slate-200'
+                            }`}
+                        >
+                            <span
+                                className={`px-3 flex items-center justify-center border-r ${
+                                    escuro
+                                        ? 'bg-amber-500/15 border-[#26303D] text-amber-400'
+                                        : 'bg-orange-50 border-slate-200 text-orange-500'
+                                }`}
+                            >
+                                <Ban className="w-4 h-4" />
+                            </span>
+                            <input
+                                type="text"
+                                required
+                                value={bloqueioEditando.motivo}
+                                onChange={(e) =>
+                                    setBloqueioEditando({
+                                        ...bloqueioEditando,
+                                        motivo: e.target.value,
+                                    })
+                                }
+                                placeholder="Título do bloqueio"
+                                className={`w-full px-3 py-2.5 text-xs font-semibold focus:outline-none ${
+                                    escuro
+                                        ? 'bg-transparent text-stone-100'
+                                        : 'bg-transparent text-slate-900'
+                                }`}
+                            />
+                        </div>
+
+                        {/* Descrição do bloqueio */}
+                        <div
+                            className={`flex items-stretch rounded-xl border overflow-hidden ${
+                                escuro
+                                    ? 'bg-[#11161D] border-[#26303D]'
+                                    : 'bg-white border-slate-200'
+                            }`}
+                        >
+                            <span
+                                className={`px-3 pt-2.5 flex items-start justify-center border-r ${
+                                    escuro
+                                        ? 'bg-[#151B23] border-[#26303D] text-stone-400'
+                                        : 'bg-slate-50 border-slate-200 text-slate-400'
+                                }`}
+                            >
+                                <AlignLeft className="w-4 h-4" />
+                            </span>
+                            <textarea
+                                rows={3}
+                                value={bloqueioEditando.descricao}
+                                onChange={(e) =>
+                                    setBloqueioEditando({
+                                        ...bloqueioEditando,
+                                        descricao: e.target.value,
+                                    })
+                                }
+                                placeholder="Descrição do bloqueio"
+                                className={`w-full px-3 py-2.5 text-xs focus:outline-none resize-none ${
+                                    escuro
+                                        ? 'bg-transparent text-stone-100'
+                                        : 'bg-transparent text-slate-900'
+                                }`}
+                            />
+                        </div>
+
+                        {/* Bloco Início e Duração */}
+                        <div
+                            className={`rounded-xl border p-3.5 space-y-3 ${
+                                escuro
+                                    ? 'bg-[#11161D] border-[#26303D]'
+                                    : 'bg-slate-50/80 border-slate-200'
+                            }`}
+                        >
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className={`text-xs font-bold w-16 ${clsSubtexto}`}>
+                                    Início *
+                                </span>
+                                <input
+                                    type="date"
+                                    required
+                                    value={bloqueioEditando.data}
+                                    onChange={(e) =>
+                                        setBloqueioEditando({
+                                            ...bloqueioEditando,
+                                            data: e.target.value,
+                                        })
+                                    }
+                                    className={`border rounded-xl px-2.5 py-1.5 text-xs font-semibold ${clsInput}`}
+                                />
+                                <select
+                                    value={bloqueioEditando.hora}
+                                    onChange={(e) =>
+                                        setBloqueioEditando({
+                                            ...bloqueioEditando,
+                                            hora: e.target.value,
+                                        })
+                                    }
+                                    className={`border rounded-xl px-2 py-1.5 text-xs font-bold ${clsInput}`}
+                                >
+                                    {HORAS_BLOQUEIO.map((h) => (
+                                        <option key={h} value={h}>
+                                            {h}
+                                        </option>
+                                    ))}
+                                </select>
+                                <span className="font-bold">:</span>
+                                <select
+                                    value={bloqueioEditando.minuto}
+                                    onChange={(e) =>
+                                        setBloqueioEditando({
+                                            ...bloqueioEditando,
+                                            minuto: e.target.value,
+                                        })
+                                    }
+                                    className={`border rounded-xl px-2 py-1.5 text-xs font-bold ${clsInput}`}
+                                >
+                                    {MINUTOS_BLOQUEIO.map((m) => (
+                                        <option key={m} value={m}>
+                                            {m}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className={`text-xs font-bold w-16 ${clsSubtexto}`}>
+                                    Duração *
+                                </span>
+                                <select
+                                    value={bloqueioEditando.duracaoHoras}
+                                    onChange={(e) =>
+                                        setBloqueioEditando({
+                                            ...bloqueioEditando,
+                                            duracaoHoras: Number(e.target.value),
+                                        })
+                                    }
+                                    className={`border rounded-xl px-2.5 py-1.5 text-xs font-bold ${clsInput}`}
+                                >
+                                    {[0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14].map((hr) => (
+                                        <option key={hr} value={hr}>
+                                            {hr}
+                                        </option>
+                                    ))}
+                                </select>
+                                <span className={`text-xs ${clsSubtexto}`}>hr</span>
+
+                                <select
+                                    value={bloqueioEditando.duracaoMinutos}
+                                    onChange={(e) =>
+                                        setBloqueioEditando({
+                                            ...bloqueioEditando,
+                                            duracaoMinutos: Number(e.target.value),
+                                        })
+                                    }
+                                    className={`border rounded-xl px-2.5 py-1.5 text-xs font-bold ${clsInput}`}
+                                >
+                                    {MINUTOS_BLOQUEIO.map((m) => (
+                                        <option key={m} value={Number(m)}>
+                                            {Number(m)}
+                                        </option>
+                                    ))}
+                                </select>
+                                <span className={`text-xs ${clsSubtexto}`}>min</span>
+
+                                <span
+                                    className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-extrabold ${
+                                        escuro
+                                            ? 'bg-[#1D2530] text-stone-200'
+                                            : 'bg-slate-200/80 text-slate-700'
+                                    }`}
+                                >
+                                    {duracaoTotalEdicaoBloqueio}
+                                </span>
+                            </div>
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={salvandoBloqueio || duracaoTotalEdicaoBloqueio < 10}
+                            className="w-full py-3 rounded-xl bg-[#00A8B5] hover:bg-[#00929E] text-white text-xs font-extrabold uppercase tracking-wider shadow-sm transition cursor-pointer"
+                        >
+                            {salvandoBloqueio ? 'Salvando...' : 'SALVAR BLOQUEIO'}
+                        </button>
+                    </form>
                 </div>
             )}
 

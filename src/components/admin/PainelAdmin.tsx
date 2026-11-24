@@ -1189,7 +1189,9 @@ export default function PainelAdmin({
                 >
                     <div
                         className={`${
-                            mapaTelaCheia ? 'max-w-full' : 'max-w-[1440px]'
+                            aba === 'mapa' && (mapaTelaCheia || sidebarRecolhida)
+                                ? 'max-w-full'
+                                : 'max-w-[1440px]'
                         } mx-auto flex flex-wrap items-center justify-between gap-4`}
                     >
                         <div className="flex items-center gap-3">
@@ -1312,7 +1314,7 @@ export default function PainelAdmin({
 
                 <div
                     className={`${
-                        mapaTelaCheia && aba === 'mapa'
+                        aba === 'mapa' && (mapaTelaCheia || sidebarRecolhida)
                             ? 'max-w-full px-3 sm:px-5 py-4'
                             : 'max-w-[1440px] px-4 sm:px-8 py-6'
                     } w-full mx-auto transition-all`}
@@ -1976,7 +1978,7 @@ export default function PainelAdmin({
                             bloqueios={bloqueios}
                             escuro={escuro}
                             classes={classesCompartilhadas}
-                            modoTelaCheia={mapaTelaCheia}
+                            modoTelaCheia={mapaTelaCheia || sidebarRecolhida}
                             onAlternarTelaCheiaAction={alternarTelaCheiaMapa}
                             onRecarregarDadosAction={carregarDados}
                         />

@@ -189,18 +189,19 @@ export async function GET() {
         LIMIT 250
       `,
             sql`
-        SELECT
-          b.id,
-          b.professor_id,
-          p.clin_care_id AS professor_clin_care_id,
-          to_char(b.data, 'YYYY-MM-DD') AS data,
-          LEFT(b.hora_inicio::text, 5) AS hora_inicio,
-          LEFT(b.hora_fim::text, 5) AS hora_fim,
-          COALESCE(NULLIF(trim(b.motivo), ''), 'Bloqueio Clin Care') AS motivo
-        FROM bloqueios_clincare b
-        LEFT JOIN professores p ON p.id = b.professor_id
-        WHERE b.data >= CURRENT_DATE - INTERVAL '15 days'
-        ORDER BY b.data ASC, b.hora_inicio ASC
+                SELECT
+                    b.id,
+                    b.professor_id,
+                    p.clin_care_id AS professor_clin_care_id,
+                    to_char(b.data, 'YYYY-MM-DD') AS data,
+                    LEFT(b.hora_inicio::text, 5) AS hora_inicio,
+                    LEFT(b.hora_fim::text, 5) AS hora_fim,
+                    COALESCE(NULLIF(trim(b.motivo), ''), 'Bloqueio Clin Care') AS motivo,
+                    b.descricao
+                FROM bloqueios_clincare b
+                    LEFT JOIN professores p ON p.id = b.professor_id
+                WHERE b.data >= CURRENT_DATE - INTERVAL '15 days'
+                ORDER BY b.data ASC, b.hora_inicio ASC
       `,
             sql`
         SELECT to_char(max(atualizado_em) AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS ultima_sincronizacao

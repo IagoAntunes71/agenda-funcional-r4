@@ -206,16 +206,19 @@ export async function PATCH(req: NextRequest) {
             return NextResponse.json({ sucesso: true });
         }
 
-        // Transferência via Drag & Drop (professor, unidade, data e/ou horário)
+        // Transferência via Drag & Drop (professor, unidade, data, horário, matéria e/ou duração)
         if (
             typeof body?.professor_id === 'number' ||
             typeof body?.data === 'string' ||
-            typeof body?.hora_inicio === 'string'
+            typeof body?.hora_inicio === 'string' ||
+            typeof body?.materia === 'string' ||
+            typeof body?.duracao_minutos === 'number'
         ) {
             const atuais = (await sql`
                 SELECT
                     professor_id,
                     unidade_id,
+                    materia,
                     to_char(data, 'YYYY-MM-DD') AS data,
                     COALESCE(to_char(hora_inicio, 'HH24:MI'), to_char(horario, 'HH24:MI'), '08:00') AS hora_inicio,
                     COALESCE(duracao_minutos, 100) AS duracao_minutos
@@ -225,6 +228,7 @@ export async function PATCH(req: NextRequest) {
             `) as {
                 professor_id: number;
                 unidade_id: number;
+                materia: string;
                 data: string;
                 hora_inicio: string;
                 duracao_minutos: number;
@@ -246,6 +250,14 @@ export async function PATCH(req: NextRequest) {
                 typeof body?.unidade_id === 'number' && body.unidade_id > 0
                     ? body.unidade_id
                     : atual.unidade_id;
+            const novaMateria =
+                typeof body?.materia === 'string' && body.materia.trim()
+                    ? body.materia.trim()
+                    : atual.materia;
+            const novaDuracao =
+                typeof body?.duracao_minutos === 'number' && body.duracao_minutos > 0
+                    ? body.duracao_minutos
+                    : Number(atual.duracao_minutos || 100);
             const novaData =
                 typeof body?.data === 'string' && body.data.trim()
                     ? body.data.trim()
@@ -255,7 +267,7 @@ export async function PATCH(req: NextRequest) {
                     ? body.hora_inicio.trim()
                     : atual.hora_inicio;
             const novaHoraFim = minutosParaHora(
-                horaParaMinutos(novaHoraInicio) + Number(atual.duracao_minutos || 100)
+                horaParaMinutos(novaHoraInicio) + novaDuracao
             );
 
             await sql`
@@ -263,6 +275,8 @@ export async function PATCH(req: NextRequest) {
                 SET
                     professor_id = ${novoProfessorId},
                     unidade_id = ${novaUnidadeId},
+                    materia = ${novaMateria},
+                    duracao_minutos = ${novaDuracao},
                     data = ${novaData}::date,
                     hora_inicio = ${novaHoraInicio}::time,
                     hora_fim = ${novaHoraFim}::time

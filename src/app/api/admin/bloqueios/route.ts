@@ -138,6 +138,80 @@ export async function POST(req: NextRequest) {
     }
 }
 
+export async function PATCH(req: NextRequest) {
+    const sessao = await lerSessaoAdmin();
+    if (!sessao) {
+        return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    try {
+        await garantirColunasBloqueios();
+
+        const body = await req.json();
+        const id = Number(body?.id || 0);
+        const titulo = String(body?.motivo || '').trim() || 'Bloqueio de agenda';
+        const descricao = String(body?.descricao || '').trim();
+        const data = String(body?.data || '').trim();
+        const horaInicio = String(body?.hora_inicio || '').trim();
+        const duracaoMinutos = Number(body?.duracao_minutos || 60);
+
+        if (!id || !data || !horaInicio) {
+            return NextResponse.json(
+                { error: 'Informe ID, data e horário de início do bloqueio.' },
+                { status: 400 }
+            );
+        }
+
+        if (duracaoMinutos < 10 || duracaoMinutos > 840) {
+            return NextResponse.json(
+                { error: 'Duração do bloqueio inválida.' },
+                { status: 400 }
+            );
+        }
+
+        const horaFim = calcularHoraFim(horaInicio, duracaoMinutos);
+
+        if (sessao.role === 'professor') {
+            await sql`
+                UPDATE bloqueios_clincare
+                SET
+                    motivo = ${titulo},
+                    descricao = ${descricao || null},
+                    data = ${data}::date,
+                    hora_inicio = ${horaInicio}::time,
+                    hora_fim = ${horaFim}::time,
+                    atualizado_em = now()
+                WHERE id = ${id}
+                  AND professor_id IN (
+                      SELECT id FROM professores
+                      WHERE id = ${sessao.professor_id || 0}
+                         OR lower(trim(nome)) = lower(trim(${sessao.nome}))
+                  )
+            `;
+        } else {
+            await sql`
+                UPDATE bloqueios_clincare
+                SET
+                    motivo = ${titulo},
+                    descricao = ${descricao || null},
+                    data = ${data}::date,
+                    hora_inicio = ${horaInicio}::time,
+                    hora_fim = ${horaFim}::time,
+                    atualizado_em = now()
+                WHERE id = ${id}
+            `;
+        }
+
+        return NextResponse.json({ sucesso: true });
+    } catch (error) {
+        console.error('Erro ao editar bloqueio:', error);
+        return NextResponse.json(
+            { error: 'Não foi possível atualizar o bloqueio.' },
+            { status: 500 }
+        );
+    }
+}
+
 export async function DELETE(req: NextRequest) {
     const sessao = await lerSessaoAdmin();
     if (!sessao) {
