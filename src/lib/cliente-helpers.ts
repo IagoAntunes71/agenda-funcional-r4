@@ -83,15 +83,20 @@ export function isMateriaOcultaCliente(materia: string): boolean {
     );
 }
 
+export function filtrarMateriasVisiveis(
+    materias: string[] | null | undefined
+): string[] {
+    if (!Array.isArray(materias)) return [];
+    return materias.filter((m) => Boolean(m?.trim()) && !isMateriaOcultaCliente(m));
+}
+
 export function filtrarMateriasProfessorPorSerie(
     materias: string[],
     materiasSeries: MapaMateriasSeries | null | undefined,
     serieAluno: string | null | undefined
 ): string[] {
-    return (materias || []).filter(
-        (mat) =>
-            !isMateriaOcultaCliente(mat) &&
-            professorAtendeMateriaNaSerie(materiasSeries, mat, serieAluno)
+    return filtrarMateriasVisiveis(materias).filter((mat) =>
+        professorAtendeMateriaNaSerie(materiasSeries, mat, serieAluno)
     );
 }
 

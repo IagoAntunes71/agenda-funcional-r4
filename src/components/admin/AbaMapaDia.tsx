@@ -1,20 +1,20 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ArrowRightLeft,
     Ban,
     Building2,
     Calendar,
     CalendarPlus,
+    Check,
+    CheckCircle2,
     ChevronLeft,
     ChevronRight,
-    Clock,
     GraduationCap,
     GripVertical,
-    Maximize2,
-    Minimize2,
     RotateCcw,
+    Search,
     Trash2,
     User,
     Users,
@@ -22,8 +22,7 @@ import {
 import { RoleSistema } from '@/lib/admin-auth';
 import {
     HORAS_GRADE_R4,
-    LISTA_STATUS_AULA_R4,
-    formatarDuracaoLabel,
+    normalizarStatusAulaR4,
     obterMetaStatusR4,
 } from '@/lib/agenda-status-r4';
 import { adicionarDiasISO, horaParaMinutos, minutosParaHora } from '@/lib/horarios-reforco';
@@ -36,8 +35,12 @@ import {
     ProfessorAdmin,
     TemaClasses,
     UnidadeAdmin,
+    formatarDataBR,
     obterIniciais,
 } from './types';
+
+const ALTURA_LINHA_PX = 84;
+const HORA_INICIAL_GRADE = 8; // 08:00
 
 function obterHojeISO(): string {
     const d = new Date();
@@ -90,8 +93,29 @@ function formatarIntervaloCard(aula: AgendamentoAdmin): string {
     const ini = aula.hora_inicio || (aula.horario || '').slice(0, 5);
     if (!ini) return '';
     const dur = aula.duracao_minutos || 100;
-    const fim = minutosParaHora(horaParaMinutos(ini) + dur);
-    return `${ini} - ${fim}`;
+    const fim = aula.hora_fim || minutosParaHora(horaParaMinutos(ini) + dur);
+    return `${ini} – ${fim}`;
+}
+
+/**
+ * Remove "Acompanhamento Escolar" da exibição de matérias dos professores
+ */
+function filtrarMateriasProfessor(materias: string[]): string[] {
+    return (materias || []).filter((materia) => {
+        const normalizada = materia
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toLowerCase();
+        return normalizada !== 'acompanhamento escolar';
+    });
+}
+
+function formatarMotivoBloqueio(motivo: string): string {
+    const limpo = String(motivo || '')
+        .replace(/^bloqueio\s*[-•:]\s*/i, '')
+        .trim();
+    return limpo ? `Bloqueio • ${limpo}` : 'Bloqueio';
 }
 
 interface TransferenciaPendente {
@@ -118,7 +142,6 @@ export default function AbaMapaDia({
                                        escuro,
                                        classes,
                                        modoTelaCheia = false,
-                                       onAlternarTelaCheiaAction,
                                        onRecarregarDadosAction,
                                    }: {
     roleUsuario?: RoleSistema;
@@ -137,10 +160,12 @@ export default function AbaMapaDia({
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
     const ehProfessor = roleUsuario === 'professor';
 
+    const [modoVisualizacao, setModoVisualizacao] = useState<'dia' | 'semana'>('dia');
     const [unidadeId, setUnidadeId] = useState<number>(0);
     const [dataGlobal, setDataGlobal] = useState<string>(() => obterHojeISO());
     const [datasPorProfessor, setDatasPorProfessor] = useState<Record<number, string>>({});
     const [busca, setBusca] = useState<string>('');
+    const [slotAtivoKey, setSlotAtivoKey] = useState<string | null>(null);
 
     const [modalNovoAberto, setModalNovoAberto] = useState<boolean>(false);
     const [modalNovoModo, setModalNovoModo] = useState<'aula' | 'bloqueio'>('aula');
@@ -163,29 +188,112 @@ export default function AbaMapaDia({
     const scrollTopoRef = useRef<HTMLDivElement | null>(null);
     const scrollGradeRef = useRef<HTMLDivElement | null>(null);
     const tabelaRef = useRef<HTMLTableElement | null>(null);
+    const inputDataGlobalRef = useRef<HTMLInputElement | null>(null);
     const sincronizandoScrollRef = useRef<boolean>(false);
     const [larguraTabela, setLarguraTabela] = useState<number>(1200);
 
     const unidadeIdAtiva = unidadeId || unidades[0]?.id || 0;
 
-    const professoresVisiveis = ehProfessor
-        ? Array.from(
-            new Map(professores.map((p) => [p.nome.trim().toLowerCase(), p])).values()
-        )
-        : professores.filter((p) => {
+    const professoresVisiveis = useMemo(() => {
+        if (ehProfessor) {
+            return Array.from(
+                new Map(professores.map((p) => [p.nome.trim().toLowerCase(), p])).values()
+            );
+        }
+
+        return professores.filter((p) => {
             if (!p.ativo) return false;
             if (unidadeIdAtiva && p.unidade_id !== unidadeIdAtiva) return false;
-            if (
-                busca.trim() &&
-                !p.nome.toLowerCase().includes(busca.trim().toLowerCase()) &&
-                !p.materias.some((m) =>
-                    m.toLowerCase().includes(busca.trim().toLowerCase())
-                )
-            ) {
-                return false;
+            if (busca.trim()) {
+                const termo = busca.trim().toLowerCase();
+                const materiasVisiveis = filtrarMateriasProfessor(p.materias);
+                const bateNome = p.nome.toLowerCase().includes(termo);
+                const bateMateria = materiasVisiveis.some((m) => m.toLowerCase().includes(termo));
+                if (!bateNome && !bateMateria) return false;
             }
             return true;
         });
+    }, [ehProfessor, professores, unidadeIdAtiva, busca]);
+
+    // Faixa rápida de 7 dias ao redor da data selecionada (ex: SÁB 21 ... SEG 23 ... SEX 27)
+    const faixaDiasSemana = useMemo(() => {
+        const diasSigla = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
+        return Array.from({ length: 7 }, (_, idx) => {
+            const offset = idx - 2;
+            const iso = adicionarDiasISO(dataGlobal, offset);
+            const [ano, mes, dia] = iso.split('-').map(Number);
+            const dt = new Date(ano, (mes || 1) - 1, dia || 1);
+            return {
+                iso,
+                sigla: diasSigla[dt.getDay()],
+                numero: String(dia).padStart(2, '0'),
+                ativo: iso === dataGlobal,
+            };
+        });
+    }, [dataGlobal]);
+
+    // Resumo dinâmico do dia visível (aulas, confirmadas e bloqueios)
+    const resumoDia = useMemo(() => {
+        const profIdsVisiveis = new Set(professoresVisiveis.map((p) => p.id));
+        const clinCareIdsVisiveis = new Set(
+            professoresVisiveis.map((p) => p.clin_care_id).filter(Boolean)
+        );
+
+        const aulasVisiveis = agendamentos.filter((ag) => {
+            const profCorrespondente = professoresVisiveis.find(
+                (p) =>
+                    p.id === ag.professor_id ||
+                    (p.clin_care_id && ag.professor_clin_care_id === p.clin_care_id)
+            );
+            if (!profCorrespondente && !ehProfessor) return false;
+            const dataEsperada = profCorrespondente
+                ? datasPorProfessor[profCorrespondente.id] || dataGlobal
+                : dataGlobal;
+            if (ag.data !== dataEsperada) return false;
+
+            const st = normalizarStatusAulaR4(ag.status);
+            return st !== 'cancelado';
+        });
+
+        const confirmadas = aulasVisiveis.filter(
+            (ag) => normalizarStatusAulaR4(ag.status) === 'confirmado'
+        ).length;
+
+        const bloqueiosVisiveis = bloqueios.filter((bl) => {
+            const profCorrespondente = professoresVisiveis.find(
+                (p) =>
+                    p.id === bl.professor_id ||
+                    (p.clin_care_id && bl.professor_clin_care_id === p.clin_care_id)
+            );
+            if (!profCorrespondente && !ehProfessor) {
+                if (
+                    bl.professor_id !== null &&
+                    !profIdsVisiveis.has(bl.professor_id) &&
+                    (!bl.professor_clin_care_id ||
+                        !clinCareIdsVisiveis.has(bl.professor_clin_care_id))
+                ) {
+                    return false;
+                }
+            }
+            const dataEsperada = profCorrespondente
+                ? datasPorProfessor[profCorrespondente.id] || dataGlobal
+                : dataGlobal;
+            return bl.data === dataEsperada;
+        });
+
+        return {
+            totalAulas: aulasVisiveis.length,
+            confirmadas,
+            totalBloqueios: bloqueiosVisiveis.length,
+        };
+    }, [
+        agendamentos,
+        bloqueios,
+        professoresVisiveis,
+        datasPorProfessor,
+        dataGlobal,
+        ehProfessor,
+    ]);
 
     useEffect(() => {
         const atualizarLargura = () => {
@@ -196,7 +304,7 @@ export default function AbaMapaDia({
         atualizarLargura();
         window.addEventListener('resize', atualizarLargura);
         return () => window.removeEventListener('resize', atualizarLargura);
-    }, [professoresVisiveis.length, modoTelaCheia]);
+    }, [professoresVisiveis.length, modoTelaCheia, modoVisualizacao]);
 
     function handleScrollTopo() {
         if (sincronizandoScrollRef.current) return;
@@ -265,7 +373,8 @@ export default function AbaMapaDia({
         setModalNovoAberto(true);
     }
 
-    async function removerBloqueio(bloqueioId: number) {
+    async function removerBloqueio(e: React.MouseEvent, bloqueioId: number) {
+        e.stopPropagation();
         if (!window.confirm('Deseja remover este bloqueio da agenda?')) return;
         await fetch(`/api/admin/bloqueios?id=${bloqueioId}`, { method: 'DELETE' });
         await onRecarregarDadosAction();
@@ -289,7 +398,6 @@ export default function AbaMapaDia({
         setAlvoDrop(null);
         if (!aulaArrastando || ehProfessor) return;
 
-        // Mantém os minutos originais da aula se soltou na mesma hora base, ou usa o horário da faixa
         const horaOriginal = aulaArrastando.hora_inicio || (aulaArrastando.horario || '').slice(0, 5);
         const [, minOrig] = horaOriginal.split(':');
         const [horaFaixaBase] = horaFaixa.split(':');
@@ -357,75 +465,220 @@ export default function AbaMapaDia({
         setHoverCard({ aula, x, y });
     }
 
-    const clsBordaGrade = escuro ? 'border-[#26303D]' : 'border-slate-300';
-    const clsLinhaHora = escuro ? 'divide-[#26303D]' : 'divide-slate-300';
-    const clsCabecalhoGrade = escuro
-        ? 'bg-[#11161D] text-stone-200 border-[#26303D]'
-        : 'bg-[#17232B] text-white border-slate-400';
+    function calcularEstiloBloqueioContinuo(bl: BloqueioAdmin) {
+        const iniMin = Math.max(HORA_INICIAL_GRADE * 60, horaParaMinutos(bl.hora_inicio));
+        const fimMin = Math.min(23 * 60, horaParaMinutos(bl.hora_fim));
+        const duracaoMin = Math.max(30, fimMin - iniMin);
+        const offsetMin = iniMin - HORA_INICIAL_GRADE * 60;
+
+        return {
+            top: `${(offsetMin / 60) * ALTURA_LINHA_PX + 6}px`,
+            height: `${(duracaoMin / 60) * ALTURA_LINHA_PX - 12}px`,
+        };
+    }
+
+    function obterEstiloCardAula(statusBruto: string) {
+        const status = normalizarStatusAulaR4(statusBruto);
+        if (status === 'confirmado') {
+            return {
+                card: escuro
+                    ? 'bg-emerald-500/15 border-emerald-500/40 border-l-emerald-400 text-stone-100'
+                    : 'bg-[#ECFDF3] border-[#A7F3D0] border-l-[#16A34A] text-slate-900',
+                materia: escuro ? 'text-emerald-300' : 'text-slate-600',
+                badgeIcone: 'bg-[#16A34A] text-white',
+                confirmado: true,
+            };
+        }
+        if (status === 'agendado') {
+            return {
+                card: escuro
+                    ? 'bg-[#0E7C86]/20 border-[#1496A1]/45 border-l-[#1496A1] text-stone-100'
+                    : 'bg-[#F0FDFA] border-[#99F6E4] border-l-[#0E7C86] text-slate-900',
+                materia: escuro ? 'text-[#5EEAD4]' : 'text-[#0F766E]',
+                badgeIcone: 'bg-[#0E7C86] text-white',
+                confirmado: false,
+            };
+        }
+        if (status === 'realizado') {
+            return {
+                card: escuro
+                    ? 'bg-amber-500/15 border-amber-500/40 border-l-amber-400 text-stone-100'
+                    : 'bg-amber-50 border-amber-200 border-l-amber-500 text-slate-900',
+                materia: escuro ? 'text-amber-300' : 'text-amber-800',
+                badgeIcone: 'bg-amber-500 text-white',
+                confirmado: true,
+            };
+        }
+        return {
+            card: escuro
+                ? 'bg-stone-800/70 border-stone-700 border-l-stone-400 text-stone-300 opacity-80'
+                : 'bg-slate-100 border-slate-300 border-l-slate-400 text-slate-600 opacity-80',
+            materia: escuro ? 'text-stone-400' : 'text-slate-500',
+            badgeIcone: 'bg-slate-400 text-white',
+            confirmado: false,
+        };
+    }
+
+    const clsBordaGrade = escuro ? 'border-[#26303D]' : 'border-slate-200';
+    const clsLinhaHora = escuro ? 'divide-[#26303D]' : 'divide-slate-200';
+    const clsCabecalhoClaro = escuro
+        ? 'bg-[#11161D] text-stone-100 border-[#26303D]'
+        : 'bg-white text-slate-900 border-slate-200';
+
+    const legendaCompacta = [
+        { rotulo: 'Agendada', cor: 'bg-[#0E7C86]' },
+        { rotulo: 'Confirmada', cor: 'bg-[#16A34A]' },
+        { rotulo: 'Realizada', cor: 'bg-[#EAB308]' },
+        { rotulo: 'Cancelada', cor: 'bg-slate-400' },
+        { rotulo: 'Bloqueio', cor: 'bg-[#F87171]' },
+    ];
 
     return (
-        <section className={modoTelaCheia ? 'space-y-3' : 'space-y-4'}>
-            {/* Barra de Controle Superior */}
-            <div className={`border rounded-2xl p-3.5 sm:p-4 space-y-3 ${clsCard}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <section className={modoTelaCheia ? 'space-y-2.5' : 'space-y-3.5'}>
+            {/* Barra de Controle Superior + Resumo do Dia */}
+            <div className={`border rounded-2xl p-3 sm:p-3.5 space-y-2.5 shadow-2xs ${clsCard}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    {/* Grupo Esquerdo: Dia/Semana, Data, Hoje, Faixa 7 dias, Unidade, Busca */}
                     <div className="flex flex-wrap items-center gap-2">
-                        {/* Seletor de Data Global */}
+                        {/* Toggle Dia / Semana */}
+                        <div
+                            className={`inline-flex items-center rounded-xl border p-0.5 ${
+                                escuro
+                                    ? 'bg-[#0E1319] border-[#26303D]'
+                                    : 'bg-slate-100/90 border-slate-200'
+                            }`}
+                        >
+                            <button
+                                type="button"
+                                onClick={() => setModoVisualizacao('dia')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                    modoVisualizacao === 'dia'
+                                        ? 'bg-[#0E7C86] text-white shadow-2xs'
+                                        : `${clsSubtexto} hover:text-[#0E7C86]`
+                                }`}
+                            >
+                                Dia
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setModoVisualizacao('semana')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                    modoVisualizacao === 'semana'
+                                        ? 'bg-[#0E7C86] text-white shadow-2xs'
+                                        : `${clsSubtexto} hover:text-[#0E7C86]`
+                                }`}
+                            >
+                                Semana
+                            </button>
+                        </div>
+
+                        {/* Seletor de Data Global (< 23/11/2026 📅 >) */}
                         <div
                             className={`inline-flex items-center rounded-xl border overflow-hidden ${
-                                escuro ? 'border-[#0E7C86]/50' : 'border-slate-400 bg-white'
+                                escuro
+                                    ? 'bg-[#11161D] border-[#26303D]'
+                                    : 'bg-white border-slate-200'
                             }`}
                         >
                             <button
                                 type="button"
                                 onClick={() => alterarDataGlobal(adicionarDiasISO(dataGlobal, -1))}
-                                title="Dia anterior (todos os professores)"
-                                className="p-2 bg-[#0E7C86]/15 hover:bg-[#0E7C86] text-[#0E7C86] hover:text-white transition cursor-pointer"
+                                title="Dia anterior"
+                                className={`p-2 transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
                             >
-                                <ChevronLeft className="w-4 h-4" />
+                                <ChevronLeft className="w-3.5 h-3.5" />
                             </button>
-                            <input
-                                type="date"
-                                value={dataGlobal}
-                                onChange={(e) => alterarDataGlobal(e.target.value)}
-                                title="Alterar data geral da grade"
-                                className={`px-2.5 py-1.5 text-xs font-bold focus:outline-none ${clsInput} border-0`}
-                            />
+
+                            <label
+                                onClick={() => inputDataGlobalRef.current?.showPicker?.()}
+                                className={`relative inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-bold cursor-pointer select-none ${clsTitulo}`}
+                            >
+                                <span>{formatarDataBR(dataGlobal)}</span>
+                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                <input
+                                    ref={inputDataGlobalRef}
+                                    type="date"
+                                    value={dataGlobal}
+                                    onChange={(e) => alterarDataGlobal(e.target.value)}
+                                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                                />
+                            </label>
+
                             <button
                                 type="button"
                                 onClick={() => alterarDataGlobal(adicionarDiasISO(dataGlobal, 1))}
-                                title="Próximo dia (todos os professores)"
-                                className="p-2 bg-[#0E7C86]/15 hover:bg-[#0E7C86] text-[#0E7C86] hover:text-white transition cursor-pointer"
+                                title="Próximo dia"
+                                className={`p-2 transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
                             >
-                                <ChevronRight className="w-4 h-4" />
+                                <ChevronRight className="w-3.5 h-3.5" />
                             </button>
                         </div>
 
+                        {/* Botão Hoje */}
                         <button
                             type="button"
                             onClick={() => alterarDataGlobal(obterHojeISO())}
-                            className={`px-3 py-2 rounded-xl border text-xs font-bold cursor-pointer transition ${clsSubCard} ${clsTitulo} hover:border-[#0E7C86]`}
+                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition ${
+                                escuro
+                                    ? 'bg-[#11161D] border-[#26303D] text-stone-200 hover:border-[#0E7C86]'
+                                    : 'bg-white border-slate-200 text-slate-700 hover:border-[#0E7C86] hover:text-[#0E7C86]'
+                            }`}
                         >
                             Hoje
                         </button>
+
+                        {/* Faixa rápida de 7 dias (SÁB 21 ... SEG 23 ... SEX 27) */}
+                        <div
+                            className={`hidden xl:inline-flex items-center gap-0.5 rounded-xl border p-0.5 ${
+                                escuro
+                                    ? 'bg-[#0E1319] border-[#26303D]'
+                                    : 'bg-slate-50 border-slate-200'
+                            }`}
+                        >
+                            {faixaDiasSemana.map((diaItem) => (
+                                <button
+                                    key={diaItem.iso}
+                                    type="button"
+                                    onClick={() => alterarDataGlobal(diaItem.iso)}
+                                    className={`px-2 py-1 rounded-lg flex flex-col items-center leading-tight transition cursor-pointer min-w-[34px] ${
+                                        diaItem.ativo
+                                            ? escuro
+                                                ? 'bg-[#0E7C86]/30 text-[#5EEAD4] font-bold'
+                                                : 'bg-[#CCFBF1] text-[#0F766E] font-bold'
+                                            : `${clsSubtexto} hover:bg-slate-200/60 dark:hover:bg-white/5`
+                                    }`}
+                                >
+                                    <span className="text-[9px] font-semibold tracking-tight">
+                                        {diaItem.sigla}
+                                    </span>
+                                    <span className="text-xs font-extrabold">{diaItem.numero}</span>
+                                </button>
+                            ))}
+                        </div>
 
                         {temDatasIndividuais && (
                             <button
                                 type="button"
                                 onClick={() => setDatasPorProfessor({})}
                                 title="Voltar todos os professores para a data principal"
-                                className="px-2.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-amber-500/25"
+                                className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-amber-500/25"
                             >
                                 <RotateCcw className="w-3.5 h-3.5" />
-                                Sincronizar datas
+                                Sincronizar
                             </button>
                         )}
 
                         {!ehProfessor && (
                             <>
+                                {/* Seletor de Unidade */}
                                 <select
                                     value={unidadeIdAtiva}
                                     onChange={(e) => setUnidadeId(Number(e.target.value))}
-                                    className={`border rounded-xl px-3 py-2 text-xs font-bold focus:outline-none ${clsInput}`}
+                                    className={`border rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none cursor-pointer ${
+                                        escuro
+                                            ? clsInput
+                                            : 'bg-white border-slate-200 text-slate-800'
+                                    }`}
                                 >
                                     {unidades.map((u) => (
                                         <option key={u.id} value={u.id}>
@@ -434,89 +687,74 @@ export default function AbaMapaDia({
                                     ))}
                                 </select>
 
-                                <input
-                                    type="text"
-                                    value={busca}
-                                    onChange={(e) => setBusca(e.target.value)}
-                                    placeholder="Filtrar professor ou matéria..."
-                                    className={`border rounded-xl px-3 py-2 text-xs focus:outline-none w-48 sm:w-56 ${clsInput}`}
-                                />
+                                {/* Campo de Busca */}
+                                <div className="relative">
+                                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        value={busca}
+                                        onChange={(e) => setBusca(e.target.value)}
+                                        placeholder="Filtrar professor ou matéria..."
+                                        className={`border rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none w-44 sm:w-52 ${
+                                            escuro
+                                                ? clsInput
+                                                : 'bg-white border-slate-200 text-slate-800 placeholder:text-slate-400 focus:border-[#0E7C86]'
+                                        }`}
+                                    />
+                                </div>
                             </>
                         )}
                     </div>
 
-                    {/* Ações + Navegação Horizontal + Tela Cheia */}
+                    {/* Grupo Direito: < PROFS > e Agendar Aula */}
                     <div className="flex flex-wrap items-center gap-2">
                         {!ehProfessor && professoresVisiveis.length > 1 && (
                             <div
-                                className={`inline-flex items-center rounded-xl border p-0.5 ${clsSubCard}`}
+                                className={`inline-flex items-center rounded-xl border px-1 py-0.5 ${
+                                    escuro
+                                        ? 'bg-[#11161D] border-[#26303D]'
+                                        : 'bg-white border-slate-200'
+                                }`}
                                 title="Deslizar colunas de professores"
                             >
                                 <button
                                     type="button"
                                     onClick={() => rolarHorizontal(-320)}
-                                    title="Professores anteriores (esquerda)"
-                                    className={`p-1.5 rounded-lg transition cursor-pointer ${clsTitulo} hover:bg-[#0E7C86] hover:text-white`}
+                                    title="Professores anteriores"
+                                    className={`p-1.5 rounded-lg transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
                                 >
-                                    <ChevronLeft className="w-4 h-4" />
+                                    <ChevronLeft className="w-3.5 h-3.5" />
                                 </button>
-                                <span className={`px-1.5 text-[10px] font-bold uppercase ${clsSubtexto}`}>
+                                <span
+                                    className={`px-1.5 text-[10px] font-bold uppercase tracking-wider ${clsSubtexto}`}
+                                >
                                     Profs
                                 </span>
                                 <button
                                     type="button"
                                     onClick={() => rolarHorizontal(320)}
-                                    title="Próximos professores (direita)"
-                                    className={`p-1.5 rounded-lg transition cursor-pointer ${clsTitulo} hover:bg-[#0E7C86] hover:text-white`}
+                                    title="Próximos professores"
+                                    className={`p-1.5 rounded-lg transition cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
                                 >
-                                    <ChevronRight className="w-4 h-4" />
+                                    <ChevronRight className="w-3.5 h-3.5" />
                                 </button>
                             </div>
                         )}
 
-                        {onAlternarTelaCheiaAction && (
+                        {ehProfessor ? (
                             <button
                                 type="button"
-                                onClick={onAlternarTelaCheiaAction}
-                                title={
-                                    modoTelaCheia
-                                        ? 'Sair da visão ampliada'
-                                        : 'Ampliar grade para tela cheia'
-                                }
-                                className={`px-3 py-2 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer ${
-                                    modoTelaCheia
-                                        ? 'bg-[#0E7C86] border-[#0E7C86] text-white'
-                                        : `${clsSubCard} ${clsTitulo} hover:border-[#0E7C86]`
-                                }`}
+                                onClick={() => abrirModalCriacao('bloqueio')}
+                                className="px-3.5 py-2 rounded-xl bg-[#C24124] hover:bg-[#A93218] text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
                             >
-                                {modoTelaCheia ? (
-                                    <>
-                                        <Minimize2 className="w-3.5 h-3.5" />
-                                        <span className="hidden sm:inline">Reduzir</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Maximize2 className="w-3.5 h-3.5 text-[#0E7C86]" />
-                                        <span className="hidden sm:inline">Tela Cheia</span>
-                                    </>
-                                )}
+                                <Ban className="w-3.5 h-3.5" />
+                                <span>Bloquear Horário</span>
                             </button>
-                        )}
-
-                        <button
-                            type="button"
-                            onClick={() => abrirModalCriacao('bloqueio')}
-                            className="px-3 py-2 rounded-xl bg-[#C24124]/15 hover:bg-[#C24124] border border-[#C24124]/50 text-[#B8371B] dark:text-[#E07A5F] hover:text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
-                        >
-                            <Ban className="w-3.5 h-3.5" />
-                            <span>Bloquear</span>
-                        </button>
-
-                        {!ehProfessor && (
+                        ) : (
                             <button
                                 type="button"
                                 onClick={() => abrirModalCriacao('aula')}
-                                className="px-3.5 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm shadow-[#0E7C86]/30 transition cursor-pointer"
+                                className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                             >
                                 <CalendarPlus className="w-3.5 h-3.5" />
                                 <span>Agendar Aula</span>
@@ -525,31 +763,74 @@ export default function AbaMapaDia({
                     </div>
                 </div>
 
-                {/* Legenda compacta + Dica de Drag & Drop */}
+                {/* Segunda Linha: Resumo do dia + Legenda compacta + Dica */}
                 <div
-                    className={`flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-[11px] ${
-                        escuro ? 'border-[#232B35]' : 'border-slate-300'
+                    className={`flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t text-xs ${
+                        escuro ? 'border-[#232B35]' : 'border-slate-100'
                     }`}
                 >
-                    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
-                        {LISTA_STATUS_AULA_R4.map((st) => (
-                            <span
-                                key={st.valor}
-                                className={`inline-flex items-center gap-1.5 font-semibold ${clsSubtexto}`}
-                            >
-                                <span className={`w-2.5 h-2.5 rounded-full ${st.corPonto}`} />
-                                {st.rotulo}
-                            </span>
-                        ))}
-                        <span className="inline-flex items-center gap-1.5 font-semibold text-[#C24124] dark:text-[#E07A5F]">
-                            <span className="w-2.5 h-2.5 rounded-full bg-[#C24124]" />
-                            Bloqueio
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className={`font-bold text-xs ${clsTitulo}`}>Resumo do dia:</span>
+
+                        <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
+                                escuro
+                                    ? 'bg-[#11161D] border-[#26303D] text-stone-200'
+                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                            }`}
+                        >
+                            <Calendar className="w-3 h-3 text-slate-500" />
+                            <strong className="font-extrabold">{resumoDia.totalAulas}</strong>{' '}
+                            {resumoDia.totalAulas === 1 ? 'aula' : 'aulas'}
                         </span>
+
+                        <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
+                                escuro
+                                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            }`}
+                        >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
+                            <strong className="font-extrabold">{resumoDia.confirmadas}</strong>{' '}
+                            {resumoDia.confirmadas === 1 ? 'confirmada' : 'confirmadas'}
+                        </span>
+
+                        <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
+                                escuro
+                                    ? 'bg-rose-500/15 border-rose-500/35 text-rose-300'
+                                    : 'bg-rose-50 border-rose-200 text-rose-700'
+                            }`}
+                        >
+                            <Ban className="w-3.5 h-3.5 text-[#DC2626]" />
+                            <strong className="font-extrabold">{resumoDia.totalBloqueios}</strong>{' '}
+                            {resumoDia.totalBloqueios === 1 ? 'bloqueio' : 'bloqueios'}
+                        </span>
+
+                        <span
+                            className={`hidden md:inline-block h-4 w-px mx-1 ${
+                                escuro ? 'bg-[#26303D]' : 'bg-slate-200'
+                            }`}
+                        />
+
+                        {/* Legenda compacta */}
+                        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px]">
+                            {legendaCompacta.map((item) => (
+                                <span
+                                    key={item.rotulo}
+                                    className={`inline-flex items-center gap-1.5 font-medium ${clsSubtexto}`}
+                                >
+                                    <span className={`w-2.5 h-2.5 rounded-full ${item.cor}`} />
+                                    {item.rotulo}
+                                </span>
+                            ))}
+                        </div>
                     </div>
 
                     {!ehProfessor && (
-                        <span className={`text-[11px] font-medium ${clsSubtexto}`}>
-                            Dica: arraste uma aula para trocar de professor/horário ou passe o mouse para detalhes
+                        <span className={`text-[11px] ${clsSubtexto}`}>
+                            Dica: arraste uma aula para trocar de professor/horário.
                         </span>
                     )}
                 </div>
@@ -561,17 +842,17 @@ export default function AbaMapaDia({
                     Nenhum professor encontrado para a unidade/filtro selecionado.
                 </div>
             ) : (
-                <div className={`border rounded-2xl overflow-hidden ${clsCard}`}>
-                    {/* Barra de Rolagem Horizontal Superior (visível logo acima dos professores) */}
+                <div className={`border rounded-2xl overflow-hidden shadow-2xs ${clsCard}`}>
+                    {/* Barra de Rolagem Horizontal Superior */}
                     <div
                         ref={scrollTopoRef}
                         onScroll={handleScrollTopo}
                         className={`overflow-x-auto border-b ${
                             escuro
                                 ? 'bg-[#0E1319] border-[#26303D]'
-                                : 'bg-slate-200/80 border-slate-300'
+                                : 'bg-slate-100/80 border-slate-200'
                         }`}
-                        style={{ height: '14px' }}
+                        style={{ height: '10px' }}
                     >
                         <div style={{ width: `${larguraTabela}px`, height: '1px' }} />
                     </div>
@@ -581,55 +862,78 @@ export default function AbaMapaDia({
                         ref={scrollGradeRef}
                         onScroll={handleScrollGrade}
                         className={`overflow-x-auto overflow-y-auto ${
-                            modoTelaCheia ? 'max-h-[calc(100vh-195px)]' : 'max-h-[74vh]'
+                            modoTelaCheia ? 'max-h-[calc(100vh-195px)]' : 'max-h-[75vh]'
                         }`}
                     >
                         <table
                             ref={tabelaRef}
-                            className="w-full text-left border-collapse min-w-[860px]"
+                            className="w-full text-left border-collapse min-w-[920px]"
                         >
                             <thead className="sticky top-0 z-20">
-                            <tr className={`border-b text-xs ${clsCabecalhoGrade}`}>
+                            <tr className={`border-b text-xs ${clsCabecalhoClaro}`}>
                                 <th
-                                    className={`py-3 px-2.5 font-bold w-20 text-center sticky left-0 z-30 border-r ${clsCabecalhoGrade}`}
+                                    className={`py-4 px-3 font-bold w-20 text-center sticky left-0 z-30 border-r ${clsCabecalhoClaro}`}
                                 >
                                     Horário
                                 </th>
 
                                 {professoresVisiveis.map((prof) => {
-                                    const dataProf = obterDataDoProfessor(prof.id);
-                                    const dataCustomizada = Boolean(datasPorProfessor[prof.id]);
+                                    const dataProf =
+                                        modoVisualizacao === 'semana'
+                                            ? dataGlobal
+                                            : obterDataDoProfessor(prof.id);
+                                    const dataCustomizada =
+                                        modoVisualizacao === 'dia' &&
+                                        Boolean(datasPorProfessor[prof.id]);
+                                    const materiasLimpas = filtrarMateriasProfessor(
+                                        prof.materias
+                                    );
 
                                     return (
                                         <th
                                             key={prof.id}
-                                            className={`p-0 font-bold min-w-[235px] max-w-[260px] border-r align-top ${
-                                                escuro ? 'border-[#26303D]' : 'border-slate-600/50'
+                                            className={`p-0 font-bold min-w-[215px] max-w-[240px] border-r align-top ${
+                                                escuro
+                                                    ? 'border-[#26303D] bg-[#11161D]'
+                                                    : 'border-slate-200 bg-white'
                                             }`}
                                         >
-                                            {/* Cabeçalho do Professor */}
-                                            <div className="px-3 py-2.5 flex items-center gap-2.5">
-                                                    <span className="w-8 h-8 rounded-full bg-[#0E7C86] text-white text-xs font-extrabold flex items-center justify-center shrink-0 ring-2 ring-[#1496A1]/40">
+                                            {/* Cabeçalho Claro do Professor */}
+                                            <div className="px-3 pt-3 pb-2 flex items-center gap-2.5">
+                                                    <span className="w-8 h-8 rounded-full bg-[#0E7C86] text-white text-xs font-extrabold flex items-center justify-center shrink-0">
                                                         {obterIniciais(prof.nome)}
                                                     </span>
                                                 <div className="min-w-0 flex-1">
-                                                    <p className="text-xs font-bold truncate text-white">
+                                                    <p
+                                                        className={`text-xs font-bold truncate ${
+                                                            escuro
+                                                                ? 'text-stone-100'
+                                                                : 'text-slate-900'
+                                                        }`}
+                                                    >
                                                         {prof.nome}
                                                     </p>
-                                                    <p className="text-[10px] text-slate-300 truncate font-normal">
-                                                        {prof.materias.join(' • ')}
+                                                    <p
+                                                        className={`text-[10.5px] truncate font-normal mt-0.5 ${
+                                                            escuro
+                                                                ? 'text-stone-400'
+                                                                : 'text-slate-500'
+                                                        }`}
+                                                        title={materiasLimpas.join(' • ')}
+                                                    >
+                                                        {materiasLimpas.join(' • ') || '—'}
                                                     </p>
                                                 </div>
                                             </div>
 
-                                            {/* Sub-barra de Data Individual do Professor (estilo Clin Care) */}
+                                            {/* Sub-barra de Data Individual do Professor */}
                                             <div
-                                                className={`px-2 py-1.5 border-t flex items-center justify-between gap-1 ${
+                                                className={`px-2 py-1.5 flex items-center justify-between gap-1 ${
                                                     dataCustomizada
-                                                        ? 'bg-[#0E7C86]/35 border-[#1496A1]/60'
-                                                        : escuro
-                                                            ? 'bg-[#161D26] border-[#26303D]'
-                                                            : 'bg-[#21313C] border-slate-600/50'
+                                                        ? escuro
+                                                            ? 'bg-[#0E7C86]/25'
+                                                            : 'bg-[#CCFBF1]/60'
+                                                        : ''
                                                 }`}
                                             >
                                                 <button
@@ -641,16 +945,20 @@ export default function AbaMapaDia({
                                                         )
                                                     }
                                                     title={`Dia anterior para ${prof.nome}`}
-                                                    className="p-1 rounded hover:bg-white/15 text-slate-200 cursor-pointer"
+                                                    className={`p-1 rounded hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer ${clsSubtexto}`}
                                                 >
                                                     <ChevronLeft className="w-3.5 h-3.5" />
                                                 </button>
 
                                                 <label
-                                                    className="relative flex items-center justify-center gap-1.5 text-[11px] font-bold text-white cursor-pointer px-2 py-0.5 rounded hover:bg-white/10"
+                                                    className={`relative flex items-center justify-center gap-1.5 text-[11px] font-bold cursor-pointer px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-white/10 ${
+                                                        escuro
+                                                            ? 'text-stone-200'
+                                                            : 'text-slate-700'
+                                                    }`}
                                                     title="Clique para escolher uma data só para este professor"
                                                 >
-                                                    <Calendar className="w-3 h-3 text-[#38BDF8]" />
+                                                    <Calendar className="w-3 h-3 text-[#0E7C86]" />
                                                     <span>{formatarDiaCurtoPT(dataProf)}</span>
                                                     <input
                                                         type="date"
@@ -676,7 +984,7 @@ export default function AbaMapaDia({
                                                                 )
                                                             }
                                                             title="Voltar para data geral"
-                                                            className="p-1 rounded hover:bg-white/15 text-amber-300 cursor-pointer"
+                                                            className="p-1 rounded hover:bg-amber-500/15 text-amber-500 cursor-pointer"
                                                         >
                                                             <RotateCcw className="w-3 h-3" />
                                                         </button>
@@ -690,7 +998,7 @@ export default function AbaMapaDia({
                                                             )
                                                         }
                                                         title={`Próximo dia para ${prof.nome}`}
-                                                        className="p-1 rounded hover:bg-white/15 text-slate-200 cursor-pointer"
+                                                        className={`p-1 rounded hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer ${clsSubtexto}`}
                                                     >
                                                         <ChevronRight className="w-3.5 h-3.5" />
                                                     </button>
@@ -702,37 +1010,32 @@ export default function AbaMapaDia({
                             </tr>
                             </thead>
 
+                            {/* Corpo da Grade (Sem linha tracejada 09:22) */}
                             <tbody className={`divide-y text-xs ${clsLinhaHora}`}>
                             {HORAS_GRADE_R4.map((horaFaixa, idxHora) => {
                                 const faixaIniMin = horaParaMinutos(horaFaixa);
                                 const faixaFimMin = faixaIniMin + 60;
-                                const linhaPar = idxHora % 2 === 1;
 
                                 return (
                                     <tr
                                         key={horaFaixa}
-                                        className={
-                                            escuro
-                                                ? linhaPar
-                                                    ? 'bg-[#12171F]/65'
-                                                    : 'bg-[#151A21]'
-                                                : linhaPar
-                                                    ? 'bg-slate-100/75'
-                                                    : 'bg-white'
-                                        }
+                                        style={{ height: `${ALTURA_LINHA_PX}px` }}
+                                        className={escuro ? 'bg-[#151A21]' : 'bg-white'}
                                     >
                                         {/* Coluna de Horário Fixa à Esquerda */}
                                         <td
-                                            className={`py-2 px-2.5 align-top font-mono font-bold text-xs text-center sticky left-0 z-10 border-r ${clsBordaGrade} ${
+                                            className={`py-2.5 px-2.5 align-top font-bold text-xs text-center sticky left-0 z-10 border-r ${clsBordaGrade} ${
                                                 escuro
-                                                    ? 'bg-[#11161D] text-[#25A4AF]'
-                                                    : 'bg-slate-100 text-[#0B5C63]'
+                                                    ? 'bg-[#11161D] text-stone-200'
+                                                    : 'bg-slate-50/70 text-slate-800'
                                             }`}
                                         >
-                                            <span>{horaFaixa}</span>
+                                                <span className="text-[13px] font-extrabold tracking-tight">
+                                                    {horaFaixa}
+                                                </span>
                                             <span
-                                                className={`block text-[9px] font-normal mt-2 ${
-                                                    escuro ? 'text-stone-600' : 'text-slate-400'
+                                                className={`block text-[10px] font-medium mt-1.5 ${
+                                                    escuro ? 'text-stone-500' : 'text-slate-400'
                                                 }`}
                                             >
                                                     {horaFaixa.slice(0, 2)}:30
@@ -744,6 +1047,8 @@ export default function AbaMapaDia({
                                             const dataProf = obterDataDoProfessor(prof.id);
                                             const chaveCelula = `${prof.id}-${dataProf}-${horaFaixa}`;
                                             const estaSobreDrop = alvoDrop === chaveCelula;
+                                            const estaSelecionada =
+                                                slotAtivoKey === chaveCelula;
 
                                             const aulasNaFaixa = agendamentos.filter((ag) => {
                                                 if (ag.data !== dataProf) return false;
@@ -763,7 +1068,21 @@ export default function AbaMapaDia({
                                                 );
                                             });
 
-                                            const bloqueiosNaFaixa = bloqueios.filter((b) => {
+                                            // Bloqueios contínuos renderizados uma única vez na primeira linha (idxHora === 0)
+                                            const bloqueiosContinuosProf =
+                                                idxHora === 0
+                                                    ? bloqueios.filter((b) => {
+                                                        if (b.data !== dataProf) return false;
+                                                        return ehProfessor
+                                                            ? true
+                                                            : b.professor_id === prof.id ||
+                                                            (prof.clin_care_id &&
+                                                                b.professor_clin_care_id ===
+                                                                prof.clin_care_id);
+                                                    })
+                                                    : [];
+
+                                            const temBloqueioNaFaixa = bloqueios.some((b) => {
                                                 if (b.data !== dataProf) return false;
                                                 const mesmoProf = ehProfessor
                                                     ? true
@@ -782,6 +1101,7 @@ export default function AbaMapaDia({
                                             return (
                                                 <td
                                                     key={prof.id}
+                                                    onClick={() => setSlotAtivoKey(chaveCelula)}
                                                     onDragOver={(e) => {
                                                         if (ehProfessor) return;
                                                         e.preventDefault();
@@ -802,35 +1122,88 @@ export default function AbaMapaDia({
                                                             horaFaixa
                                                         )
                                                     }
-                                                    className={`relative p-1.5 align-top border-r min-h-[68px] transition-colors group/cell ${clsBordaGrade} ${
+                                                    className={`relative p-1.5 align-top border-r transition-colors group/cell ${clsBordaGrade} ${
                                                         estaSobreDrop
-                                                            ? 'bg-[#0E7C86]/20 ring-2 ring-inset ring-[#0E7C86]'
+                                                            ? 'bg-[#0E7C86]/15 ring-2 ring-inset ring-[#0E7C86]'
                                                             : ''
                                                     }`}
                                                 >
-                                                    {/* Linha divisória linear sutil de 30 minutos */}
+                                                    {/* Linha divisória sutil de 30 minutos */}
                                                     <div
-                                                        className={`pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed ${
+                                                        className={`pointer-events-none absolute inset-x-0 top-1/2 border-t ${
                                                             escuro
-                                                                ? 'border-[#232B35]/80'
-                                                                : 'border-slate-200'
+                                                                ? 'border-[#232B35]/55'
+                                                                : 'border-slate-100'
                                                         }`}
                                                     />
 
-                                                    <div className="relative z-10 space-y-1">
+                                                    {/* Bloqueios Contínuos (08:00 – 13:00, 08:30 – 11:30, etc.) */}
+                                                    {bloqueiosContinuosProf.map((bl) => (
+                                                        <div
+                                                            key={bl.id}
+                                                            style={calcularEstiloBloqueioContinuo(
+                                                                bl
+                                                            )}
+                                                            className={`group/bloq absolute inset-x-1.5 z-20 rounded-xl border p-2.5 flex flex-col justify-start transition ${
+                                                                escuro
+                                                                    ? 'bg-[#C24124]/25 border-[#E07A5F]/50 text-[#FCA5A5]'
+                                                                    : 'bg-[#FDE2E1] border-[#F5A8A5] text-[#B91C1C]'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center justify-between gap-1">
+                                                                    <span className="text-[11px] font-bold tracking-tight">
+                                                                        {bl.hora_inicio} –{' '}
+                                                                        {bl.hora_fim}
+                                                                    </span>
+                                                                <div className="flex items-center gap-1">
+                                                                    <Ban className="w-4 h-4 shrink-0 opacity-85" />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) =>
+                                                                            void removerBloqueio(
+                                                                                e,
+                                                                                bl.id
+                                                                            )
+                                                                        }
+                                                                        title="Remover bloqueio"
+                                                                        className="opacity-0 group-hover/bloq:opacity-100 p-0.5 rounded hover:bg-red-500/20 transition cursor-pointer"
+                                                                    >
+                                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-xs sm:text-[13px] font-extrabold leading-snug mt-1">
+                                                                {formatarMotivoBloqueio(
+                                                                    bl.motivo
+                                                                )}
+                                                            </p>
+                                                        </div>
+                                                    ))}
+
+                                                    <div className="relative z-10 space-y-1.5">
+                                                        {/* Badge DUPLA / TRIO */}
                                                         {aulasNaFaixa.length > 1 && (
-                                                            <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#0E7C86]/20 text-[#0E7C86] dark:text-[#25A4AF] text-[9px] font-extrabold uppercase">
-                                                                <Users className="w-2.5 h-2.5" />
+                                                            <div
+                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide ${
+                                                                    escuro
+                                                                        ? 'bg-[#0E7C86]/25 text-[#5EEAD4]'
+                                                                        : 'bg-[#CCFBF1] text-[#0F766E]'
+                                                                }`}
+                                                            >
+                                                                <Users className="w-3 h-3" />
                                                                 {aulasNaFaixa.length === 2
-                                                                    ? 'Dupla'
+                                                                    ? 'DUPLA'
                                                                     : aulasNaFaixa.length === 3
-                                                                        ? 'Trio'
-                                                                        : `${aulasNaFaixa.length} alunos`}
+                                                                        ? 'TRIO'
+                                                                        : `${aulasNaFaixa.length} ALUNOS`}
                                                             </div>
                                                         )}
 
-                                                        {/* Cards Compactos das Aulas (estilo Clin Care + R4) */}
+                                                        {/* Cards das Aulas */}
                                                         {aulasNaFaixa.map((aula) => {
+                                                            const estilo = obterEstiloCardAula(
+                                                                aula.status
+                                                            );
                                                             const meta = obterMetaStatusR4(
                                                                 aula.status
                                                             );
@@ -858,52 +1231,55 @@ export default function AbaMapaDia({
                                                                     onMouseLeave={() =>
                                                                         setHoverCard(null)
                                                                     }
-                                                                    onClick={() => {
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
                                                                         setHoverCard(null);
                                                                         setAulaSelecionada(
                                                                             aula
                                                                         );
                                                                     }}
-                                                                    className={`w-full text-left border border-l-4 rounded-lg px-2 py-1.5 transition cursor-pointer shadow-2xs ${
-                                                                        meta.clsCardAgenda
+                                                                    className={`w-full text-left border border-l-4 rounded-xl px-2.5 py-2 transition cursor-pointer shadow-2xs ${
+                                                                        estilo.card
                                                                     } ${
                                                                         estaSendoArrastada
                                                                             ? 'opacity-40 scale-95'
-                                                                            : 'hover:brightness-95 dark:hover:brightness-110'
+                                                                            : 'hover:brightness-97 dark:hover:brightness-110'
                                                                     }`}
                                                                 >
-                                                                    <div className="flex items-center justify-between gap-1">
-                                                                            <span className="text-[10px] font-mono font-bold inline-flex items-center gap-1 opacity-90">
+                                                                    <div className="flex items-center justify-between gap-1.5">
+                                                                            <span className="font-extrabold text-[12px] leading-tight truncate inline-flex items-center gap-1">
                                                                                 {!ehProfessor && (
-                                                                                    <GripVertical className="w-2.5 h-2.5 opacity-50 shrink-0" />
+                                                                                    <GripVertical className="w-3 h-3 opacity-35 shrink-0" />
                                                                                 )}
+                                                                                {aula.nome_aluno}
+                                                                            </span>
+
+                                                                        <span className="inline-flex items-center gap-1 text-[10.5px] font-bold shrink-0 opacity-85">
                                                                                 {formatarIntervaloCard(
                                                                                     aula
                                                                                 )}
+                                                                            <span
+                                                                                title={
+                                                                                    meta.rotulo
+                                                                                }
+                                                                                className={`w-4 h-4 rounded-full inline-flex items-center justify-center ${estilo.badgeIcone}`}
+                                                                            >
+                                                                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                                                                </span>
                                                                             </span>
-                                                                        <span
-                                                                            className={`w-2 h-2 rounded-full shrink-0 ${meta.corPonto}`}
-                                                                            title={meta.rotulo}
-                                                                        />
                                                                     </div>
 
-                                                                    <p
-                                                                        className={`font-bold text-[11px] leading-tight truncate mt-0.5 ${clsTitulo}`}
-                                                                    >
-                                                                        {aula.nome_aluno}
-                                                                    </p>
-
-                                                                    <div className="flex items-center justify-between gap-1 mt-0.5 text-[10px]">
-                                                                            <span className="font-semibold text-[#0B5C63] dark:text-[#25A4AF] truncate">
+                                                                    <div className="flex items-center justify-between gap-1.5 mt-1 text-[10.5px]">
+                                                                            <span
+                                                                                className={`font-medium truncate ${estilo.materia}`}
+                                                                            >
                                                                                 {aula.materia}
                                                                             </span>
                                                                         <span
-                                                                            className={`shrink-0 font-medium ${clsSubtexto}`}
+                                                                            className={`shrink-0 font-semibold ${clsSubtexto}`}
                                                                         >
-                                                                                {
-                                                                                    aula.duracao_minutos ||
-                                                                                    100
-                                                                                }
+                                                                                {aula.duracao_minutos ||
+                                                                                    100}
                                                                             &apos;
                                                                             </span>
                                                                     </div>
@@ -911,64 +1287,43 @@ export default function AbaMapaDia({
                                                             );
                                                         })}
 
-                                                        {/* Bloqueios */}
-                                                        {bloqueiosNaFaixa.map((bl) => (
-                                                            <div
-                                                                key={bl.id}
-                                                                className="bg-[#C24124]/15 border border-[#C24124]/50 border-l-4 border-l-[#C24124] rounded-lg px-2 py-1 text-[#A93218] dark:text-[#E07A5F] flex items-center justify-between gap-1.5"
-                                                            >
-                                                                <div className="min-w-0">
-                                                                    <p className="text-[10px] font-mono font-bold leading-tight">
-                                                                        {bl.hora_inicio} –{' '}
-                                                                        {bl.hora_fim}
-                                                                    </p>
-                                                                    <p className="text-[11px] font-bold truncate leading-tight">
-                                                                        {bl.motivo}
-                                                                    </p>
-                                                                </div>
+                                                        {/* Slot vazio limpo: mostra caixa suave com "+" no hover ou quando selecionado */}
+                                                        {aulasNaFaixa.length === 0 &&
+                                                            !temBloqueioNaFaixa && (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() =>
-                                                                        void removerBloqueio(
-                                                                            bl.id
-                                                                        )
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setSlotAtivoKey(
+                                                                            chaveCelula
+                                                                        );
+                                                                        abrirModalCriacao(
+                                                                            ehProfessor
+                                                                                ? 'bloqueio'
+                                                                                : 'aula',
+                                                                            prof.id,
+                                                                            horaFaixa,
+                                                                            dataProf
+                                                                        );
+                                                                    }}
+                                                                    title={
+                                                                        ehProfessor
+                                                                            ? `Bloquear ${horaFaixa}`
+                                                                            : `Agendar aula às ${horaFaixa}`
                                                                     }
-                                                                    title="Remover bloqueio"
-                                                                    className="p-1 rounded hover:bg-[#C24124]/25 shrink-0 cursor-pointer"
+                                                                    className={`w-full h-[66px] rounded-xl border flex items-center justify-center text-lg font-medium transition cursor-pointer ${
+                                                                        estaSelecionada
+                                                                            ? escuro
+                                                                                ? 'opacity-100 bg-[#0E7C86]/15 border-[#1496A1]/40 text-[#5EEAD4]'
+                                                                                : 'opacity-100 bg-[#F0FDFA] border-[#99F6E4] text-[#0E7C86]'
+                                                                            : escuro
+                                                                                ? 'opacity-0 group-hover/cell:opacity-100 bg-[#0E7C86]/10 border-[#1496A1]/30 text-[#5EEAD4]'
+                                                                                : 'opacity-0 group-hover/cell:opacity-100 bg-[#F0FDFA] border-[#99F6E4] text-[#0E7C86]'
+                                                                    }`}
                                                                 >
-                                                                    <Trash2 className="w-3 h-3" />
+                                                                    +
                                                                 </button>
-                                                            </div>
-                                                        ))}
-
-                                                        {/* Botão discreto para agendar no horário */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                abrirModalCriacao(
-                                                                    ehProfessor
-                                                                        ? 'bloqueio'
-                                                                        : 'aula',
-                                                                    prof.id,
-                                                                    horaFaixa,
-                                                                    dataProf
-                                                                )
-                                                            }
-                                                            className={`w-full py-1 px-2 rounded border border-dashed text-[10px] font-semibold transition cursor-pointer ${
-                                                                aulasNaFaixa.length === 0 &&
-                                                                bloqueiosNaFaixa.length === 0
-                                                                    ? 'opacity-45 group-hover/cell:opacity-100'
-                                                                    : 'opacity-0 group-hover/cell:opacity-100'
-                                                            } ${
-                                                                escuro
-                                                                    ? 'border-[#2E3947] text-stone-400 hover:border-[#0E7C86] hover:text-[#25A4AF]'
-                                                                    : 'border-slate-300 text-slate-600 hover:border-[#0E7C86] hover:text-[#0E7C86] hover:bg-[#0E7C86]/5'
-                                                            }`}
-                                                        >
-                                                            {ehProfessor
-                                                                ? `+ Bloquear ${horaFaixa}`
-                                                                : `+ Marcar ${horaFaixa}`}
-                                                        </button>
+                                                            )}
                                                     </div>
                                                 </td>
                                             );
@@ -982,14 +1337,14 @@ export default function AbaMapaDia({
                 </div>
             )}
 
-            {/* Hover Card Flutuante ao Passar o Mouse na Aula (estilo Print 6) */}
+            {/* Hover Card Flutuante ao Passar o Mouse na Aula */}
             {hoverCard && (
                 <div
                     style={{ left: `${hoverCard.x}px`, top: `${hoverCard.y}px` }}
                     className={`fixed z-50 w-[300px] pointer-events-none border rounded-2xl p-4 shadow-2xl space-y-2.5 transition-opacity ${
                         escuro
                             ? 'bg-[#151B23] border-[#2D3846] text-stone-100'
-                            : 'bg-white border-slate-300 text-slate-900'
+                            : 'bg-white border-slate-200 text-slate-900'
                     }`}
                 >
                     <div>
@@ -1031,7 +1386,9 @@ export default function AbaMapaDia({
                     {hoverCard.aula.observacoes && (
                         <p
                             className={`text-[11px] line-clamp-2 rounded-lg px-2.5 py-1.5 ${
-                                escuro ? 'bg-[#0E1319] text-stone-300' : 'bg-slate-100 text-slate-700'
+                                escuro
+                                    ? 'bg-[#0E1319] text-stone-300'
+                                    : 'bg-slate-100 text-slate-700'
                             }`}
                         >
                             {hoverCard.aula.observacoes}
@@ -1054,10 +1411,12 @@ export default function AbaMapaDia({
                 </div>
             )}
 
-            {/* Modal de Confirmação de Transferência (Drag & Drop - estilo Print 4) */}
+            {/* Modal de Confirmação de Transferência (Drag & Drop) */}
             {transferenciaPendente && (
                 <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-                    <div className={`border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl ${clsCard}`}>
+                    <div
+                        className={`border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl ${clsCard}`}
+                    >
                         <div className="flex items-center gap-2.5">
                             <span className="w-9 h-9 rounded-xl bg-[#0E7C86]/15 text-[#0E7C86] flex items-center justify-center">
                                 <ArrowRightLeft className="w-4 h-4" />
