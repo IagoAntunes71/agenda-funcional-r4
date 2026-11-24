@@ -1,0 +1,36 @@
+.recepcao { display:grid; grid-template-columns: minmax(205px, 15rem) minmax(0, 1fr) minmax(185px, 14rem); gap:12px; align-items:start; font-size:13px; }
+.filtros, .resumo, .ferramentas, .aula, .bloqueio, .mensagem { background:var(--r4-painel); color:var(--r4-leitura); border:1px solid var(--r4-borda); border-radius:9px; }
+.filtros, .resumo { padding:12px; position:sticky; top:72px; max-height:calc(100dvh - 84px); overflow:auto; }
+.filtros label { display:grid; gap:4px; margin:.48rem 0; font-weight:600; min-width:0; }
+.filtros .check, .check { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+.recepcao :is(input:not([type=checkbox]),select,.ferramentas button,.topoFiltros button) {
+    border:1px solid var(--r4-borda); border-radius:6px; padding:6px 7px;
+    color:var(--r4-leitura); background:var(--r4-painel); font:inherit; min-width:0;
+}
+.recepcao .ferramentas button:global(.r4-acao) { background:var(--r4-botao); color:var(--r4-botao-texto); }
+.recepcao :is(button,summary) { cursor:pointer; }
+.recepcao :disabled { opacity:.52; cursor:default; }
+.recepcao :focus-visible { outline:2px solid var(--r4-principal); outline-offset:2px; }
+.topoFiltros, .resumo dl div { display:flex; justify-content:space-between; gap:6px; align-items:center; }
+.datas { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.datas input { width:100%; }
+.centro { display:grid; gap:8px; min-width:0; }
+.centro h2, .resumo h2, .topoFiltros h2 { font-size:14px; font-weight:800; }
+.ferramentas { display:flex; flex-wrap:wrap; align-items:center; gap:7px; padding:8px; }
+.ferramentas button { display:inline-flex; align-items:center; gap:5px; }
+.aula { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(0,1fr); border-inline-start:4px solid; overflow:hidden; }
+.dadosAluno { border-inline-end:1px solid var(--r4-borda); }
+.dataAula, .status { padding:5px 8px; min-height:31px; display:flex; align-items:center; gap:6px; border-bottom:1px solid var(--r4-borda); }
+.status { border-block-end-width:3px; font-weight:700; background:color-mix(in srgb,var(--r4-principal) 12%,var(--r4-painel)); }
+.status select { border:0; background:transparent; padding:0; width:100%; }
+.status select option { background:var(--r4-painel); color:var(--r4-leitura); }
+.aluno { display:flex; gap:8px; padding:9px; text-align:left; width:100%; align-items:center; }
+.aluno small, .conteudoAula small { display:block; }
+.avatar { background:color-mix(in srgb,var(--r4-principal) 17%,var(--r4-painel)); border-radius:50%; width:30px; height:30px; display:grid; place-items:center; flex:none; font-weight:750; }
+.conteudoAula { display:grid; gap:2px; padding:7px 9px; }
+.conteudoAula span { display:flex; align-items:center; gap:5px; }
+.resumo dl div { border-bottom:1px solid var(--r4-borda); padding:7px 0; }
+.resumo dd { font-weight:800; text-align:right; }
+.bloqueio,.mensagem { padding:10px; }
+@media(max-width:1100px){.recepcao{grid-template-columns: 185px minmax(0,1fr)}.resumo{grid-column:2;position:static}.filtros{grid-row:span 2}}
+@media(max-width:650px){.recepcao{grid-template-columns:1fr}.filtros,.resumo{position:static;max-height:none;grid-column:auto;grid-row:auto}.aula{grid-template-columns:1fr}.dadosAluno{border-inline-end:0}}

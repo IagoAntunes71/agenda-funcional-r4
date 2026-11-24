@@ -222,8 +222,9 @@ export async function GET() {
                     to_char(b.data, 'YYYY-MM-DD') AS data,
                     LEFT(b.hora_inicio::text, 5) AS hora_inicio,
                     LEFT(b.hora_fim::text, 5) AS hora_fim,
-                    COALESCE(NULLIF(trim(b.motivo), ''), 'Bloqueio Clin Care') AS motivo,
-                    b.descricao
+                    coalesce(to_jsonb(b)->>'origem', 'clincare') AS origem,
+                    CASE WHEN to_jsonb(b)->>'origem' = 'manual' THEN b.motivo ELSE 'Bloqueio Clin Care' END AS motivo,
+                    CASE WHEN to_jsonb(b)->>'origem' = 'manual' THEN b.descricao END AS descricao
                 FROM bloqueios_clincare b
                     LEFT JOIN professores p ON p.id = b.professor_id
                 WHERE b.data >= CURRENT_DATE - INTERVAL '15 days'

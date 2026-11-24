@@ -45,6 +45,7 @@ import {
     intervaloAula,
     intervaloBloqueio,
     relogioBahia,
+    consolidarBloqueiosMapa,
 } from './mapa-dia-horarios';
 import styles from './MapaDia.module.css';
 import ArquivoAgendamentosR4 from './ArquivoAgendamentosR4';
@@ -199,7 +200,12 @@ export default function AbaMapaDia({
     const { cfg } = useOperacaoR4();
     const inicioMapa = cfg.primeiraHora * 60;
     const fimMapa = (cfg.ultimaHora + 1) * 60;
-    const alturaSlot = 36;
+    const [apresentacao, setApresentacao] = useState(false);
+    const [somenteComAula, setSomenteComAula] = useState(true);
+    const [alturaTela, setAlturaTela] = useState(900);
+    const mapaRef = useRef<HTMLElement>(null);
+    const alturaSlot = apresentacao ? Math.max(16, Math.min(36,
+        Math.floor((alturaTela - 200) / ((fimMapa - inicioMapa) / cfg.intervalo)))) : 36;
     const horariosGrade = Array.from({ length: (fimMapa - inicioMapa) / cfg.intervalo }, (_, i) => inicioMapa + i * cfg.intervalo);
     const alturaGrade = horariosGrade.length * alturaSlot;
     const posicao = (minuto: number) => (minuto - inicioMapa) * alturaSlot / cfg.intervalo;
@@ -221,7 +227,7 @@ export default function AbaMapaDia({
     const [busca, setBusca] = useState<string>('');
     const [professorSemanaId, setProfessorSemanaId] = useState(0);
     const [filtroStatus, setFiltroStatus] = useState('todos');
-    const [agora, setAgora] = useState<ReturnType<typeof relogioBahia> | null>(null);
+
     const [erroBloqueio, setErroBloqueio] = useState('');
     const [erroTransferencia, setErroTransferencia] = useState('');
 
@@ -291,11 +297,32 @@ export default function AbaMapaDia({
     const semana = modoVisualizacao === 'semana';
 
     useEffect(() => {
-        const atualizar = () => setAgora(relogioBahia());
+        const atualizar = () => setAlturaTela(window.innerHeight);
+        const sair = () => {
+            if (document.fullscreenElement !== mapaRef.current) setApresentacao(false);
+        };
+        const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') setApresentacao(false); };
         atualizar();
-        const timer = window.setInterval(atualizar, 15000);
-        return () => window.clearInterval(timer);
+        window.addEventListener('resize', atualizar);
+        document.addEventListener('fullscreenchange', sair);
+        document.addEventListener('keydown', tecla);
+        return () => {
+            window.removeEventListener('resize', atualizar);
+            document.removeEventListener('fullscreenchange', sair);
+            document.removeEventListener('keydown', tecla);
+        };
     }, []);
+
+    async function alternarApresentacao() {
+        if (apresentacao) {
+            setApresentacao(false);
+            if (document.fullscreenElement === mapaRef.current) await document.exitFullscreen();
+            return;
+        }
+        setHoverCard(null);
+        setApresentacao(true);
+        await mapaRef.current?.requestFullscreen?.().catch(() => undefined);
+    }
 
     const professoresVisiveis = useMemo(() => {
         if (ehProfessor && !podeVerOutrasAgendas) {
@@ -318,7 +345,7 @@ export default function AbaMapaDia({
         return Array.from({ length: 7 }, (_, idx) => adicionarDiasISO(segunda, idx));
     }, [dataGlobal]);
 
-    const colunas = useMemo(() => {
+    const colunasCalculadas = useMemo(() => {
         const professoresDoProprioPerfil = ehProfessor && professorSemana
             ? professores.filter((p) => correspondeProfessor({
                 professor_id: professorSemana.id,
@@ -354,13 +381,18 @@ export default function AbaMapaDia({
                 data,
                 chave: prof.id + '-' + data,
                 aulas,
-                bloqueios: distribuirSobreposicoes(bloqueiosVisiveis),
+                bloqueiosOriginais: bloqueiosVisiveis,
+                bloqueios: distribuirSobreposicoes(consolidarBloqueiosMapa(bloqueiosVisiveis, aulas.filter(({ aula }) => filtroStatus === 'todos' || normalizarStatusAulaR4(aula.status) === filtroStatus))),
                 aulasExibidas: distribuirSobreposicoes(aulas.filter(({ aula }) =>
                     filtroStatus === 'todos' || normalizarStatusAulaR4(aula.status) === filtroStatus)),
             };
         });
     }, [agendamentos, bloqueios, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
         filtroStatus, professorSemana, professores, professoresVisiveis, semana, podeVerOutrasAgendas, inicioMapa, fimMapa]);
+
+    const colunas = apresentacao && somenteComAula && !semana
+        ? colunasCalculadas.filter((c) => c.aulasExibidas.length > 0)
+        : colunasCalculadas;
 
     const resumoAulas = new Map(colunas.flatMap((coluna) =>
         coluna.aulas.map(({ aula }) => [aula.id, aula] as const)));
@@ -682,8 +714,8 @@ export default function AbaMapaDia({
     const ultimoDia = faixaDiasSemana[6];
 
     return (
-        <section className={styles.mapa} data-tema={escuro ? 'escuro' : 'claro'}>
-            <div className={styles.painel}>
+        <section ref={mapaRef} data-apresentacao={apresentacao} className={styles.mapa} data-tema={escuro ? 'escuro' : 'claro'}>
+            <div className={styles.painel} hidden={apresentacao}>
                 <div className={styles.topo}>
                     <div className={styles.controles}>
                         <div className={styles.segmentado} role="group" aria-label={textoR4("Visualização")}>
@@ -778,6 +810,12 @@ export default function AbaMapaDia({
                         <span data-cor="coral"><Ban /> <b>{resumoBloqueios.size}</b> {resumoBloqueios.size === 1 ? textoR4("bloqueio") : textoR4("bloqueios")}</span>
                     </div>
                     <div className={styles.controles}>
+                        {apresentacao && !semana && <label className={styles.botao}>
+                            <input type="checkbox" checked={somenteComAula} onChange={(e) => setSomenteComAula(e.target.checked)} /> Só professores com aula
+                        </label>}
+                        <button type="button" className={styles.botao} onClick={() => void alternarApresentacao()}>
+                            {apresentacao ? 'Sair da tela cheia' : 'Tela cheia'}
+                        </button>
                         {onAlternarTelaCheiaAction && (
                             <button type="button" className={styles.botao} onClick={onAlternarTelaCheiaAction}>
                                 {modoTelaCheia ? textoR4("Reduzir") : textoR4("Expandir")}
@@ -796,7 +834,7 @@ export default function AbaMapaDia({
                         className={styles.scroll} data-expandido={modoTelaCheia} data-arrastando={Boolean(aulaArrastando)}
                         tabIndex={0} aria-label={textoR4("Grade de horários")}>
                         <div className={styles.grade} style={{
-                            gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${semana ? 148 : 188}px, 1fr))`,
+                            gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${apresentacao ? 64 : semana ? 148 : 188}px, 1fr))`,
                         }}>
                             <div className={`${styles.cabecalho} ${styles.canto}`}>{textoR4("Horário")}</div>
                             {colunas.map(({ chave, prof, data }) => (
@@ -804,7 +842,7 @@ export default function AbaMapaDia({
                                     {semana ? (
                                         <div className={styles.professor}>
                                             <span className={styles.avatar}><Calendar /></span>
-                                            <div><strong>{formatarDiaCurtoPT(data)}</strong>{data === agora?.data && <small>{textoR4("Hoje")}</small>}</div>
+                                            <div><strong>{formatarDiaCurtoPT(data)}</strong>{data === obterHojeISO() && <small>{textoR4("Hoje")}</small>}</div>
                                         </div>
                                     ) : (
                                         <>
@@ -839,16 +877,14 @@ export default function AbaMapaDia({
                                         <b>{minutosParaHora(minuto)}</b>
                                     </div>
                                 ))}
-                                {agora && colunas.some((c) => c.data === agora.data) && agora.minuto >= inicioMapa && agora.minuto < fimMapa && (
-                                    <span className={styles.relogio} style={{ top: posicao(agora.minuto) }}>{minutosParaHora(agora.minuto)}</span>
-                                )}
+                                
                             </div>
-                            {colunas.map(({ chave, prof, data, aulas, bloqueios, aulasExibidas }) => (
+                            {colunas.map(({ chave, prof, data, aulas, bloqueios, bloqueiosOriginais, aulasExibidas }) => (
                                 <div className={styles.coluna} key={chave} style={{ height: alturaGrade }}>
                                     {horariosGrade.map((minuto) => {
                                         const hora = minutosParaHora(minuto);
                                         const chaveSlot = chave + '-' + hora;
-                                        const ocupado = bloqueios.some((b) => minuto < b.fim && minuto + cfg.intervalo > b.inicio) ||
+                                        const ocupado = bloqueiosOriginais.some((b) => minuto < b.fim && minuto + cfg.intervalo > b.inicio) ||
                                             aulas.some(({ aula, inicio, fim }) =>
                                                 obterMetaStatusR4(aula.status).ocupaHorario && minuto < fim && minuto + cfg.intervalo > inicio);
                                         return (
@@ -875,15 +911,13 @@ export default function AbaMapaDia({
                                         );
                                     })}
                                     {bloqueios.map(({ bloqueio, inicio, fim, faixa, totalFaixas }) => (
-                                        <button type="button" key={bloqueio.id} className={styles.bloqueio}
+                                        <button type="button" key={bloqueio.id + '-' + inicio} className={styles.bloqueio} disabled={bloqueio.origem !== 'manual'}
                                             style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
                                                 left: `${faixa / totalFaixas * 100}%`, width: `${100 / totalFaixas}%` }}
-                                            title={`${formatarMotivoBloqueio(bloqueio.motivo)} · ${bloqueio.hora_inicio}–${bloqueio.hora_fim}`}
+                                            title={`${bloqueio.origem === 'manual' ? formatarMotivoBloqueio(bloqueio.motivo) : 'Bloqueio Clin Care'} · ${minutosParaHora(inicio)}–${minutosParaHora(fim)}`}
                                             onClick={() => abrirDetalhesBloqueio(bloqueio, prof.nome)}>
-                                            <span><Ban />{bloqueio.data === data
-                                                ? `${bloqueio.hora_inicio}–${bloqueio.hora_fim}`
-                                                : `Até ${bloqueio.hora_fim}`}</span>
-                                            <strong>{formatarMotivoBloqueio(bloqueio.motivo)}</strong>
+                                            <span><Ban />{minutosParaHora(inicio)}–{minutosParaHora(fim)}</span>
+                                            <strong>{bloqueio.origem === 'manual' ? formatarMotivoBloqueio(bloqueio.motivo) : 'Bloqueio Clin Care'}</strong>
                                         </button>
                                     ))}
                                     {aulasExibidas.map(({ aula, inicio, fim, faixa, totalFaixas }) => {
@@ -899,7 +933,7 @@ export default function AbaMapaDia({
                                                 draggable={!ehProfessor && podeAgendar && meta.ocupaHorario}
                                                 onDragStart={(e) => iniciarArrasteAula(e, aula)}
                                                 onDragEnd={() => { setAulaArrastando(null); setAlvoDrop(null); }}
-                                                onMouseEnter={(e) => abrirHoverCard(e, aula)}
+                                                onMouseEnter={(e) => { if (!apresentacao) abrirHoverCard(e, aula); }}
                                                 onMouseLeave={() => setHoverCard(null)}
                                                 onClick={() => { setHoverCard(null); setAulaSelecionada(aula); }}>
                                                 <span className={styles.aulaHora}>
@@ -911,9 +945,7 @@ export default function AbaMapaDia({
                                             </button>
                                         );
                                     })}
-                                    {agora && data === agora.data && agora.minuto >= inicioMapa && agora.minuto < fimMapa && (
-                                        <span className={styles.linhaAgora} style={{ top: posicao(agora.minuto) }} aria-hidden="true" />
-                                    )}
+                                    
                                 </div>
                             ))}
                         </div>

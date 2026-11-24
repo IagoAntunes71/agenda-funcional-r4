@@ -189,7 +189,7 @@
     color: var(--event);
     background-color: color-mix(in srgb, var(--event) 13%, var(--surface));
 }
-.aula[data-arrastando='true'] { opacity: .35; }
+.aula[data-arrastando='true'] { outline: 2px dashed currentColor; outline-offset: -5px; }
 .scroll[data-arrastando='true'] :is(.aula,.bloqueio) { pointer-events: none; }
 .aula strong { color: var(--ink); font-size: 12px; max-width: 100%; margin-block: 3px 2px; }
 .aula small { font-size: 10px; max-width: 100%; }
@@ -203,8 +203,6 @@
     background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--blocked) 7%, transparent) 10px 11px);
 }
 .bloqueio strong { font-size: 11px; margin-top: 4px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.linhaAgora { position: absolute; z-index: 3; inset-inline: 0; pointer-events: none; height: 1px; background: var(--accent); opacity: .8; }
-.relogio { position: absolute; transform: translateY(-50%); right: 4px; padding: 2px 5px; border-radius: 5px; background: var(--accent); color: var(--surface); font-size: 10px; font-weight: 800; }
 .legenda { justify-content: flex-start; gap: 8px 14px; padding-block: 9px; }
 .legenda span { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); }
 .legenda i { color: var(--event); }
@@ -275,3 +273,31 @@
 .topo .primario:hover:not(:disabled) { background: var(--r4-botao); filter: brightness(.92); }
 
 .hora { grid-template-rows: 1fr; }
+
+.mapa .aula {
+    background: color-mix(in srgb, var(--event) 64%, var(--surface));
+    color: #141b22;
+    border-radius: 6px;
+}
+.mapa[data-tema='escuro'] .aula { background: color-mix(in srgb, var(--event) 44%, #131b22); color: #fff; }
+.mapa .aula strong { color: inherit; }
+.mapa .bloqueio { background: #e2e6ed; color: #26344b; border-radius: 6px; }
+.mapa[data-tema='escuro'] .bloqueio { background: #3e495b; color: #fff; }
+.mapa .bloqueio:disabled { opacity: 1; cursor: default; }
+.mapa .aula::before, .mapa .bloqueio::before { opacity: 1; }
+.mapa[data-apresentacao='true'] {
+    position: fixed; inset: 0; z-index: 100; overflow: auto; padding: 8px;
+    background: var(--r4-base, #fff); display: block;
+}
+.mapa[data-apresentacao='true'] .scroll { max-height: calc(100dvh - 114px); }
+.mapa[data-apresentacao='true'] .professor { padding: 4px; justify-content: center; text-align: center; }
+.mapa[data-apresentacao='true'] .professor strong { white-space: normal; overflow-wrap: anywhere; font-size: 10px; }
+.mapa[data-apresentacao='true'] .professor small:not(.unidadeProfessor),
+.mapa[data-apresentacao='true'] .avatar, .mapa[data-apresentacao='true'] .dataProfessor,
+.mapa[data-apresentacao='true'] .slot button { display: none; }
+.mapa[data-apresentacao='true'] :is(.aula,.bloqueio) { padding: 2px 3px 2px 5px; border-width: 1px; }
+.mapa[data-apresentacao='true'] .aula strong { margin: 1px 0; font-size: 10px; }
+.mapa[data-apresentacao='true'] :is(.aulaHora,.bloqueio span) { font-size: 8px; }
+
+.mapa[data-apresentacao='true'] .grade { width: 100%; }
+.mapa[data-apresentacao='true'] .scroll[data-expandido='true'] { max-height: calc(100dvh - 114px); }

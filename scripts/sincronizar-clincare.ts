@@ -195,9 +195,11 @@ async function ajustarBancoSemSobrescreverTurnos(
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reserva_erro TEXT`;
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS clincare_reservado_em TIMESTAMPTZ`;
 
+    await sql`ALTER TABLE bloqueios_clincare ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'clincare'`;
+
     await sql`
     DELETE FROM bloqueios_clincare
-    WHERE professor_id IN (
+    WHERE coalesce(origem, 'clincare') <> 'manual' AND professor_id IN (
       SELECT p.id
       FROM professores p
       WHERE p.clin_care_id IS NOT NULL
@@ -2740,7 +2742,6 @@ async function main() {
                             professor_id: number;
                             hora_inicio: string;
                             hora_fim: string;
-                            motivo: string;
                         }[] = [];
 
                         for (const bl of blocosColetados) {
@@ -2762,39 +2763,22 @@ async function main() {
                                 professor_id: profMatch.id,
                                 hora_inicio: bl.horaInicio,
                                 hora_fim: bl.horaFim,
-                                motivo: bl.motivo,
                             });
                         }
 
-                        await sql`
-              DELETE FROM bloqueios_clincare
-              WHERE unidade_id = ${unidade.id}
-                AND data = ${dataISO}::date
-            `;
-
-                        if (registros.length > 0) {
-                            await sql`
-                INSERT INTO bloqueios_clincare (
-                  professor_id,
-                  unidade_id,
-                  data,
-                  hora_inicio,
-                  hora_fim,
-                  motivo,
-                  atualizado_em
-                )
-                SELECT
-                  r.professor_id,
-                  ${unidade.id},
-                  ${dataISO}::date,
-                  r.hora_inicio::time,
-                  r.hora_fim::time,
-                  r.motivo,
-                  now()
-                FROM jsonb_to_recordset(${JSON.stringify(registros)}::jsonb)
-                  AS r(professor_id int, hora_inicio text, hora_fim text, motivo text)
-              `;
-                        }
+                        await sql.transaction([
+                            sql`SELECT pg_advisory_xact_lock(hashtext(${'r4-sync-bloqueios-' + unidade.id + '-' + dataISO}))`,
+                            sql`DELETE FROM bloqueios_clincare
+                                WHERE unidade_id = ${unidade.id} AND data = ${dataISO}::date
+                                    AND coalesce(origem, 'clincare') <> 'manual'`,
+                            sql`INSERT INTO bloqueios_clincare (
+                                    professor_id, unidade_id, data, hora_inicio, hora_fim, motivo, origem, atualizado_em
+                                )
+                                SELECT DISTINCT r.professor_id, ${unidade.id}, ${dataISO}::date,
+                                    r.hora_inicio::time, r.hora_fim::time, 'Bloqueio Clin Care', 'clincare', now()
+                                FROM jsonb_to_recordset(${JSON.stringify(registros)}::jsonb)
+                                    AS r(professor_id int, hora_inicio text, hora_fim text)`,
+                        ]);
 
                         console.log(
                             `[SYNC ${configModo.modo.toUpperCase()}] ${unidade.nome} (${dataISO}): ${blocosColetados.length} lido(s), ${registros.length} gravado(s).`

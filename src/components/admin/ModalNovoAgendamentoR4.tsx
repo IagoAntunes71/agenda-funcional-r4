@@ -74,7 +74,7 @@ export default function ModalNovoAgendamentoR4({
     const [duracaoHoras, setDuracaoHoras] = useState<number>(1);
     const [duracaoMinutos, setDuracaoMinutos] = useState<number>(40);
     const [recorrencia, setRecorrencia] = useState<number>(1);
-    const [statusInicial, setStatusInicial] = useState<'agendado' | 'confirmado'>('agendado');
+    const [statusInicial, setStatusInicial] = useState<'agendado' | 'confirmado'>('confirmado');
     const [observacoes, setObservacoes] = useState<string>('');
 
     const [buscaAluno, setBuscaAluno] = useState<string>('');

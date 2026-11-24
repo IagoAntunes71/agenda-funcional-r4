@@ -48,11 +48,25 @@ export async function GET(req: NextRequest) {
         const busca = (req.nextUrl.searchParams.get('busca') || '').trim().slice(0, 100).toLowerCase();
         const unidade = Number(req.nextUrl.searchParams.get('unidade')) || 0;
         const status = req.nextUrl.searchParams.get('status') || '';
+        const recepcao = painel === 'recepcao' && sessao.role !== 'professor';
+        const params = req.nextUrl.searchParams;
+        const termo = (chave: string) => recepcao ? (params.get(chave) || '').trim().slice(0, 100).toLowerCase() : '';
+        const diaValido = (valor: string) => /^20\d{2}-\d{2}-\d{2}$/.test(valor) &&
+            Number.isFinite(Date.parse(valor)) && new Date(valor + 'T00:00:00Z').toISOString().slice(0, 10) === valor;
+        const de = termo('de');
+        const ate = termo('ate');
+        if ((de && !diaValido(de)) || (ate && !diaValido(ate)) || (de && ate && ate < de)) return erro('Período inválido.', 400);
+        if (de && ate && Date.parse(ate) - Date.parse(de) > 366 * 86400000) return erro('Escolha um período de até um ano.', 400);
+        const limite = recepcao && params.get('exportar') === '1' ? 5001 : 51;
         const filtro = painel === 'alunos';
         const linhas = await sql`
             WITH escopo AS (
             SELECT a.id, a.aluno_id, coalesce(nullif(a.aluno_nome,''), a.nome_aluno, 'Aluno') AS aluno,
-                p.nome AS professor, u.nome AS unidade, a.materia, a.status, a.acompanhamento,
+                p.nome AS professor, p.id AS professor_id, u.nome AS unidade, a.unidade_id,
+                a.materia, a.status, a.acompanhamento,
+                coalesce(al.serie,a.serie,a.serie_aluno) AS serie, coalesce(al.colegio_nome,a.colegio_nome,a.colegio_aluno) AS colegio,
+                coalesce(r.categoria,'') AS categoria, coalesce(r.convenio,'') AS convenio, coalesce(r.evento,'') AS evento,
+                coalesce(r.entrada,'pendente') AS entrada, coalesce(r.saida,'pendente') AS saida,
                 to_char(a.data,'YYYY-MM-DD') AS data,
                 to_char(coalesce(a.hora_inicio, a.horario),'HH24:MI') AS inicio,
                 to_char(a.hora_fim,'HH24:MI') AS fim,
@@ -63,8 +77,28 @@ export async function GET(req: NextRequest) {
                 coalesce(a.status,'confirmado') IN ('agendado','confirmado','pendente','reservado') AS previsao
             FROM agendamentos a LEFT JOIN professores p ON p.id = a.professor_id
                 LEFT JOIN unidades u ON u.id = a.unidade_id
+                LEFT JOIN alunos al ON al.id = a.aluno_id
+                LEFT JOIN r4_recepcao_registros r ON r.agendamento_id = a.id
                 LEFT JOIN r4_planos_alunos plano ON plano.aluno_id = a.aluno_id
-            WHERE a.excluido_em IS NULL AND a.data >= ${inicio}::date AND a.data < ${inicio}::date + interval '1 month'
+            WHERE a.excluido_em IS NULL AND a.data >= coalesce(nullif(${de}, '')::date, ${inicio}::date)
+              AND a.data < coalesce(nullif(${ate}, '')::date + 1, (${inicio}::date + interval '1 month')::date)
+              AND (${termo('professorAtivo')} <> 'sim' OR coalesce(p.ativo,true))
+              AND (${termo('alunoAtivo')} <> 'sim' OR coalesce(al.ativo,true))
+              AND (strpos(lower(coalesce(p.nome,'')), ${termo('professor')}) > 0)
+              AND (strpos(lower(coalesce(a.aluno_nome,a.nome_aluno,'')), ${termo('aluno')}) > 0)
+              AND (strpos(lower(coalesce(a.materia,'')), ${termo('materia')}) > 0)
+              AND (strpos(lower(coalesce(r.categoria,'')), ${termo('categoria')}) > 0)
+              AND (strpos(lower(coalesce(r.convenio,'')), ${termo('convenio')}) > 0)
+              AND (strpos(lower(coalesce(r.evento,'')), ${termo('evento')}) > 0)
+              AND (${termo('entrada')} = '' OR coalesce(r.entrada,'pendente') = ${termo('entrada')})
+              AND (${termo('saida')} = '' OR coalesce(r.saida,'pendente') = ${termo('saida')})
+              AND (${termo('acompanhamento')} = '' OR a.acompanhamento = (${termo('acompanhamento')} = 'sim'))
+              AND (${termo('feedback')} = '' OR (nullif(trim(a.feedback_professor),'') IS NOT NULL) = (${termo('feedback')} = 'sim'))
+              AND (${termo('dia')} = '' OR extract(dow FROM a.data)::text = ${termo('dia')})
+              AND (${termo('periodo')} = '' OR CASE
+                WHEN coalesce(a.hora_inicio,a.horario) < time '12:00' THEN 'manha'
+                WHEN coalesce(a.hora_inicio,a.horario) < time '18:00' THEN 'tarde'
+                ELSE 'noite' END = ${termo('periodo')})
               AND (NOT ${filtro} OR nullif(trim(a.feedback_professor), '') IS NOT NULL
                 OR (a.status IN ('realizado', 'concluido') AND a.aluno_id IS NOT NULL))
               AND (${unidade} = 0 OR a.unidade_id = ${unidade})
@@ -94,12 +128,20 @@ export async function GET(req: NextRequest) {
             SELECT *, count(*) OVER ()::int AS total,
                 coalesce(sum(repasse) FILTER (WHERE previsao) OVER (),0)::int AS repasse_previsto,
                 coalesce(sum(repasse) FILTER (WHERE NOT previsao) OVER (),0)::int AS repasse_apurado,
-                coalesce(sum(cobrar) OVER (),0)::int AS total_cobrar
+                coalesce(sum(cobrar) OVER (),0)::int AS total_cobrar,
+                coalesce(sum(cobrar) FILTER (WHERE entrada = 'pendente') OVER (),0)::int AS a_receber,
+                coalesce(sum(repasse) FILTER (WHERE saida = 'pendente') OVER (),0)::int AS a_pagar,
+                coalesce(sum(duracao) OVER (),0)::int AS minutos,
+                (SELECT count(DISTINCT professor_id)::int FROM financeiro) AS professores,
+                (SELECT count(DISTINCT materia)::int FROM financeiro) AS materias,
+                (SELECT count(DISTINCT coalesce(aluno_id::text, aluno))::int FROM financeiro) AS alunos,
+                (SELECT count(DISTINCT nullif(convenio,''))::int FROM financeiro) AS convenios
             FROM financeiro
             ORDER BY data DESC, inicio, id
-            LIMIT 51 OFFSET ${deslocamento}
+            LIMIT ${limite} OFFSET ${limite === 51 ? deslocamento : 0}
         `;
-        const resultados = linhas.slice(0, 50).map((linha) => {
+        if (limite > 51 && linhas.length === limite) return erro('Refine os filtros para exportar até 5.000 aulas.', 400);
+        const resultados = linhas.slice(0, limite === 51 ? 50 : limite).map((linha) => {
             const situacao = normalizarStatusAulaR4(linha.status);
             if (filtro) return {
                 id: linha.id, aluno_id: linha.aluno_id, aluno: linha.aluno, professor: linha.professor,
@@ -111,7 +153,10 @@ export async function GET(req: NextRequest) {
             if (sessao.role === 'professor') return { id, data, materia, repasse, previsao, status: situacao };
             return { id, data, materia, repasse, previsao, status: situacao, aluno: linha.aluno,
                 professor: linha.professor, unidade: linha.unidade, inicio: linha.inicio, fim: linha.fim,
-                cobrar: linha.cobrar, acompanhamento: linha.acompanhamento };
+                cobrar: linha.cobrar, acompanhamento: linha.acompanhamento, aluno_id: linha.aluno_id,
+                professor_id: linha.professor_id, unidade_id: linha.unidade_id, duracao: linha.duracao,
+                serie: linha.serie, colegio: linha.colegio, categoria: linha.categoria, convenio: linha.convenio,
+                evento: linha.evento, entrada: linha.entrada, saida: linha.saida };
         });
         const primeira = linhas[0];
         const somas = filtro ? undefined : {
@@ -119,7 +164,24 @@ export async function GET(req: NextRequest) {
             repasseApurado: primeira?.repasse_apurado ?? 0,
             cobrar: sessao.role === 'professor' ? undefined : primeira?.total_cobrar ?? 0,
         };
-        return NextResponse.json({ resultados, somas, total: primeira?.total ?? 0, temMais: linhas.length > 50 });
+        const resumo = recepcao ? {
+            receber: primeira?.a_receber ?? 0, pagar: primeira?.a_pagar ?? 0,
+            repasses: (primeira?.repasse_previsto ?? 0) + (primeira?.repasse_apurado ?? 0), minutos: primeira?.minutos ?? 0,
+            professores: primeira?.professores ?? 0, materias: primeira?.materias ?? 0,
+            alunos: primeira?.alunos ?? 0, convenios: primeira?.convenios ?? 0,
+        } : undefined;
+        const bloqueios = recepcao && params.get('bloqueios') === '1' && limite === 51 && !deslocamento ? await sql`
+            SELECT DISTINCT b.data::text AS data, b.hora_inicio::text AS inicio, b.hora_fim::text AS fim,
+                p.nome AS professor, u.nome AS unidade,
+                CASE WHEN to_jsonb(b)->>'origem' = 'manual' THEN b.motivo ELSE 'Bloqueio Clin Care' END AS motivo
+            FROM bloqueios_clincare b JOIN professores p ON p.id = b.professor_id JOIN unidades u ON u.id = p.unidade_id
+            WHERE b.data BETWEEN coalesce(nullif(${de},'')::date, ${inicio}::date)
+                AND coalesce(nullif(${ate},'')::date, (${inicio}::date + interval '1 month - 1 day')::date)
+                AND (${unidade} = 0 OR p.unidade_id = ${unidade})
+                AND strpos(lower(p.nome), ${termo('professor')}) > 0
+            ORDER BY data, inicio LIMIT 200
+        ` : [];
+        return NextResponse.json({ resultados, somas, resumo, bloqueios, total: primeira?.total ?? 0, temMais: limite === 51 && linhas.length > 50 });
     } catch (e) {
         console.error('Operação do R4:', e);
         return erro('Não foi possível carregar os dados.', 500);
@@ -170,5 +232,50 @@ export async function PATCH(req: Request) {
     } catch (e) {
         console.error('Plano do aluno:', e);
         return erro('Não foi possível salvar o plano.', 500);
+    }
+}
+
+export async function POST(req: Request) {
+    const sessao = await lerSessaoAdmin();
+    if (!sessao) return erro('Não autorizado.', 401);
+    try {
+        const cfg = await lerOperacaoR4();
+        if (sessao.role === 'professor' || !podeOperacao(cfg, sessao.role, 'agenda')) return erro('Sem permissão para editar lançamentos.', 403);
+        const { ids, campo, valor } = await req.json();
+        const campos = ['categoria', 'convenio', 'evento', 'entrada', 'saida'] as const;
+        if (!Array.isArray(ids) || !ids.length || ids.length > 5000 ||
+            ids.some((id) => !Number.isSafeInteger(id) || id <= 0) ||
+            !campos.includes(campo) || typeof valor !== 'string' || valor.length > 100 ||
+            (['entrada', 'saida'].includes(campo) && !['pendente', 'baixado', 'isento'].includes(valor))) {
+            return erro('Confira o campo e as aulas selecionadas.', 400);
+        }
+        await garantirHistoricoAgendamento();
+        const [resultado] = await sql`
+            WITH afetados AS (
+                INSERT INTO r4_recepcao_registros (agendamento_id, categoria, convenio, evento, entrada, saida, atualizado_por)
+                SELECT id, CASE WHEN ${campo} = 'categoria' THEN ${valor} ELSE '' END,
+                    CASE WHEN ${campo} = 'convenio' THEN ${valor} ELSE '' END,
+                    CASE WHEN ${campo} = 'evento' THEN ${valor} ELSE '' END,
+                    CASE WHEN ${campo} = 'entrada' THEN ${valor} ELSE 'pendente' END,
+                    CASE WHEN ${campo} = 'saida' THEN ${valor} ELSE 'pendente' END, ${sessao.nome}
+                FROM agendamentos WHERE id = ANY(${ids}::bigint[]) AND excluido_em IS NULL
+                ON CONFLICT (agendamento_id) DO UPDATE SET
+                    categoria = CASE WHEN ${campo} = 'categoria' THEN excluded.categoria ELSE r4_recepcao_registros.categoria END,
+                    convenio = CASE WHEN ${campo} = 'convenio' THEN excluded.convenio ELSE r4_recepcao_registros.convenio END,
+                    evento = CASE WHEN ${campo} = 'evento' THEN excluded.evento ELSE r4_recepcao_registros.evento END,
+                    entrada = CASE WHEN ${campo} = 'entrada' THEN excluded.entrada ELSE r4_recepcao_registros.entrada END,
+                    saida = CASE WHEN ${campo} = 'saida' THEN excluded.saida ELSE r4_recepcao_registros.saida END,
+                    atualizado_por = excluded.atualizado_por, atualizado_em = now()
+                RETURNING agendamento_id
+            ), historico AS (
+                INSERT INTO r4_agendamento_historico (agendamento_id, acao, responsavel)
+                SELECT agendamento_id, ${'Recepção: ' + campo + ' → ' + (valor || 'sem classificação')}, ${sessao.nome} FROM afetados
+            )
+            SELECT count(*)::int AS total FROM afetados
+        `;
+        return NextResponse.json({ total: resultado.total });
+    } catch (e) {
+        console.error('Atualização da recepção:', e);
+        return erro('Não foi possível salvar os lançamentos.', 500);
     }
 }

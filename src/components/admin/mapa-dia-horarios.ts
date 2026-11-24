@@ -56,3 +56,32 @@ export function distribuirSobreposicoes<T extends { inicio: number; fim: number 
     fecharGrupo();
     return resultado;
 }
+
+export function consolidarBloqueiosMapa(
+    itens: { inicio: number; fim: number; bloqueio: BloqueioAdmin }[],
+    aulas: { inicio: number; fim: number }[],
+) {
+    type Item = (typeof itens)[number];
+    const manuais = [...new Map(itens.filter(({ bloqueio }) => bloqueio.origem === 'manual').map((item) =>
+        [JSON.stringify([item.inicio, item.fim, item.bloqueio.motivo, item.bloqueio.descricao]), item])).values()];
+    const importados: Item[] = [];
+    for (const item of itens.filter(({ bloqueio }) => bloqueio.origem !== 'manual').sort((a, b) => a.inicio - b.inicio)) {
+        const anterior = importados.at(-1);
+        if (anterior && anterior.fim >= item.inicio) anterior.fim = Math.max(anterior.fim, item.fim);
+        else importados.push({ ...item });
+    }
+    const visiveis = importados.flatMap((item) => {
+        let partes = [item];
+        for (const outro of [...manuais, ...aulas]) {
+            partes = partes.flatMap((parte) => {
+                if (outro.fim <= parte.inicio || outro.inicio >= parte.fim) return [parte];
+                const restantes: Item[] = [];
+                if (parte.inicio < outro.inicio) restantes.push({ ...parte, fim: outro.inicio });
+                if (outro.fim < parte.fim) restantes.push({ ...parte, inicio: outro.fim });
+                return restantes;
+            });
+        }
+        return partes;
+    });
+    return [...manuais, ...visiveis];
+}

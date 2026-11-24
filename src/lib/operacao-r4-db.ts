@@ -14,6 +14,12 @@ export function prepararOperacaoR4() {
             aluno_id bigint PRIMARY KEY, plano text NOT NULL DEFAULT '',
             orientacoes text NOT NULL DEFAULT '', atualizado_em timestamptz NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS r4_recepcao_registros (
+            agendamento_id bigint PRIMARY KEY,
+            categoria text NOT NULL DEFAULT '', convenio text NOT NULL DEFAULT '', evento text NOT NULL DEFAULT '',
+            entrada text NOT NULL DEFAULT 'pendente', saida text NOT NULL DEFAULT 'pendente',
+            atualizado_por text NOT NULL, atualizado_em timestamptz NOT NULL DEFAULT now()
+        )`,
         sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS acompanhamento boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS feedback_professor text, ADD COLUMN IF NOT EXISTS duracao_minutos integer DEFAULT 100`,
     ]).catch((erro) => { preparo = undefined; throw erro; });

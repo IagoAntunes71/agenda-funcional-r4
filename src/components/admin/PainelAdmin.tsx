@@ -56,6 +56,7 @@ import AbaMapaDia from './AbaMapaDia';
 import DiretorioProfessoresR4 from './DiretorioProfessoresR4';
 import AbaProfessores from './AbaProfessores';
 import { ConfiguracoesOperacaoR4, RelatorioOperacaoR4, useOperacaoR4 } from './OperacaoPainelR4';
+import RecepcaoR4 from './RecepcaoR4';
 import EditorCoresInterface from './EditorCoresInterface';
 import { useCoresR4, variaveisCoresR4 } from '@/components/CoresInterfaceR4';
 import EditorTextosInterface from './EditorTextosInterface';
@@ -1307,7 +1308,7 @@ export default function PainelAdmin({
 
                 <div
                     className={`${
-                        mapa
+                        mapa || aba === 'recepcao'
                             ? 'max-w-full px-3 sm:px-5 py-4'
                             : 'max-w-[1440px] px-4 sm:px-8 py-6'
                     } w-full mx-auto transition-all`}
@@ -1324,7 +1325,10 @@ export default function PainelAdmin({
                     )}
                     {aba === 'configuracoes' && admin && <ConfiguracoesOperacaoR4 />}
                     {aba === 'controle-alunos' && <RelatorioOperacaoR4 painel="alunos" perfil={perfilAtual.role} unidades={unidades} />}
-                    {aba === 'recepcao' && <RelatorioOperacaoR4 painel="recepcao" perfil={perfilAtual.role} unidades={unidades} />}
+                    {aba === 'recepcao' && (perfilAtual.role === 'professor'
+                        ? <RelatorioOperacaoR4 painel="recepcao" perfil={perfilAtual.role} unidades={unidades} />
+                        : <RecepcaoR4 perfil={perfilAtual.role} unidades={unidades} professores={professores} alunos={alunos}
+                            escuro={escuro} classes={classesCompartilhadas} atualizarAgenda={carregarDados} />)}
                     {aba === 'metas' && <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} />}
                     {aba === 'agendamentos' && retornoStatus && (
                         <p className={`mb-3 rounded-lg border p-3 text-sm ${clsCard}`} role={retornoStatus.erro ? 'alert' : 'status'}>
