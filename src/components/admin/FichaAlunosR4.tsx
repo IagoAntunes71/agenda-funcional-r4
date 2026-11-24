@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, CalendarDays, ClipboardList, Contact, GraduationCap, Search, UserRound, UserRoundX } from 'lucide-react';
 import { formatarTelefone, normalizarTelefone, SERIES_ESCOLARES } from '@/lib/cliente-helpers';
+import { FORMATO_ALUNOS_CLINCARE, inferirColegioClinCare, inferirSerieClinCare, padronizarColegioClinCare, validarAlunoClinCare, type AlunoClinCare } from '@/lib/importacao-alunos-clincare';
 import { obterMetaStatusR4 } from '@/lib/agenda-status-r4';
 import { adicionarDiasISO, obterAgoraBahia } from '@/lib/horarios-reforco';
 import { comprimirImagemAvatar, formatarDataBR, obterIniciais } from './types';
@@ -14,11 +15,11 @@ type Aluno = {
     id: number; nome_aluno: string; colegio_nome: string; serie: string; ativo: boolean; clin_care_aluno_id: string | null;
     responsavel_id: number | null; responsavel_nome: string; telefone: string; tem_pin: boolean; nascimento: string | null;
 };
-type Contato = { id: number; nome: string; parentesco: string; telefone: string; email: string; cpf: string; observacoes: string };
+type Contato = { id: number; nome: string; parentesco: string; telefone: string; email: string; cpf: string; observacoes: string; principal_clincare?: boolean };
 type Ficha = Aluno & { foto_ficha: string; cpf: string; sexo: string; email: string; endereco: string; plano: string; orientacoes: string };
 type Aula = { id: number; data: string; inicio: string; fim: string; materia: string; professor: string; unidade: string; status: string; feedback: string | null };
 type Base = { alunos: Aluno[]; podeEditar: boolean; podeCriar: boolean; podeImportar: boolean };
-type Importado = { clin_care_aluno_id: string; nome_aluno: string; telefone: string; responsavel_nome: string; colegio_nome: string; serie: string };
+type Importado = { clin_care_aluno_id: string; nome_aluno: string; telefone: string; responsavel_nome: string; colegio_nome: string; serie: string; ficha?: AlunoClinCare };
 const secoes = [
     { id: 'perfil', nome: 'Perfil', descricao: 'Dados pessoais e escolares', Icone: UserRound },
     { id: 'contatos', nome: 'Contatos', descricao: 'Responsável e acesso ao portal', Icone: Contact },
@@ -93,15 +94,18 @@ function lerCsv(texto: string): Importado[] {
         if (!id || nome.length < 2 || ids.has(id)) throw new Error('Confira o ID e o nome da linha ' + (i + 2) + '.');
         ids.add(id);
         return { clin_care_aluno_id: id, nome_aluno: nome, telefone: campo('whatsapp'),
-            responsavel_nome: campo('responsavel'), colegio_nome: campo('colegio'), serie: campo('serie') };
+            responsavel_nome: campo('responsavel'), colegio_nome: padronizarColegioClinCare(campo('colegio') || inferirColegioClinCare(nome)), serie: inferirSerieClinCare(campo('serie') || nome) };
     });
 }
 
 function Importacao({ alunos, atualizar, fechar }: { alunos: Aluno[]; atualizar: () => void; fechar: () => void }) {
     const [linhas, setLinhas] = useState<Importado[]>([]);
+    const [series, setSeries] = useState<Record<string,string>>({});
+    const [colegios, setColegios] = useState<Record<string,string>>({});
     const [escolhas, setEscolhas] = useState<Record<string, string>>({});
     const [estado, setEstado] = useState<Record<string, string>>({});
     const [erro, setErro] = useState('');
+    const [avisoArquivo, setAvisoArquivo] = useState('');
     const [ocupado, setOcupado] = useState(false);
     const [confirmar, setConfirmar] = useState(false);
     const [pagina, setPagina] = useState(0);
@@ -111,7 +115,7 @@ function Importacao({ alunos, atualizar, fechar }: { alunos: Aluno[]; atualizar:
         const exatos = alunos.filter((a) => limpar(a.nome_aluno) === limpar(item.nome_aluno) && telefone && normalizarTelefone(a.telefone) === telefone);
         const possiveis = alunos.filter((a) => !a.clin_care_aluno_id && (limpar(a.nome_aluno) === limpar(item.nome_aluno) ||
             (telefone && normalizarTelefone(a.telefone) === telefone)));
-        const sugestao = escolhas[item.clin_care_aluno_id] ?? (existente ? '' : exatos.length === 1 && !exatos[0].clin_care_aluno_id ?
+        const sugestao = escolhas[item.clin_care_aluno_id] ?? (existente ? String(existente.id) : exatos.length === 1 && !exatos[0].clin_care_aluno_id ?
             String(exatos[0].id) : possiveis.length || exatos.length ? '' : 'novo');
         return { item, existente, possiveis, sugestao };
     });
@@ -120,16 +124,16 @@ function Importacao({ alunos, atualizar, fechar }: { alunos: Aluno[]; atualizar:
         setOcupado(true);
         const destinos = new Set<string>();
         try {
-            for (const { item, existente, sugestao } of propostas) {
+            for (const { item, sugestao } of propostas) {
                 const chave = item.clin_care_aluno_id;
-                if (existente || !sugestao || estado[chave] === 'Salvo') continue;
+                if (!sugestao || estado[chave] === 'Salvo') continue;
                 if (sugestao !== 'novo' && destinos.has(sugestao)) {
                     setEstado((atual) => ({ ...atual, [chave]: 'Outro registro usa o mesmo aluno. Revise o vínculo.' }));
                     continue;
                 }
                 if (sugestao !== 'novo') destinos.add(sugestao);
                 try {
-                    await salvar({ ...item, acao: 'importar', id: Number(sugestao) || undefined, novo: sugestao === 'novo' });
+                    await salvar({ ...item, ...item.ficha, colegio_nome: colegios[chave] ?? item.colegio_nome, serie: series[chave] ?? item.serie, acao: item.ficha ? 'importar_ficha' : 'importar', id: Number(sugestao) || undefined, novo: sugestao === 'novo' });
                     setEstado((atual) => ({ ...atual, [chave]: 'Salvo' }));
                 } catch (e) { setEstado((atual) => ({ ...atual, [chave]: (e as Error).message })); }
             }
@@ -139,23 +143,58 @@ function Importacao({ alunos, atualizar, fechar }: { alunos: Aluno[]; atualizar:
     return <section className={css.painel}>
         <button type="button" onClick={() => { atualizar(); fechar(); }} disabled={ocupado}>← Alunos</button>
         <h2>Importar alunos do Clin Care</h2>
-        <p>Use um CSV com os cabeçalhos <code>id;nome;whatsapp;responsavel;colegio;serie</code>. Use o ID permanente do Clin Care.</p>
+        <p>Selecione o JSON gerado pela rotina local ou use um CSV com os cabeçalhos <code>id;nome;whatsapp;responsavel;colegio;serie</code>. Use o ID permanente do Clin Care.</p>
         <a download="modelo-alunos-clin-care.csv" href="data:text/csv;charset=utf-8,id%3Bnome%3Bwhatsapp%3Bresponsavel%3Bcolegio%3Bserie%0A">Baixar modelo CSV</a>
-        <input type="file" accept=".csv,text/csv" disabled={ocupado} onChange={async (e) => {
+        <input type="file" accept=".csv,.json,text/csv,application/json" disabled={ocupado} onChange={async (e) => {
             const arquivo = e.target.files?.[0];
             if (!arquivo) return;
-            setErro(''); setLinhas([]); setEscolhas({}); setEstado({}); setConfirmar(false); setPagina(0);
+            setErro(''); setAvisoArquivo(''); setLinhas([]); setColegios({}); setSeries({}); setEscolhas({}); setEstado({}); setConfirmar(false); setPagina(0);
             try {
-                if (arquivo.size > 5_000_000) throw new Error('Use um CSV de até 5 MB.');
-                setLinhas(lerCsv(await arquivo.text()));
+                if (arquivo.size > 20_000_000) throw new Error('Use um arquivo de até 20 MB.');
+                const conteudo = await arquivo.text();
+                if (!arquivo.name.toLowerCase().endsWith('.json')) {
+                    setLinhas(lerCsv(conteudo));
+                    return;
+                }
+                const dados = JSON.parse(conteudo);
+                if (dados?.formato !== FORMATO_ALUNOS_CLINCARE || !Array.isArray(dados.alunos) ||
+                    !dados.alunos.every(validarAlunoClinCare)) throw new Error('O JSON contém fichas inválidas.');
+                const fichas = dados.alunos as AlunoClinCare[];
+                if (new Set(fichas.map((item) => item.clin_care_aluno_id)).size !== fichas.length) throw new Error('O JSON tem IDs repetidos.');
+                setLinhas(fichas.map((ficha) => {
+                    const principal = ficha.responsaveis.find((item) => item.principal) ?? (ficha.responsaveis.length === 1 ? ficha.responsaveis[0] : undefined);
+                    return { clin_care_aluno_id: ficha.clin_care_aluno_id, nome_aluno: ficha.nome_aluno,
+                        telefone: principal?.telefone || '', responsavel_nome: principal?.nome || '',
+                        colegio_nome: padronizarColegioClinCare(ficha.colegio_nome ?? inferirColegioClinCare(ficha.nome_aluno)),
+                        serie: inferirSerieClinCare(ficha.serie || ficha.nome_aluno), ficha };
+                }));
+                const pendencias = Array.isArray(dados.pendencias) ? dados.pendencias.length : 0;
+                setAvisoArquivo([dados.parcial ? 'Coleta parcial ou com cobertura não confirmada.' : '',
+                    pendencias ? pendencias + ' pendências registradas no JSON.' : ''].filter(Boolean).join(' '));
             } catch (e) { setErro((e as Error).message); }
         }} />
         {erro && <p role="alert">{erro}</p>}
+        {avisoArquivo && <p role="status">{avisoArquivo}</p>}
         {linhas.length > 0 && <>
             <p>{linhas.length} alunos no arquivo · {Object.values(estado).filter((v) => v === 'Salvo').length} salvos</p>
             {propostas.slice(pagina * 30, pagina * 30 + 30).map(({ item, existente, possiveis, sugestao }) => <article className={css.linha} key={item.clin_care_aluno_id}>
-                <div><strong>{item.nome_aluno}</strong><p>{[item.responsavel_nome, item.telefone, item.colegio_nome, item.serie].filter(Boolean).join(' · ')}</p></div>
-                {existente ? <span>Já importado</span> : <select aria-label={'Destino de ' + item.nome_aluno} value={sugestao}
+                <div><strong>{item.nome_aluno}</strong><p>{[item.responsavel_nome, item.telefone, item.colegio_nome, item.serie].filter(Boolean).join(' · ')}</p>
+                    {item.ficha && <small>{item.ficha.responsaveis.length} contatos · {item.ficha.responsaveis.filter((r) => r.cpf).length} CPFs</small>}
+                </div>
+                <label>Colégio <input value={colegios[item.clin_care_aluno_id] ?? item.colegio_nome} maxLength={180}
+                    placeholder="Não informado" disabled={ocupado || estado[item.clin_care_aluno_id] === 'Salvo'} onChange={(e) => {
+                        setColegios((atual) => ({ ...atual, [item.clin_care_aluno_id]: e.target.value }));
+                        setConfirmar(false);
+                    }} /></label>
+                <label>Série <select value={series[item.clin_care_aluno_id] ?? item.serie}
+                    disabled={ocupado || estado[item.clin_care_aluno_id] === 'Salvo'} onChange={(e) => {
+                        setSeries((atual) => ({ ...atual, [item.clin_care_aluno_id]: e.target.value }));
+                        setConfirmar(false);
+                    }}>
+                    <option value="">Manter ou deixar em branco</option>
+                    {SERIES_ESCOLARES.map((serie) => <option key={serie}>{serie}</option>)}
+                </select></label>
+                {existente ? <span>Completar ficha existente</span> : <select aria-label={'Destino de ' + item.nome_aluno} value={sugestao}
                     disabled={ocupado || estado[item.clin_care_aluno_id] === 'Salvo'} onChange={(e) => {
                         setEscolhas((atual) => ({ ...atual, [item.clin_care_aluno_id]: e.target.value }));
                         setConfirmar(false);
@@ -169,7 +208,7 @@ function Importacao({ alunos, atualizar, fechar }: { alunos: Aluno[]; atualizar:
                 <button type="button" disabled={!pagina} onClick={() => setPagina(pagina - 1)}>Anterior</button>
                 <button type="button" disabled={(pagina + 1) * 30 >= linhas.length} onClick={() => setPagina(pagina + 1)}>Próxima</button>
             </div>
-            <label className={css.confirmar}><input type="checkbox" checked={confirmar} disabled={ocupado} onChange={(e) => setConfirmar(e.target.checked)} /> Revisei os vínculos de todas as páginas</label>
+            <label className={css.confirmar}><input type="checkbox" checked={confirmar} disabled={ocupado} onChange={(e) => setConfirmar(e.target.checked)} /> Revisei os vínculos, os colégios e as séries de todas as páginas</label>
             <button className="r4-acao" type="button" disabled={!confirmar || ocupado} onClick={() => void aplicar()}>{ocupado ? 'Importando…' : 'Aplicar importação'}</button>
         </>}
     </section>;
@@ -328,10 +367,10 @@ function ContatosAdicionais({ id, contatos, atualizar, pode }: { id: number; con
         </>;
     }
     return <div className={css.painel}>
-        <h3>Outros responsáveis e contatos</h3>
+        <h3>Responsáveis e contatos da ficha</h3>
         <p>Contatos adicionais para a equipe. O acesso ao Portal é gerenciado pelo vínculo principal.</p>
         {contatos.map((item) => <details key={item.id}>
-            <summary>{item.nome}{item.parentesco && ' · ' + item.parentesco}</summary>
+            <summary>{item.nome}{item.parentesco && ' · ' + item.parentesco}{item.principal_clincare && ' · Principal no Clin Care'}</summary>
             <p>{[formatarTelefone(item.telefone),item.email,item.cpf,item.observacoes].filter(Boolean).join(' · ')}</p>
             {pode && <>
                 <Formulario acao="contato_extra" id={id} atualizado={atualizar}>{campos(item)}</Formulario>

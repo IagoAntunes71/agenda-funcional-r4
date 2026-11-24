@@ -19,6 +19,10 @@ export function prepararCadastroAlunoR4() {
             nome text NOT NULL, parentesco text NOT NULL DEFAULT '', telefone text NOT NULL DEFAULT '',
             email text NOT NULL DEFAULT '', cpf text NOT NULL DEFAULT '', observacoes text NOT NULL DEFAULT ''
         )`,
+        sql`ALTER TABLE r4_contatos_aluno ADD COLUMN IF NOT EXISTS chave_importacao text,
+            ADD COLUMN IF NOT EXISTS principal_clincare boolean NOT NULL DEFAULT false`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS r4_contatos_aluno_importacao_unica
+            ON r4_contatos_aluno(aluno_id,chave_importacao)`,
         sql`CREATE INDEX IF NOT EXISTS r4_contatos_aluno_por_aluno ON r4_contatos_aluno(aluno_id)`,
         sql`CREATE UNIQUE INDEX IF NOT EXISTS alunos_clin_care_aluno_id_unico ON alunos(clin_care_aluno_id)`,
     ]).catch((erro) => { preparo = undefined; throw erro; });
