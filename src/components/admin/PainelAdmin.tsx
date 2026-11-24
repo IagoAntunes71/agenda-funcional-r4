@@ -1180,6 +1180,7 @@ export default function PainelAdmin({
                         className={`${
                             mapa
                                 ? 'max-w-full'
+                                : aba === 'recepcao' ? 'max-w-[1680px]'
                                 : 'max-w-[1440px]'
                         } mx-auto flex flex-wrap items-center justify-between gap-4`}
                     >
@@ -1308,8 +1309,9 @@ export default function PainelAdmin({
 
                 <div
                     className={`${
-                        mapa || aba === 'recepcao'
+                        mapa
                             ? 'max-w-full px-3 sm:px-5 py-4'
+                            : aba === 'recepcao' ? 'max-w-[1728px] px-4 sm:px-6 py-5'
                             : 'max-w-[1440px] px-4 sm:px-8 py-6'
                     } w-full mx-auto transition-all`}
                 >

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Calendar, Download, Plus, Users } from 'lucide-react';
+import { BookOpen, Calendar, ChevronDown, Clock3, Download, MapPin, Plus, SlidersHorizontal, Users } from 'lucide-react';
 import { LISTA_STATUS_AULA_R4, obterMetaStatusR4, type StatusAulaR4 } from '@/lib/agenda-status-r4';
 import { CORES_STATUS_R4, podeOperacao, type PerfilOperacao } from '@/lib/operacao-r4';
 import { adicionarDiasISO, obterAgoraBahia } from '@/lib/horarios-reforco';
@@ -173,30 +173,51 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
 
     return <div className={css.recepcao}>
         <aside className={css.filtros}>
-            <div className={css.topoFiltros}><h2>Filtros</h2><button type="button" onClick={() => { setFiltros(filtrosPadrao()); setOffset(0); setSelecionadas([]); }}>Limpar</button></div>
+            <div className={css.topoFiltros}><h2><SlidersHorizontal size={16} /> Filtros</h2><button type="button" onClick={() => { setFiltros(filtrosPadrao()); setOffset(0); setSelecionadas([]); }}>Limpar</button></div>
             <div className={css.datas}>{(['de', 'ate'] as const).map((chave) => <label key={chave}>{chave === 'de' ? 'De' : 'Até'}
                 <input type="date" value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} />
             </label>)}</div>
             {seletor('unidade', 'Unidade', unidades.map((u) => [String(u.id), u.nome]))}
-            {filtrosTexto.map(([chave, rotulo]) => <label key={chave}>{rotulo}
-                <input value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} placeholder={rotulo} /></label>)}
-            {seletor('professorAtivo', 'Cadastro do professor', [['sim', 'Somente ativos']])}
-            {seletor('alunoAtivo', 'Cadastro do aluno', [['sim', 'Somente ativos']])}
             {seletor('status', 'Status da aula', LISTA_STATUS_AULA_R4.map((s) => [s.valor, s.rotulo]))}
-            {seletor('entrada', 'Status financeiro de entrada', opcoesFinanceiras)}
-            {seletor('saida', 'Status financeiro de saída', opcoesFinanceiras)}
-            {seletor('acompanhamento', 'Acompanhamento', [['sim', 'Somente acompanhamento'], ['nao', 'Somente aulas regulares']])}
-            {seletor('feedback', 'Feedback', [['sim', 'Com feedback'], ['nao', 'Sem feedback']])}
-            {seletor('dia', 'Dia da semana', ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'].map((dia, i) => [String(i), dia]))}
-            {seletor('periodo', 'Período do dia', [['manha', 'Manhã'], ['tarde', 'Tarde'], ['noite', 'Noite']])}
+            {filtrosTexto.filter(([chave]) => ['professor', 'aluno', 'materia'].includes(chave)).map(([chave, rotulo]) =>
+                <label key={chave}>{rotulo}
+                    <input value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} placeholder={'Buscar ' + rotulo.toLowerCase()} />
+                </label>)}
+            <details className={css.grupoFiltros} open={visao === 'financeiro' ? true : undefined}>
+                <summary>Financeiro <ChevronDown size={14} /></summary>
+                {seletor('entrada', 'Status de entrada', opcoesFinanceiras)}
+                {seletor('saida', 'Status de saída', opcoesFinanceiras)}
+            </details>
+            <details className={css.grupoFiltros}>
+                <summary>Mais filtros <ChevronDown size={14} /></summary>
+                {filtrosTexto.filter(([chave]) => ['categoria', 'convenio', 'evento'].includes(chave)).map(([chave, rotulo]) =>
+                    <label key={chave}>{rotulo}<input value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} /></label>)}
+                {seletor('professorAtivo', 'Cadastro do professor', [['sim', 'Somente ativos']])}
+                {seletor('alunoAtivo', 'Cadastro do aluno', [['sim', 'Somente ativos']])}
+                {seletor('acompanhamento', 'Acompanhamento', [['sim', 'Somente acompanhamento'], ['nao', 'Somente aulas regulares']])}
+                {seletor('feedback', 'Feedback', [['sim', 'Com feedback'], ['nao', 'Sem feedback']])}
+                {seletor('dia', 'Dia da semana', ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'].map((dia, i) => [String(i), dia]))}
+                {seletor('periodo', 'Período do dia', [['manha', 'Manhã'], ['tarde', 'Tarde'], ['noite', 'Noite']])}
+            </details>
             <label className={css.check}><input type="checkbox" checked={filtros.bloqueios === '1'} onChange={(e) => filtrar('bloqueios', e.target.checked ? '1' : '')} /> Exibir bloqueios</label>
         </aside>
 
         <main className={css.centro}>
+            <div className={css.cabecalhoLista}>
+                <h2>{visao === 'aulas' ? 'Lista de aulas' : 'Agenda financeira'}</h2>
+                {dados && !dados.erro && <span>{dados.total} {dados.total === 1 ? 'aula' : 'aulas'}</span>}
+            </div>
+            <div className={css.barraPrincipal}>
+                <div className={css.visoes} role="group" aria-label="Exibição">
+                    <button type="button" aria-pressed={visao === 'aulas'} onClick={() => setVisao('aulas')}>Aulas</button>
+                    <button type="button" aria-pressed={visao === 'financeiro'} onClick={() => setVisao('financeiro')}>Financeiro</button>
+                </div>
+                <div className={css.acoesPrincipais}>
+                <button type="button" disabled={ocupado} onClick={() => void exportar()}><Download size={15} /> CSV</button>
+                {podeEditar && <button type="button" className="r4-acao" onClick={() => setNovo(true)}><Plus size={15} /> Nova aula</button>}
+                </div>
+            </div>
             <div className={css.ferramentas}>
-                <select aria-label="Exibir" value={visao} onChange={(e) => setVisao(e.target.value === 'financeiro' ? 'financeiro' : 'aulas')}>
-                    <option value="aulas">Lista de aulas</option><option value="financeiro">Agenda financeira</option>
-                </select>
                 <button type="button" disabled={!podeEditar || selecionadas.length !== 1 || !aulas.some((a) => a.id === selecionadas[0])}
                     onClick={() => { const item = aulas.find((a) => a.id === selecionadas[0]); if (item) editar(item); }}>Editar agenda</button>
                 <select aria-label="Ação da seleção" disabled={!podeEditar || !selecionadas.length} value={campo} onChange={(e) => { setCampo(e.target.value); setValor(''); }}>
@@ -209,8 +230,6 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
                 <button type="button" disabled={ocupado || !dados?.total} onClick={() => void selecionarTudo()}>
                     {selecionadas.length && selecionadas.length === dados?.total ? 'Limpar seleção' : 'Selecionar todos os resultados'}
                 </button>
-                <button type="button" disabled={ocupado} onClick={() => void exportar()}><Download size={15} /> CSV</button>
-                {podeEditar && <button type="button" className="r4-acao" onClick={() => setNovo(true)}><Plus size={15} /> Nova aula</button>}
             </div>
             {campo && <form className={css.ferramentas} onSubmit={registrar}>
                 {['entrada', 'saida'].includes(campo)
@@ -219,7 +238,6 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
                     : <input aria-label="Classificação" value={valor} maxLength={100} placeholder="Deixe vazio para limpar" onChange={(e) => setValor(e.target.value)} />}
                 <button type="submit" disabled={ocupado || !selecionadas.length} className="r4-acao">Aplicar</button>
             </form>}
-            <h2>{visao === 'aulas' ? 'Lista de aulas' : 'Agenda financeira'}</h2>
             {mensagem && <p role="status" className={css.mensagem}>{mensagem}</p>}
             {!dados && <p className={css.mensagem}>Carregando aulas…</p>}
             {dados?.erro && <p role="alert" className={css.mensagem}>{dados.erro}</p>}
@@ -227,11 +245,11 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             {aulas.map((aula) => {
                 const status = obterMetaStatusR4(aula.status);
                 const cor = cfg.status[status.valor]?.cor || CORES_STATUS_R4[status.valor];
-                return <article key={aula.id} className={css.aula} style={{ borderInlineStartColor: cor }}>
+                return <article key={aula.id} className={css.aula} style={{ ['--cor-aula' as string]: cor }}>
                     <div className={css.dadosAluno}>
                         <div className={css.dataAula}>
                             <input type="checkbox" aria-label={`Selecionar aula de ${aula.aluno}`} checked={selecionadas.includes(aula.id)} onChange={() => selecionar(aula.id)} />
-                            <Calendar size={13} /> {formatarDataBR(aula.data)} · {aula.inicio}{aula.fim ? '–' + aula.fim : ''}
+                            <Calendar size={13} /> {formatarDataBR(aula.data)} <span className={css.horario}><Clock3 size={13} />{aula.inicio}{aula.fim ? '–' + aula.fim : ''}</span>
                         </div>
                         <button type="button" className={css.aluno} onClick={() => editar(aula)}>
                             <span className={css.avatar}>{obterIniciais(aula.aluno)}</span>
@@ -239,16 +257,22 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
                         </button>
                     </div>
                     <div className={css.dadosAula}>
-                        <div className={css.status} style={{ borderBlockEndColor: cor }}>
+                        <div className={css.status} data-editavel={podeEditar}>
+                            <span className={css.ponto} />
+                            <span>{status.rotulo}</span>
+                            {podeEditar && <ChevronDown size={14} className={css.chevron} aria-hidden="true" />}
                             {podeEditar ? <select aria-label={`Status de ${aula.aluno}`} disabled={ocupado} value={status.valor}
                                 onChange={(e) => void mudarStatus(aula, e.target.value)}>
                                 {LISTA_STATUS_AULA_R4.filter((item) => cfg.status[item.valor]?.ativo || item.valor === status.valor)
                                     .map((item) => <option value={item.valor} key={item.valor}>{item.rotulo}</option>)}
-                            </select> : <span>{status.rotulo}</span>}
+                            </select> : null}
                         </div>
                         <div className={css.conteudoAula}>
                             <span><Users size={13} /> {aula.professor || 'Sem professor'}</span>
-                            <strong>{aula.materia} · {aula.unidade}</strong>
+                            <div className={css.metadados}>
+                                <span><BookOpen size={13} />{aula.materia}</span>
+                                {aula.unidade && <span><MapPin size={13} />{aula.unidade}</span>}
+                            </div>
                             {(aula.acompanhamento || aula.categoria || aula.convenio || aula.evento) &&
                                 <small>{[aula.acompanhamento && 'Acompanhamento', aula.categoria, aula.convenio, aula.evento].filter(Boolean).join(' · ')}</small>}
                             {visao === 'financeiro' && <small>Família {dinheiro(aula.cobrar)} · Repasse {dinheiro(aula.repasse)} · Entrada {financeiro[aula.entrada as keyof typeof financeiro]} · Saída {financeiro[aula.saida as keyof typeof financeiro]}</small>}
@@ -268,13 +292,17 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
 
         <aside className={css.resumo}>
             <h2>Resumo do período</h2>
-            <dl>{[
-                ['Valor a receber', dinheiro(resumo?.receber ?? 0)], ['Valor a pagar', dinheiro(resumo?.pagar ?? 0)],
-                ['Repasses das aulas', dinheiro(resumo?.repasses ?? 0)], ['Diferença', dinheiro((resumo?.receber ?? 0) - (resumo?.pagar ?? 0))],
-                ['Total de agendamentos', dados?.total ?? 0], ['Total de horas', `${Math.floor((resumo?.minutos ?? 0) / 60)} h ${(resumo?.minutos ?? 0) % 60} min`],
+            <dl className={css.valores}>
+                <div><dt>A receber</dt><dd>{dados && !dados.erro ? dinheiro(resumo?.receber ?? 0) : '—'}</dd></div>
+                <div><dt>A pagar</dt><dd>{dados && !dados.erro ? dinheiro(resumo?.pagar ?? 0) : '—'}</dd></div>
+            </dl>
+            <dl className={css.indicadores}>{[
+                ['Repasses das aulas', dinheiro(resumo?.repasses ?? 0)],
+                ['Diferença', dinheiro((resumo?.receber ?? 0) - (resumo?.pagar ?? 0))],
+                ['Agendamentos', dados?.total ?? 0], ['Tempo total', `${Math.floor((resumo?.minutos ?? 0) / 60)} h ${(resumo?.minutos ?? 0) % 60} min`],
                 ['Professores', resumo?.professores ?? 0], ['Matérias', resumo?.materias ?? 0],
                 ['Convênios', resumo?.convenios ?? 0], ['Alunos', resumo?.alunos ?? 0],
-            ].map(([rotulo, valor]) => <div key={rotulo}><dt>{rotulo}</dt><dd>{valor}</dd></div>)}</dl>
+            ].map(([rotulo, valor]) => <div key={rotulo}><dt>{rotulo}</dt><dd>{dados && !dados.erro ? valor : '—'}</dd></div>)}</dl>
         </aside>
 
         <ModalDetalhesAulaR4 aula={editor} roleUsuario={perfil} unidades={unidades} professores={professores} alunos={alunos}
