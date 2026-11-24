@@ -301,3 +301,36 @@
 
 .mapa[data-apresentacao='true'] .grade { width: 100%; }
 .mapa[data-apresentacao='true'] .scroll[data-expandido='true'] { max-height: calc(100dvh - 114px); }
+
+.painel, .agenda { border-radius: 12px; box-shadow: none; }
+.mapa, .mapa[data-tema='escuro'] {
+    --muted: color-mix(in srgb,var(--ink) 76%,var(--surface));
+    --line: color-mix(in srgb,var(--ink) 15%,var(--surface));
+}
+.professor { padding: 11px 9px; gap: 7px; }
+.professor strong { font-size: 13px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
+.mapa .aula {
+    background: color-mix(in srgb,var(--event) 24%,var(--surface));
+    color: var(--ink);
+}
+.mapa[data-tema='escuro'] .aula {
+    background: color-mix(in srgb,var(--event) 25%,var(--surface));
+    color: var(--ink);
+}
+.aulaHora i { background-color: var(--event); }
+.mapa .aula::before { background: var(--event); width: 4px; }
+.aula strong { font-size: 13px; }
+.aula small { font-size: 11px; }
+.aulaHora { font-size: 11px; }
+.mapa[data-apresentacao='true'] .professor strong { font-size: 12px; }
+.mapa[data-apresentacao='true'] .aula strong { font-size: 11px; }
+.mapa[data-apresentacao='true'] :is(.aulaHora,.bloqueio span) { font-size: 10px; }
+.aula[data-dividida='true'] { padding-inline: 8px 4px; }
+.aula[data-dividida='true'] strong {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 11px;
+}

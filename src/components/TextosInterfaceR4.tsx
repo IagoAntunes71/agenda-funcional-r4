@@ -40,7 +40,7 @@ export function useCatalogoTextosR4() {
     return useContext(Context);
 }
 
-export function useTextoR4() {
+export function useTextoR4(escopo: 'admin' | 'portal' = 'admin') {
     const { textos } = useContext(Context);
-    return (original: string) => textos[original] || original;
+    return (original: string) => (escopo === 'portal' ? textos['portal:' + original] : textos[original]) || original;
 }

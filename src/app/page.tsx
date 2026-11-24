@@ -114,7 +114,7 @@ function formatarDiaSemana(isoDate: string): string {
 }
 
 export default function PaginaAgendamentoReforco() {
-    const textoR4 = useTextoR4();
+    const textoR4 = useTextoR4('portal');
     const { paleta } = useCoresR4();
   const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
   const [textos, setTextos] = useState<TextosPortal>(TEXTOS_PORTAL_PADRAO);
@@ -1096,7 +1096,7 @@ export default function PaginaAgendamentoReforco() {
             }`}
         >
           <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
-            <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Portal de Agendamento")} />
+            <LogoR4 portal temaEscuro={escuro} subtitulo={textoR4("Portal de Agendamento")} />
 
             <div className="flex items-center gap-2.5">
             <span

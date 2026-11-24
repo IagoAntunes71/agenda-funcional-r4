@@ -52,7 +52,7 @@ function formatarWhatsapp(valor: string): string {
 }
 
 export default function FluxoAgendamento() {
-    const textoR4 = useTextoR4();
+    const textoR4 = useTextoR4('portal');
     const [abaCliente, setAbaCliente] = useState<'agendar' | 'meus'>('agendar');
 
     const [unidades, setUnidades] = useState<Unidade[]>([]);

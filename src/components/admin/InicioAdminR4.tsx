@@ -18,7 +18,7 @@ export type ResumoSemana = {
 };
 
 const perfis = { admin: 'Administrador', atendimento: 'Atendimento', professor: 'Professor' };
-const operacao = new Set(['mapa', 'agendamentos', 'alunos', 'professores']);
+const atalhosOperacao = ['recepcao', 'agendamentos', 'alunos', 'controle-alunos'];
 
 export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escuro }: {
     perfil: PerfilAdmin;
@@ -30,10 +30,7 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
     const textoR4 = useTextoR4();
     const hoje = obterAgoraBahia().dataISO;
     const unidadesAtivas = unidades.filter((unidade) => unidade.ativa);
-    const grupos = [
-        { titulo: perfil.role === 'professor' ? 'Minha agenda' : 'Atendimento e agenda', modulos: modulos.filter((item) => operacao.has(item.id)) },
-        { titulo: 'Gestão do R4', modulos: modulos.filter((item) => !operacao.has(item.id)) },
-    ];
+    const atalhos = atalhosOperacao.flatMap((id) => modulos.filter((item) => item.id === id));
     const numeros = [
         { titulo: 'Total', valor: resumo?.total, cor: '' },
         { titulo: 'Agendadas e confirmadas', valor: resumo?.marcadas, cor: 'teal' },
@@ -48,9 +45,14 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
                     <span className={css.avatar}>{obterIniciais(perfil.nome)}</span>
                     <div><small>{textoR4(perfis[perfil.role])}</small><h2>{textoR4("Olá,") + ' '}{perfil.nome}</h2></div>
                 </div>
+                <div className={css.acoes}>
                 <Link href={enderecoMapa(hoje, perfil.role === 'professor' ? undefined : 'todas')} className={css.destaque}>
                     <CalendarDays /> {perfil.role === 'professor' ? textoR4("Abrir minha agenda") : textoR4("Abrir Mapa do Dia")} <ArrowRight />
                 </Link>
+                {atalhos.filter((item) => item.id === 'recepcao').map((item) => (
+                    <Link key={item.id} href={enderecoAdmin(item.id)} className={css.secundario}>{item.icone}{textoR4(item.rotulo)}</Link>
+                ))}
+                </div>
             </section>
             <section className={css.resumo} aria-labelledby="r4-resumo-semana">
                 <div className={css.cabecalho}><h2 id="r4-resumo-semana">{textoR4("Aulas da semana")}</h2>
@@ -65,7 +67,7 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
         {perfil.role !== 'professor' && unidadesAtivas.length > 0 && <section className={css.secao} aria-labelledby="r4-unidades-atalhos">
             <div className={css.cabecalho}>
                 <h2 id="r4-unidades-atalhos">{textoR4("Mapa por unidade")}</h2>
-                <small>{textoR4("Os atalhos abrem em novas abas")}</small>
+
             </div>
             <div className={css.unidades}>
                 <Link href={enderecoMapa(hoje, 'todas')} target="_blank" rel="noopener"><Building2 />{' ' + textoR4("Todas as unidades") + ' '}<ExternalLink /></Link>
@@ -77,13 +79,11 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
             ))}</div>
         </section>}
 
-        {grupos.filter((grupo) => grupo.modulos.length > 0).map((grupo) => <section className={css.secao} key={grupo.titulo}>
-            <div className={css.cabecalho}><h2>{textoR4(grupo.titulo)}</h2></div>
-            <div className={css.modulos}>{grupo.modulos.map((item) => <Link key={item.id} className={css.modulo} href={enderecoAdmin(item.id)}>
-                <span className={css.icone}>{item.icone}</span><ArrowRight className={css.seta} />
-                <strong>{item.id === 'mapa' && perfil.role === 'professor' ? textoR4("Minha agenda") : textoR4(item.rotulo)}</strong>
-                <small>{textoR4(item.subtitulo)}</small>
-            </Link>)}</div>
-        </section>)}
+        {atalhos.some((item) => item.id !== 'recepcao') && <section className={css.secao}>
+            <div className={css.cabecalho}><h2>{textoR4(perfil.role === 'professor' ? 'Minha agenda' : 'Atendimento e agenda')}</h2></div>
+            <div className={css.atalhos}>{atalhos.filter((item) => item.id !== 'recepcao').map((item) => (
+                <Link key={item.id} href={enderecoAdmin(item.id)}>{item.icone}<strong>{textoR4(item.rotulo)}</strong><ArrowRight /></Link>
+            ))}</div>
+        </section>}
     </div>;
 }

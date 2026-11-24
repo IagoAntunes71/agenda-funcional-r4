@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { SessaoAdmin } from '@/lib/admin-auth';
-import { enderecoAdmin, podeAcessarModulo } from '@/lib/admin-navegacao';
+import { enderecoAdmin, MODULOS_GESTAO, MODULOS_PORTAL, podeAcessarModulo } from '@/lib/admin-navegacao';
 import InicioAdminR4, { type ResumoSemana } from './InicioAdminR4';
 import {
     ArrowLeft,
@@ -701,7 +701,10 @@ export default function PainelAdmin({
         icone: React.ReactNode;
     }[] = [
         { id: 'inicio', rotulo: 'Início', subtitulo: 'Visão geral e atalhos', icone: <LayoutGrid className="w-4 h-4" /> },
-        { id: 'configuracoes', rotulo: 'Configurações', subtitulo: 'Agenda, permissões e automação', icone: <LayoutGrid className="w-4 h-4" /> },
+        { id: 'portal', rotulo: 'Portal do Aluno', subtitulo: 'Acesso, textos e automação', icone: <GraduationCap className="w-4 h-4" /> },
+        { id: 'portal-textos', rotulo: 'Textos do Portal', subtitulo: 'Conteúdo exibido às famílias', icone: <FileText className="w-4 h-4" /> },
+        { id: 'portal-regras', rotulo: 'Regras e automação', subtitulo: 'Antecedência e confirmação', icone: <ClipboardCheck className="w-4 h-4" /> },
+        { id: 'configuracoes', rotulo: 'Configurações', subtitulo: 'Agenda e permissões', icone: <LayoutGrid className="w-4 h-4" /> },
         { id: 'controle-alunos', rotulo: 'Controle dos Alunos', subtitulo: 'Consulte os feedbacks das aulas', icone: <Users className="w-4 h-4" /> },
         { id: 'recepcao', rotulo: perfilAtual.role === 'professor' ? 'Meus repasses' : 'Recepção', subtitulo: 'Aulas e agenda financeira', icone: <CalendarDays className="w-4 h-4" /> },
         { id: 'metas', rotulo: 'Metas de feedback', subtitulo: 'Acompanhe registros e pendências', icone: <ClipboardCheck className="w-4 h-4" /> },
@@ -727,8 +730,8 @@ export default function PainelAdmin({
         },
         {
             id: 'textos',
-            rotulo: 'Textos do Sistema',
-            subtitulo: 'Cabeçalhos, rótulos e textos do portal',
+            rotulo: 'Textos e cores do Admin',
+            subtitulo: 'Cabeçalhos, rótulos e identidade do R4',
             icone: <FileText className="w-4 h-4" />,
         },
         {
@@ -761,7 +764,16 @@ export default function PainelAdmin({
 
     const itensVisiveis = itensMenuLateral.filter((item) => podeAcessarModulo(perfilAtual.role, item.id));
 
+    const itensPortal = itensVisiveis.filter((item) => MODULOS_PORTAL.includes(item.id));
+    const ordemPrincipal = ['inicio', 'mapa', 'recepcao', 'portal'];
+    const itensPrincipais = ordemPrincipal.flatMap((id) => itensVisiveis.filter((item) => item.id === id));
+    const itensGestao = itensVisiveis.filter((item) => MODULOS_GESTAO.includes(item.id));
+    const noPortal = MODULOS_PORTAL.includes(aba);
+
     const metaAbaAtual: Record<AbaAdmin, { titulo: string }> = {
+        portal: { titulo: 'Portal do Aluno' },
+        'portal-textos': { titulo: 'Textos do Portal' },
+        'portal-regras': { titulo: 'Regras e automação' },
         configuracoes: { titulo: 'Configurações' },
         'controle-alunos': { titulo: 'Controle dos Alunos' },
         recepcao: { titulo: perfilAtual.role === 'professor' ? 'Meus repasses' : 'Recepção' },
@@ -770,7 +782,7 @@ export default function PainelAdmin({
         agendamentos: { titulo: 'Agendamentos & Operação' },
         mapa: { titulo: 'Mapa do Dia' },
         alunos: { titulo: 'Alunos & Responsáveis' },
-        textos: { titulo: 'Textos do Sistema' },
+        textos: { titulo: 'Textos e cores do Admin' },
         datas: { titulo: 'Bloquear ou Liberar Datas' },
         professores: { titulo: 'Equipe de Professores' },
         unidades: { titulo: 'Unidades & Distribuição' },
@@ -868,6 +880,91 @@ export default function PainelAdmin({
         URL.revokeObjectURL(url);
     }
 
+    function renderItemMenu(item: (typeof itensVisiveis)[number], recolhida: boolean) {
+        const ativo = aba === item.id;
+        if (recolhida) {
+            return (
+                <Link
+                    key={item.id}
+                    href={enderecoAdmin(item.id)}
+                    aria-current={ativo ? 'page' : undefined}
+                    title={textoR4(item.rotulo)}
+                    className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer ${
+                        ativo
+                            ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
+                            : escuro
+                                ? 'text-stone-400 hover:bg-[#181E26] hover:text-white'
+                                : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                    }`}
+                >
+                    {item.icone}
+                </Link>
+            );
+        }
+
+        return (
+            <Link
+                key={item.id}
+                href={enderecoAdmin(item.id)}
+                    aria-current={ativo ? 'page' : undefined}
+                onClick={() => setMenuMobileAberto(false)}
+                className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl transition cursor-pointer group ${
+                    ativo
+                        ? escuro
+                            ? 'bg-[#0E7C86]/20 text-white border border-[#0E7C86]/50'
+                            : 'bg-[#0E7C86]/15 text-[#094D54] border border-[#0E7C86]/40 font-bold'
+                        : escuro
+                            ? 'text-stone-400 hover:bg-[#181E26] hover:text-stone-100 border border-transparent'
+                            : 'text-slate-700 hover:bg-slate-200/75 hover:text-slate-950 border border-transparent'
+                }`}
+            >
+                <div className="flex items-center gap-2.5 min-w-0">
+                    <span
+                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition ${
+                            ativo
+                                ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
+                                : escuro
+                                    ? 'bg-[#251b19] text-stone-400 group-hover:text-white border border-[#513932]'
+                                    : 'bg-slate-200/90 text-slate-700 group-hover:text-[#0E7C86] border border-slate-300'
+                        }`}
+                    >
+                        {item.icone}
+                    </span>
+                    <div className="text-left truncate">
+                        <p className="text-xs font-bold leading-tight truncate">
+                            {textoR4(item.rotulo)}
+                        </p>
+                        <p
+                            className={`text-[10px] truncate ${
+                                ativo
+                                    ? escuro
+                                        ? 'text-[#39B8C4]'
+                                        : 'text-[#0B5C63] font-semibold'
+                                    : clsSubtexto
+                            }`}
+                        >
+                            {textoR4(item.subtitulo)}
+                        </p>
+                    </div>
+                </div>
+
+                {typeof item.badge === 'number' && (
+                    <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                            ativo
+                                ? 'r4-acao'
+                                : escuro
+                                    ? 'bg-[#251b19] text-stone-300 border border-[#513932]'
+                                    : 'bg-slate-200 text-slate-800 border border-slate-300'
+                        }`}
+                    >
+                        {item.badge}
+                    </span>
+                )}
+            </Link>
+        );
+    }
+
     function renderConteudoSidebar(recolhida = false) {
         return (
             <div
@@ -887,7 +984,9 @@ export default function PainelAdmin({
                                 className="w-10 h-10 mx-auto rounded-xl r4-acao font-extrabold text-xs flex items-center justify-center shadow-sm cursor-pointer"
                             >{textoR4("R4")}</button>
                         ) : (
-                            <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
+                            <Link href="/admin" aria-label={textoR4("Voltar ao painel R4")}>
+                                <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
+                            </Link>
                         )}
                         <button
                             type="button"
@@ -975,90 +1074,12 @@ export default function PainelAdmin({
                             >{textoR4("Módulos")}</p>
                         )}
 
-                        {itensVisiveis.map((item) => {
-                            const ativo = aba === item.id;
-                            if (recolhida) {
-                                return (
-                                    <Link
-                                        key={item.id}
-                                        href={enderecoAdmin(item.id)}
-                                        aria-current={ativo ? 'page' : undefined}
-                                        title={textoR4(item.rotulo)}
-                                        className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer ${
-                                            ativo
-                                                ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
-                                                : escuro
-                                                    ? 'text-stone-400 hover:bg-[#181E26] hover:text-white'
-                                                    : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
-                                        }`}
-                                    >
-                                        {item.icone}
-                                    </Link>
-                                );
-                            }
-
-                            return (
-                                <Link
-                                    key={item.id}
-                                    href={enderecoAdmin(item.id)}
-                                        aria-current={ativo ? 'page' : undefined}
-                                    onClick={() => setMenuMobileAberto(false)}
-                                    className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl transition cursor-pointer group ${
-                                        ativo
-                                            ? escuro
-                                                ? 'bg-[#0E7C86]/20 text-white border border-[#0E7C86]/50'
-                                                : 'bg-[#0E7C86]/15 text-[#094D54] border border-[#0E7C86]/40 font-bold'
-                                            : escuro
-                                                ? 'text-stone-400 hover:bg-[#181E26] hover:text-stone-100 border border-transparent'
-                                                : 'text-slate-700 hover:bg-slate-200/75 hover:text-slate-950 border border-transparent'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                        <span
-                                            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition ${
-                                                ativo
-                                                    ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
-                                                    : escuro
-                                                        ? 'bg-[#251b19] text-stone-400 group-hover:text-white border border-[#513932]'
-                                                        : 'bg-slate-200/90 text-slate-700 group-hover:text-[#0E7C86] border border-slate-300'
-                                            }`}
-                                        >
-                                            {item.icone}
-                                        </span>
-                                        <div className="text-left truncate">
-                                            <p className="text-xs font-bold leading-tight truncate">
-                                                {textoR4(item.rotulo)}
-                                            </p>
-                                            <p
-                                                className={`text-[10px] truncate ${
-                                                    ativo
-                                                        ? escuro
-                                                            ? 'text-[#39B8C4]'
-                                                            : 'text-[#0B5C63] font-semibold'
-                                                        : clsSubtexto
-                                                }`}
-                                            >
-                                                {textoR4(item.subtitulo)}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    {typeof item.badge === 'number' && (
-                                        <span
-                                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                                                ativo
-                                                    ? 'r4-acao'
-                                                    : escuro
-                                                        ? 'bg-[#251b19] text-stone-300 border border-[#513932]'
-                                                        : 'bg-slate-200 text-slate-800 border border-slate-300'
-                                            }`}
-                                        >
-                                            {item.badge}
-                                        </span>
-                                    )}
-                                </Link>
-                            );
-                        })}
+                        {itensPrincipais.map((item) => renderItemMenu(item, recolhida))}
+                        {itensGestao.length > 0 && (recolhida ? itensGestao.map((item) => renderItemMenu(item, true)) :
+                            <details className="border-t mt-3 pt-2">
+                                <summary className="cursor-pointer rounded-lg px-2 py-2 text-xs font-bold">Gestão da agenda</summary>
+                                <div className="space-y-1">{itensGestao.map((item) => renderItemMenu(item, false))}</div>
+                            </details>)}
                     </nav>
                 </div>
 
@@ -1200,22 +1221,13 @@ export default function PainelAdmin({
                             {!inicio && <Link href="/admin" aria-label={textoR4("Voltar ao painel R4")} className="shrink-0">
                                 <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
                             </Link>}
-                            {!mapa && <div>
-                                <div
-                                    className={`flex items-center gap-2 text-xs font-medium ${clsSubtexto}`}
-                                >
-                                    <Link href="/admin" className="hover:underline">{textoR4("Painel R4")}</Link>
-                                    <span>/</span>
-                                    <span className="text-[#0E7C86] dark:text-[#1496A1] font-bold">
-                                        {textoR4(metaAbaAtual[aba].titulo)}
-                                    </span>
-                                </div>
+                            <div>
                                 <h1
                                     className={`text-xl sm:text-2xl font-extrabold tracking-tight ${clsTitulo}`}
                                 >
                                     {textoR4(metaAbaAtual[aba].titulo)}
                                 </h1>
-                            </div>}
+                            </div>
                         </div>
 
                         <div className="flex items-center gap-2.5">
@@ -1263,7 +1275,7 @@ export default function PainelAdmin({
                                 {sistemaAbertoAgora ? textoR4("Link Aberto") : textoR4("Link Fechado")}
                             </span>}
 
-                            {!mapa && <>
+                            {!mapa &&
                             <button
                                 type="button"
                                 onClick={() => void carregarDados()}
@@ -1279,7 +1291,7 @@ export default function PainelAdmin({
                                         carregandoDados ? 'animate-spin' : ''
                                     }`}
                                 />
-                            </button>
+                            </button>}
 
                             <button
                                 type="button"
@@ -1302,7 +1314,6 @@ export default function PainelAdmin({
                                     </>
                                 )}
                             </button>
-                            </>}
                         </div>
                     </div>
                 </header>
@@ -1318,13 +1329,91 @@ export default function PainelAdmin({
                     {aba === 'inicio' && (
                         <div className="space-y-5">
                         <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
-                            modulos={itensVisiveis.filter((item) => item.id !== 'inicio')} escuro={escuro} />
+                            modulos={itensVisiveis.filter((item) => item.id !== 'inicio' && (item.id === 'portal' || !MODULOS_PORTAL.includes(item.id)))} escuro={escuro} />
                         {perfilAtual.role !== 'atendimento' && <section className="space-y-2">
                             <h2 className="text-base font-bold">Metas de feedback</h2>
                             <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} compacto />
                         </section>}
                         </div>
                     )}
+                    {noPortal && admin && <nav aria-label="Portal do Aluno" className="flex flex-wrap gap-1 border-b border-[var(--r4-borda)] pb-2 mb-5">
+                        {itensPortal.map((item) => <Link key={item.id} href={enderecoAdmin(item.id)}
+                            aria-current={aba === item.id ? 'page' : undefined}
+                            className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${aba === item.id ? 'r4-acao' : 'hover:underline'}`}>
+                            {item.icone}{item.rotulo}
+                        </Link>)}
+                    </nav>}
+                    {aba === 'portal' && admin && <section className="space-y-4">
+                        {admin && <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-9 h-9 rounded-xl r4-acao flex items-center justify-center shadow-xs">
+                                                <Power className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <h2 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Chave Mestra")}</h2>
+                                                <p className={`text-[11px] ${clsSubtexto}`}>{textoR4("Controle do Link dos Pais")}</p>
+                                            </div>
+                                        </div>
+
+                                        <span
+                                            className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+                                                sistemaAbertoAgora
+                                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-600/40'
+                                                    : 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400 border border-[#BE1E23]/40'
+                                            }`}
+                                        >
+                                            {sistemaAbertoAgora ? textoR4("ABERTO") : textoR4("FECHADO")}
+                                        </span>
+                                    </div>
+
+                                    <p className={`text-xs leading-relaxed ${clsSubtexto}`}>{textoR4("No modo") + ' '}<strong>{textoR4("Automático")}</strong>{textoR4(", abre de segunda a sexta, das 18:00 às 22:00.")}</p>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={salvandoChaveMestra}
+                                            onClick={() => void alterarChaveMestra('auto')}
+                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                                                modoChaveMestra === 'auto'
+                                                    ? 'bg-[#0E7C86] border-[#1496A1] text-white'
+                                                    : `${clsSubCard} ${clsSubtexto}`
+                                            }`}
+                                        >{textoR4("Automático")}</button>
+
+                                        <button
+                                            type="button"
+                                            disabled={salvandoChaveMestra}
+                                            onClick={() => void alterarChaveMestra('ativo')}
+                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                                                modoChaveMestra === 'ativo'
+                                                    ? 'bg-emerald-700 border-emerald-500 text-white'
+                                                    : `${clsSubCard} ${clsSubtexto}`
+                                            }`}
+                                        >{textoR4("Sempre Ativo")}</button>
+
+                                        <button
+                                            type="button"
+                                            disabled={salvandoChaveMestra}
+                                            onClick={() => void alterarChaveMestra('inativo')}
+                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                                                modoChaveMestra === 'inativo'
+                                                    ? 'bg-[#BE1E23] border-rose-500 text-white'
+                                                    : `${clsSubCard} ${clsSubtexto}`
+                                            }`}
+                                        >{textoR4("Desativado")}</button>
+                                    </div>
+                                </div>}
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                            {itensPortal.filter((item) => item.id !== 'portal').map((item) => <Link key={item.id} href={enderecoAdmin(item.id)}
+                                className={`border rounded-xl p-4 grid gap-2 ${clsCard}`}>
+                                <span className="text-sm font-bold inline-flex gap-2 items-center">{item.icone}{item.rotulo}</span>
+                                <small>{item.subtitulo}</small>
+                            </Link>)}
+                            <Link href="/" target="_blank" rel="noopener" className={`border rounded-xl p-4 font-semibold ${clsCard}`}>Abrir portal como aluno ↗</Link>
+                        </div>
+                    </section>}
+                    {aba === 'portal-regras' && admin && <ConfiguracoesOperacaoR4 somentePortal />}
                     {aba === 'configuracoes' && admin && <ConfiguracoesOperacaoR4 />}
                     {aba === 'controle-alunos' && <RelatorioOperacaoR4 painel="alunos" perfil={perfilAtual.role} unidades={unidades} />}
                     {aba === 'recepcao' && (perfilAtual.role === 'professor'
@@ -1709,67 +1798,6 @@ export default function PainelAdmin({
                             </section>
 
                             <aside className="xl:col-span-4 space-y-5">
-                                {admin && <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="flex items-center gap-2.5">
-                                            <div className="w-9 h-9 rounded-xl r4-acao flex items-center justify-center shadow-xs">
-                                                <Power className="w-4 h-4" />
-                                            </div>
-                                            <div>
-                                                <h2 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Chave Mestra")}</h2>
-                                                <p className={`text-[11px] ${clsSubtexto}`}>{textoR4("Controle do Link dos Pais")}</p>
-                                            </div>
-                                        </div>
-
-                                        <span
-                                            className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
-                                                sistemaAbertoAgora
-                                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-600/40'
-                                                    : 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400 border border-[#BE1E23]/40'
-                                            }`}
-                                        >
-                                            {sistemaAbertoAgora ? textoR4("ABERTO") : textoR4("FECHADO")}
-                                        </span>
-                                    </div>
-
-                                    <p className={`text-xs leading-relaxed ${clsSubtexto}`}>{textoR4("No modo") + ' '}<strong>{textoR4("Automático")}</strong>{textoR4(", abre de segunda a sexta, das 18:00 às 22:00.")}</p>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={salvandoChaveMestra}
-                                            onClick={() => void alterarChaveMestra('auto')}
-                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
-                                                modoChaveMestra === 'auto'
-                                                    ? 'bg-[#0E7C86] border-[#1496A1] text-white'
-                                                    : `${clsSubCard} ${clsSubtexto}`
-                                            }`}
-                                        >{textoR4("Automático")}</button>
-
-                                        <button
-                                            type="button"
-                                            disabled={salvandoChaveMestra}
-                                            onClick={() => void alterarChaveMestra('ativo')}
-                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
-                                                modoChaveMestra === 'ativo'
-                                                    ? 'bg-emerald-700 border-emerald-500 text-white'
-                                                    : `${clsSubCard} ${clsSubtexto}`
-                                            }`}
-                                        >{textoR4("Sempre Ativo")}</button>
-
-                                        <button
-                                            type="button"
-                                            disabled={salvandoChaveMestra}
-                                            onClick={() => void alterarChaveMestra('inativo')}
-                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
-                                                modoChaveMestra === 'inativo'
-                                                    ? 'bg-[#BE1E23] border-rose-500 text-white'
-                                                    : `${clsSubCard} ${clsSubtexto}`
-                                            }`}
-                                        >{textoR4("Desativado")}</button>
-                                    </div>
-                                </div>}
-
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -1932,6 +1960,12 @@ export default function PainelAdmin({
                         <div className="space-y-5">
                         <EditorCoresInterface classes={classesCompartilhadas} />
                         <EditorTextosInterface classes={classesCompartilhadas} />
+                        </div>
+                    )}
+
+                    {aba === 'portal-textos' && admin && (
+                        <div className="space-y-5">
+                        <EditorTextosInterface classes={classesCompartilhadas} portal />
                         <AbaTextosPortal
                             textosIniciais={textosPortal}
                             onTextosAtualizadosAction={setTextosPortal}

@@ -88,3 +88,9 @@ body {
 .r4-status[data-status='cancelado'] { color: var(--r4-cancelado); }
 .r4-status[data-status='agendado'] { color: var(--r4-principal); }
 .r4-status[data-status^='desmarcado'] { color: var(--r4-bloqueio); }
+
+.r4-admin :is(a,button,summary,input,select):focus-visible {
+  outline: 2px solid var(--r4-principal);
+  outline-offset: 3px;
+}
+.r4-admin-topo { box-shadow: none; }

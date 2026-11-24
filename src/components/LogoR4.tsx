@@ -8,14 +8,16 @@ interface LogoR4Props {
     temaEscuro?: boolean;
     subtitulo?: string;
     compacto?: boolean;
+    portal?: boolean;
 }
 
 export default function LogoR4({
                                    temaEscuro = true,
                                    subtitulo = 'Gestão Acadêmica',
                                    compacto = false,
+                                   portal = false,
                                }: LogoR4Props) {
-    const textoR4 = useTextoR4();
+    const textoR4 = useTextoR4(portal ? 'portal' : 'admin');
     const [erroImagem, setErroImagem] = useState(false);
 
     return (

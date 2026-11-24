@@ -834,7 +834,7 @@ export default function AbaMapaDia({
                         className={styles.scroll} data-expandido={modoTelaCheia} data-arrastando={Boolean(aulaArrastando)}
                         tabIndex={0} aria-label={textoR4("Grade de horários")}>
                         <div className={styles.grade} style={{
-                            gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${apresentacao ? 64 : semana ? 148 : 188}px, 1fr))`,
+                            gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${apresentacao ? 118 : semana ? 150 : 171}px, 1fr))`,
                         }}>
                             <div className={`${styles.cabecalho} ${styles.canto}`}>{textoR4("Horário")}</div>
                             {colunas.map(({ chave, prof, data }) => (
@@ -924,7 +924,8 @@ export default function AbaMapaDia({
                                         const meta = obterMetaStatusR4(aula.status);
                                         return (
                                             <button type="button" key={aula.id} className={styles.aula}
-                                                data-status={meta.valor} data-arrastando={aulaArrastando?.id === aula.id}
+                                                title={`${aula.nome_aluno} · ${aula.materia} · ${formatarIntervaloCard(aula)}`}
+                                                data-status={meta.valor} data-dividida={totalFaixas > 1} data-arrastando={aulaArrastando?.id === aula.id}
                                                 aria-label={`${aula.nome_aluno}, ${aula.materia}, ${formatarIntervaloCard(aula)}, ${textoR4(meta.rotulo)}`}
                                                 style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
                                                     ...(cfg.status[meta.valor]?.cor || !['agendado', 'confirmado', 'realizado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca', 'cancelado'].includes(meta.valor)
@@ -938,7 +939,7 @@ export default function AbaMapaDia({
                                                 onClick={() => { setHoverCard(null); setAulaSelecionada(aula); }}>
                                                 <span className={styles.aulaHora}>
                                                     {meta.valor === 'confirmado' ? <Check /> : <i />}
-                                                    {totalFaixas > 2 ? formatarIntervaloCard(aula).split(' – ')[0] : formatarIntervaloCard(aula)}
+                                                    {totalFaixas > 1 ? minutosParaHora(intervaloAula(aula).inicio) : formatarIntervaloCard(aula)}
                                                 </span>
                                                 <strong>{aula.nome_aluno}</strong>
                                                 <small>{rotuloMateriaAula(aula.materia, duracaoDaAula(aula))}</small>

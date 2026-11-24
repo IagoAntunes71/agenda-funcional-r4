@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import MetaFeedbackR4 from './MetaFeedbackR4';
 import Link from 'next/link';
 import { CORES_STATUS_R4, OPERACAO_PADRAO, PERMISSOES_R4, podeOperacao, type OperacaoR4, type PermissaoR4, type PerfilOperacao } from '@/lib/operacao-r4';
 import { LISTA_STATUS_AULA_R4, obterMetaStatusR4 } from '@/lib/agenda-status-r4';
@@ -38,7 +39,7 @@ function Opcao({ texto, valor, mudar }: { texto: string; valor: boolean; mudar: 
     </label>;
 }
 
-export function ConfiguracoesOperacaoR4() {
+export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePortal?: boolean }) {
     const { cfg, setCfg, carregado, erro } = useOperacaoR4();
     const [aviso, setAviso] = useState('');
     const [salvando, setSalvando] = useState(false);
@@ -50,7 +51,7 @@ export function ConfiguracoesOperacaoR4() {
         setSalvando(true);
         try {
             const res = await fetch('/api/admin/operacao', { method: 'PUT',
-                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cfg }) });
+                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cfg, escopo: somentePortal ? 'portal' : 'agenda' }) });
             const dados = await res.json();
             if (!res.ok) throw new Error(dados.error);
             setCfg(dados.cfg);
@@ -60,6 +61,7 @@ export function ConfiguracoesOperacaoR4() {
     }
     if (!carregado) return <p role="status">{erro || 'Carregando configurações…'}</p>;
     return <form onSubmit={salvar} className="space-y-4">
+        {!somentePortal && <>
         <Secao titulo="Mapa e agendamento">
             <div className="flex gap-3 flex-wrap">
                 {(['primeiraHora', 'ultimaHora'] as const).map((chave) => <label key={chave} className="grid gap-1 text-sm">
@@ -116,7 +118,8 @@ export function ConfiguracoesOperacaoR4() {
             <Opcao texto="Desmarcado com cobrança não gera repasse ao professor" valor={cfg.desmarcadoSemRepasse} mudar={(v) => alterar('desmarcadoSemRepasse', v)} />
             <Opcao texto="Permitir que atendentes cadastrem alunos" valor={cfg.recepcaoCadastra} mudar={(v) => alterar('recepcaoCadastra', v)} />
         </Secao>
-        <Secao titulo="Central de automação">
+        </>}
+        {somentePortal && <Secao titulo="Central de automação">
             <p className="text-sm">A confirmação por WhatsApp aguarda a conexão de um número exclusivo de automação. A antecedência já é usada no portal do aluno e será usada também nas respostas recebidas pelo WhatsApp.</p>
             <label className="flex gap-2 items-center py-2 text-sm">
                 <input type="checkbox" disabled /> Envio automático de mensagens · aguardando integração
@@ -125,7 +128,7 @@ export function ConfiguracoesOperacaoR4() {
                 <input className={campo} type="number" min={0} max={168} value={cfg.antecedencia} onChange={(e) => alterar('antecedencia', Number(e.target.value))} />
             </label>
             <Link className="inline-block underline mt-2 text-sm" href="/admin/whatsapp">Abrir configuração do WhatsApp</Link>
-        </Secao>
+        </Secao>}
         <button className={acao} type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar configurações'}</button>
         {aviso && <p role="status">{aviso}</p>}
     </form>;
@@ -160,7 +163,7 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
     }, [consulta]);
     const atual = dados?.chave === consulta ? dados : null;
     return <div className="space-y-3">
-        <div className={`${caixa} flex gap-2 flex-wrap items-end`}>
+        <div className={`${painel === 'metas' ? 'pb-1' : caixa} flex gap-2 flex-wrap items-end`}>
             <label className="grid gap-1 text-sm">Mês<input type="month" className={campo} value={mes} onChange={(e) => { setMes(e.target.value); setOffset(0); }} /></label>
             {painel !== 'metas' && perfil !== 'professor' && <>
                 <label className="grid gap-1 text-sm">Buscar<input className={campo} value={busca} onChange={(e) => { setBusca(e.target.value); setOffset(0); }}
@@ -178,17 +181,13 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
             </button>}
         </div>
         {!atual && <p role="status">Carregando…</p>}
-        {atual?.erro && <p role="alert">{atual.erro}</p>}
+        {atual?.erro && <p role="alert">{atual.erro} <button type="button" className="underline" onClick={() => setAtualizar((v) => v + 1)}>Tentar novamente</button></p>}
         {atual?.metas?.length === 0 && <p>Nenhuma aula realizada neste mês.</p>}
-        {atual?.metas?.slice(0, compacto ? 3 : undefined).map((meta) => {
-            const percentual = meta.feitos / meta.total * 100;
-            const faixa = percentual === 100 ? 'Excelente' : percentual >= 80 ? 'Bom' : percentual >= 50 ? 'Mediano' : 'Péssimo';
-            return <article key={meta.chave} className={caixa}>
-                <div className="flex justify-between gap-2"><strong>{meta.professor}</strong><strong>{faixa} · {Math.round(percentual)}%</strong></div>
-                <progress className="w-full" max={meta.total} value={meta.feitos} aria-label="Feedbacks concluídos" />
-                <p className="text-sm">{meta.feitos} feitos · {meta.total - meta.feitos} faltando · {meta.vencidos} fora do prazo</p>
-            </article>;
-        })}
+        {atual?.metas && <div className={compacto ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3" : "grid gap-4"}>
+        {atual.metas.slice(0, compacto ? 3 : undefined).map((meta) => (
+            <MetaFeedbackR4 key={meta.chave} professor={meta.professor} feitos={meta.feitos} total={meta.total} vencidos={meta.vencidos} compacto={compacto} />
+        ))}
+        </div>}
         {compacto && <Link href="/admin/metas" className="underline text-sm">Abrir metas de feedback</Link>}
         {financeiro && atual?.somas && <div className={`${caixa} grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm`}>
             {atual.somas.cobrar !== undefined && <div>Total previsto e devido pelas famílias<br /><strong>{dinheiro.format(atual.somas.cobrar)}</strong></div>}

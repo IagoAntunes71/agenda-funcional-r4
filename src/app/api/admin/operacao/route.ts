@@ -192,7 +192,14 @@ export async function PUT(req: Request) {
     const sessao = await lerSessaoAdmin();
     if (!sessao || sessao.role !== 'admin') return erro('Acesso exclusivo do administrador.', sessao ? 403 : 401);
     try {
-        const cfg = validarOperacao((await req.json()).cfg);
+        const corpo = await req.json();
+        const anterior = await lerOperacaoR4();
+        const entrada = corpo.escopo === 'portal'
+            ? { ...anterior, antecedencia: corpo.cfg?.antecedencia }
+            : corpo.escopo === 'agenda'
+                ? { ...corpo.cfg, antecedencia: anterior.antecedencia }
+                : corpo.cfg;
+        const cfg = validarOperacao(entrada);
         if (!cfg) return erro('Confira os valores antes de salvar.', 400);
         await gravarOperacaoR4(cfg);
         return NextResponse.json({ cfg });
