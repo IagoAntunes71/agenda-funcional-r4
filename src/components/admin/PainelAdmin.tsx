@@ -53,6 +53,8 @@ import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos-padrao';
 import AbaAlunos from './AbaAlunos';
 import AbaDatas from './AbaDatas';
 import AbaMapaDia from './AbaMapaDia';
+import PainelProfessorR4 from './PainelProfessorR4';
+import { obterAgoraBahia } from '@/lib/horarios-reforco';
 import DiretorioProfessoresR4 from './DiretorioProfessoresR4';
 import AbaProfessores from './AbaProfessores';
 import { ConfiguracoesOperacaoR4, RelatorioOperacaoR4, useOperacaoR4 } from './OperacaoPainelR4';
@@ -125,6 +127,8 @@ export default function PainelAdmin({
 
     const [resumoSemana, setResumoSemana] = useState<ResumoSemana | null>(null);
     const [carregandoDados, setCarregandoDados] = useState(false);
+    const [mesProfessor, setMesProfessor] = useState(() => obterAgoraBahia().dataISO.slice(0, 7));
+    const [consultaProfessor, setConsultaProfessor] = useState<{ mes: string; erro?: string } | null>(null);
     const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
 
     const [perfilAtual, setPerfilAtual] = useState<PerfilAdmin>({
@@ -140,6 +144,8 @@ export default function PainelAdmin({
     const inicio = aba === 'inicio';
     const mapa = aba === 'mapa';
     const admin = perfilAtual.role === 'admin';
+    const professor = perfilAtual.role === 'professor';
+    const mesConsulta = professor ? mesProfessor : '';
     const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
     const [modalPerfilAberto, setModalPerfilAberto] = useState(false);
     const [abaModalPerfil, setAbaModalPerfil] = useState<'meu' | 'equipe'>('meu');
@@ -253,15 +259,20 @@ export default function PainelAdmin({
         }
     }, []);
 
-    const carregarDados = useCallback(async () => {
+    const carregarDados = useCallback(async (signal?: AbortSignal) => {
         setCarregandoDados(true);
         try {
-            const res = await fetch('/api/admin/painel', { cache: 'no-store' });
+            const url = mesConsulta ? '/api/admin/painel?mesProfessor=' + mesConsulta : '/api/admin/painel';
+            const res = await fetch(url, { cache: 'no-store', signal });
+            if (signal?.aborted) return;
             if (res.status === 401) {
                 setAutenticado(false);
                 return;
             }
             const json = await res.json();
+            if (signal?.aborted) return;
+            if (!res.ok) throw new Error(json.error || 'Falha ao carregar a agenda.');
+            if (mesConsulta) setConsultaProfessor({ mes: mesConsulta });
 
             if (json.sessao) {
                 setPerfilAtual((prev) => ({
@@ -301,17 +312,20 @@ export default function PainelAdmin({
             setUltimaSincronizacao(json.ultimaSincronizacao || null);
 
             await carregarPerfisETextos();
+        } catch (erro) {
+            if (mesConsulta && !signal?.aborted) setConsultaProfessor({
+                mes: mesConsulta, erro: erro instanceof Error ? erro.message : 'Falha ao carregar a agenda.',
+            });
         } finally {
-            setCarregandoDados(false);
+            if (!signal?.aborted) setCarregandoDados(false);
         }
-    }, [carregarPerfisETextos]);
+    }, [carregarPerfisETextos, mesConsulta]);
 
     useEffect(() => {
         if (!autenticado) return;
-        const timer = window.setTimeout(() => {
-            void carregarDados();
-        }, 0);
-        return () => window.clearTimeout(timer);
+        const pedido = new AbortController();
+        const timer = window.setTimeout(() => void carregarDados(pedido.signal), 0);
+        return () => { window.clearTimeout(timer); pedido.abort(); };
     }, [autenticado, carregarDados]);
 
     async function handleTrocaFotoRapida(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1139,6 +1153,24 @@ export default function PainelAdmin({
         );
     }
 
+    if (professor) {
+        const consulta = consultaProfessor?.mes === mesProfessor ? consultaProfessor : null;
+        return <div className="r4-admin min-h-screen" data-tema={tema} style={variaveisCoresR4(paleta[tema])}>
+            <input ref={inputFotoRapidaRef} type="file" accept="image/*" className="hidden"
+                onChange={(e) => void handleTrocaFotoRapida(e)} />
+            <PainelProfessorR4 perfil={perfilAtual} mes={mesProfessor} onMes={setMesProfessor}
+                aulas={consulta && !consulta.erro ? agendamentos : []} carregando={!consulta || carregandoDados}
+                erro={consulta?.erro} atualizar={carregarDados} sair={handleLogout} alternarTema={alternarTema}
+                escuro={escuro} trocarFoto={() => inputFotoRapidaRef.current?.click()}
+                abrirPerfil={() => { setAbaModalPerfil('meu'); setModalPerfilAberto(true); }}
+                unidades={unidades} professores={professores} alunos={alunos} operacao={operacao} />
+            <ModalPerfilAdmin aberto={modalPerfilAberto} onFecharAction={() => setModalPerfilAberto(false)}
+                abaInicial="meu" perfilAtual={perfilAtual} perfisAdmin={perfisAdmin} professores={professores}
+                feedbackInicial={feedbackModalPerfil} onPerfilAtualizadoAction={setPerfilAtual}
+                onRecarregarPerfisAction={carregarPerfisETextos} classes={classesCompartilhadas} />
+        </div>;
+    }
+
     return (
         <div className="r4-admin min-h-screen flex transition-colors" data-tema={escuro ? 'escuro' : 'claro'} style={variaveisCoresR4(paleta[tema])}>
             <input
@@ -1416,10 +1448,8 @@ export default function PainelAdmin({
                     {aba === 'portal-regras' && admin && <ConfiguracoesOperacaoR4 somentePortal />}
                     {aba === 'configuracoes' && admin && <ConfiguracoesOperacaoR4 />}
                     {aba === 'controle-alunos' && <RelatorioOperacaoR4 painel="alunos" perfil={perfilAtual.role} unidades={unidades} />}
-                    {aba === 'recepcao' && (perfilAtual.role === 'professor'
-                        ? <RelatorioOperacaoR4 painel="recepcao" perfil={perfilAtual.role} unidades={unidades} />
-                        : <RecepcaoR4 perfil={perfilAtual.role} unidades={unidades} professores={professores} alunos={alunos}
-                            escuro={escuro} classes={classesCompartilhadas} atualizarAgenda={carregarDados} />)}
+                    {aba === 'recepcao' && <RecepcaoR4 perfil={perfilAtual.role} unidades={unidades} professores={professores} alunos={alunos}
+                            escuro={escuro} classes={classesCompartilhadas} atualizarAgenda={carregarDados} />}
                     {aba === 'metas' && <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} />}
                     {aba === 'agendamentos' && retornoStatus && (
                         <p className={`mb-3 rounded-lg border p-3 text-sm ${clsCard}`} role={retornoStatus.erro ? 'alert' : 'status'}>

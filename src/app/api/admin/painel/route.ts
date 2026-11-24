@@ -1,6 +1,6 @@
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { podeOperacao } from '@/lib/operacao-r4';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
 import { lerSessaoAdmin } from '@/lib/admin-auth';
@@ -10,11 +10,17 @@ import { CONFIG_SYNC_MODOS } from '@/app/api/admin/sincronizar/route';
 import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
 import { garantirColunasFilaReserva } from '@/lib/clincare-fila';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     const sessao = await lerSessaoAdmin();
     if (!sessao) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
+
+    const mesProfessor = sessao.role === 'professor' ? req.nextUrl.searchParams.get('mesProfessor') : null;
+    if (mesProfessor !== null && !/^20\d{2}-(0[1-9]|1[0-2])$/.test(mesProfessor)) {
+        return NextResponse.json({ error: 'Mês inválido.' }, { status: 400 });
+    }
+    const inicioMes = mesProfessor ? mesProfessor + '-01' : null;
 
     try {
         await garantirHistoricoAgendamento();
@@ -207,12 +213,15 @@ export async function GET() {
         LEFT JOIN alunos al ON al.id = a.aluno_id
         LEFT JOIN responsaveis r ON r.id = al.responsavel_id
         WHERE a.excluido_em IS NULL
-          AND (${outrasAgendas} OR EXISTS (
+          AND (${inicioMes}::date IS NULL OR (
+            a.data >= ${inicioMes}::date AND a.data < ${inicioMes}::date + interval '1 month'
+          ))
+          AND (${outrasAgendas && !mesProfessor} OR EXISTS (
             SELECT 1 FROM professores vinculado WHERE vinculado.id = ${sessao.professor_id}
-              AND (vinculado.id = p.id OR vinculado.clin_care_id = p.clin_care_id)
+              AND (vinculado.id = p.id OR nullif(vinculado.clin_care_id, '') = nullif(p.clin_care_id, ''))
           ))
         ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
-        LIMIT 250
+        LIMIT ${mesProfessor ? null : 250}
       `,
             sql`
                 SELECT

@@ -1,0 +1,95 @@
+.painel {
+    --linha: color-mix(in srgb,var(--r4-leitura) 16%,var(--r4-painel));
+    --suave: color-mix(in srgb,var(--r4-leitura) 5%,var(--r4-painel));
+    --muted: color-mix(in srgb,var(--r4-leitura) 76%,var(--r4-painel));
+    --acento: var(--r4-principal);
+    width: min(100%,1200px);
+    margin-inline: auto;
+    padding: clamp(16px,3vw,36px);
+    display: grid;
+    gap: 18px;
+}
+.topo, .perfil, .identidade, .tituloAgenda, .barra, .mes, .legenda, .legenda li, .situacao {
+    display: flex; align-items: center; gap: 9px;
+}
+.topo { justify-content: space-between; flex-wrap: wrap; gap: 15px; margin-bottom: 5px; }
+.topo h1 { font-size: clamp(24px,3vw,34px); font-weight: 770; letter-spacing: -.04em; }
+.topo h1 span, .valores div:first-child dd { color: var(--acento); }
+.topo p, .identidade small, .detalhes p, .resumos section > p { color: var(--muted); font-size: 13px; }
+.perfil { gap: 12px; }
+.identidade { border-inline: 1px solid var(--linha); padding-inline: 12px; font-size: 13px; }
+.conta { cursor: pointer; text-align: left; }
+.conta:hover strong { text-decoration: underline; }
+.identidade small { display: block; font-size: 11px; }
+.icone, .avatar {
+    position: relative; display: grid; place-items: center; width: 34px; height: 34px;
+    border-radius: 50%; cursor: pointer; background: var(--r4-painel); color: var(--acento); flex: none;
+}
+.icone { border: 1px solid var(--linha); }
+.avatar { width: 42px; height: 42px; background: var(--r4-botao); color: var(--r4-botao-texto); font-weight: 750; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.avatar svg { position: absolute; bottom: 0; right: 0; border-radius: 50%; background: var(--r4-botao); width: 16px; height: 16px; padding: 2px; }
+.agenda, .resumos > section { background: var(--r4-painel); border: 1px solid var(--linha); border-radius: 11px; min-width: 0; }
+.tituloAgenda { justify-content: space-between; padding: 11px 15px; border-bottom: 1px solid var(--linha); }
+.tituloAgenda h2 { display: flex; align-items: center; gap: 7px; }
+.tituloAgenda svg { color: var(--acento); }
+.tituloAgenda h2, .resumos h2 { font-size: 15px; font-weight: 740; }
+.tituloAgenda button, .mes button, .paginacao button {
+    padding: 5px 9px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 680; background: var(--suave);
+}
+.tituloAgenda button { background: var(--r4-botao); color: var(--r4-botao-texto); }
+.barra { padding: 10px 15px 4px; flex-wrap: wrap; gap: 10px 15px; }
+.mes { gap: 4px; }
+.mes label { position: relative; text-transform: capitalize; font-size: 13px; font-weight: 680; padding-inline: 3px; }
+.mes input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.mes input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: auto; height: auto; cursor: pointer; }
+.mes label:focus-within { outline: 2px solid var(--acento); }
+.legenda { flex-wrap: wrap; font-size: 11px; gap: 5px 11px; color: var(--muted); }
+.legenda li, .situacao { gap: 5px; }
+.legenda i, .situacao i { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.calendario { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); margin: 0 15px 14px; }
+.diaSemana { text-align: center; padding: 6px 0; font-size: 11px; color: var(--muted); }
+.celula {
+    position: relative; display: grid; align-content: start; justify-items: center; min-height: clamp(42px,5vw,64px);
+    border-inline-start: 1px solid var(--linha); border-top: 1px solid var(--linha); padding: 6px 3px 9px; font-size: 12px;
+    cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.celula:nth-child(7n) { border-inline-end: 1px solid var(--linha); }
+.celula:nth-last-child(-n+7) { border-bottom: 1px solid var(--linha); }
+.celula:hover, .celula[aria-pressed='true'] { background: color-mix(in srgb,var(--acento) 13%,var(--r4-painel)); }
+.celula:focus-visible { z-index: 1; }
+.celula[data-fora='true'] { color: var(--muted); background: var(--suave); }
+.celula > span:first-child { display: grid; place-items: center; min-width: 22px; height: 22px; border-radius: 50%; }
+.celula[aria-current='date'] > span:first-child { color: var(--r4-botao-texto); background: var(--r4-botao); font-weight: 750; }
+.celula small { position: absolute; right: 5px; top: 5px; color: var(--muted); font-size: 10px; }
+.marcas { position: absolute; inset: auto 8% 5px; display: flex; gap: 2px; }
+.marcas i { flex: 1; height: 4px; border-radius: 4px; }
+.detalhes { border-top: 1px solid var(--linha); padding: 10px 15px 13px; }
+.detalhes h3 { font-size: 13px; font-weight: 740; margin-bottom: 5px; }
+.detalhes li button, .repasses li {
+    display: grid; grid-template-columns: minmax(88px,auto) 1fr auto; align-items: center; gap: 10px;
+    width: 100%; text-align: left; padding: 8px 0; border-top: 1px solid var(--linha); font-size: 12px;
+}
+.detalhes li button { cursor: pointer; }
+.detalhes li button:hover { background: var(--suave); }
+.detalhes li small, .repasses li small { display: block; color: var(--muted); }
+.situacao { font-size: 11px; }
+.resumos { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+.resumos[data-financeiro='false'] { grid-template-columns: 1fr; }
+.resumos > section { padding: 13px 15px; }
+.resumos h2 { margin-bottom: 9px; }
+:is(.resumos, .detalhes) p button { text-decoration: underline; cursor: pointer; }
+.valores { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.valores div { padding: 9px; background: var(--suave); border-radius: 7px; }
+.valores dt { color: var(--muted); font-size: 12px; }
+.valores dd { font-size: clamp(17px,2vw,26px); font-weight: 750; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.repasses summary { padding: 9px 0 4px; cursor: pointer; font-size: 12px; font-weight: 680; }
+.repasses li { grid-template-columns: 1fr auto; }
+.paginacao { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.paginacao button:disabled { opacity: .5; cursor: default; }
+
+@media (max-width: 660px) {
+    .resumos { grid-template-columns: 1fr; }
+    .detalhes li button { grid-template-columns: auto minmax(0,1fr); gap: 3px 9px; }
+    .situacao { grid-column: 2; }
+}
