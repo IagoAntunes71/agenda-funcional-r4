@@ -10,6 +10,8 @@ import {
     CalendarPlus,
     Camera,
     CheckCircle2,
+    ChevronLeft,
+    ChevronRight,
     ClipboardCheck,
     Download,
     ExternalLink,
@@ -64,16 +66,18 @@ import {
 } from './types';
 
 function formatarCronometro(segundos: number): string {
+    if (segundos <= 0) return 'Liberado';
     const min = Math.floor(segundos / 60);
     const seg = segundos % 60;
     return `${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}`;
 }
 
-function escaparCelulaCSV(
-    valor: string | number | boolean | null | undefined
-): string {
-    const texto = String(valor ?? '').replace(/\r?\n|\r/g, ' ').trim();
-    return `"${texto.replace(/"/g, '""')}"`;
+function escaparCelulaCSV(valor: unknown): string {
+    const texto = String(valor ?? '').replace(/\r?\n/g, ' ').trim();
+    if (texto.includes(';') || texto.includes('"')) {
+        return `"${texto.replace(/"/g, '""')}"`;
+    }
+    return texto;
 }
 
 export default function PainelAdmin({
@@ -91,6 +95,8 @@ export default function PainelAdmin({
 
     const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
     const [menuMobileAberto, setMenuMobileAberto] = useState(false);
+    const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
+    const [mapaTelaCheia, setMapaTelaCheia] = useState(false);
 
     const [aba, setAba] = useState<AbaAdmin>('mapa');
     const [carregandoDados, setCarregandoDados] = useState(false);
@@ -170,6 +176,14 @@ export default function PainelAdmin({
         });
     }
 
+    function alternarTelaCheiaMapa() {
+        setMapaTelaCheia((prev) => {
+            const proximo = !prev;
+            setSidebarRecolhida(proximo);
+            return proximo;
+        });
+    }
+
     useEffect(() => {
         const temCooldownAtivo = Boolean(
             cooldownsSync.hoje || cooldownsSync.semana || cooldownsSync.mes
@@ -225,7 +239,6 @@ export default function PainelAdmin({
             }
             const json = await res.json();
 
-            // >>> COLE AQUI <<<
             if (json.sessao) {
                 setPerfilAtual((prev) => ({
                     ...prev,
@@ -246,7 +259,6 @@ export default function PainelAdmin({
                     );
                 }
             }
-            // >>> FIM DO TRECHO <<<
 
             if (json.chaveMestra) {
                 setModoChaveMestra(json.chaveMestra.modo || 'auto');
@@ -457,23 +469,24 @@ export default function PainelAdmin({
 
     const escuro = tema === 'escuro';
 
+    // Paleta com alto contraste no Modo Claro e identidade R4 no Modo Escuro
     const clsBgApp = escuro
         ? 'bg-[#0B0E11] text-stone-100'
-        : 'bg-[#F4F6F8] text-stone-900';
+        : 'bg-[#E6ECEF] text-slate-900';
     const clsSidebar = escuro
         ? 'bg-[#11151A] border-[#1F262E]'
-        : 'bg-white border-stone-200 shadow-xs';
+        : 'bg-[#F8FAFC] border-slate-300 shadow-sm';
     const clsCard = escuro
         ? 'bg-[#151A21] border-[#232B35] shadow-lg shadow-black/25'
-        : 'bg-white border-stone-200/90 shadow-xs';
+        : 'bg-white border-slate-300 shadow-xs';
     const clsSubCard = escuro
         ? 'bg-[#0E1217] border-[#232B35]'
-        : 'bg-stone-50 border-stone-200/80';
+        : 'bg-[#EDF2F6] border-slate-300/90';
     const clsInput = escuro
         ? 'bg-[#0E1217] border-[#2B3440] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
-        : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400 focus:border-[#0E7C86]';
-    const clsTitulo = escuro ? 'text-stone-100' : 'text-stone-900';
-    const clsSubtexto = escuro ? 'text-stone-400' : 'text-stone-500';
+        : 'bg-white border-slate-400/80 text-slate-900 font-medium placeholder:text-slate-500 focus:border-[#0E7C86] focus:ring-2 focus:ring-[#0E7C86]/20';
+    const clsTitulo = escuro ? 'text-stone-100' : 'text-slate-900';
+    const clsSubtexto = escuro ? 'text-stone-400' : 'text-slate-600';
 
     const classesCompartilhadas: TemaClasses = {
         clsCard,
@@ -500,7 +513,7 @@ export default function PainelAdmin({
                             className={`p-2.5 rounded-xl border transition cursor-pointer ${
                                 escuro
                                     ? 'bg-[#0E1217] border-[#2B3440] text-amber-300 hover:border-stone-500'
-                                    : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
+                                    : 'bg-slate-200 border-slate-300 text-slate-800 hover:bg-slate-300'
                             }`}
                         >
                             {escuro ? (
@@ -512,7 +525,7 @@ export default function PainelAdmin({
                     </div>
 
                     <div className="space-y-1">
-                        <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1496A1]">
+                        <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0E7C86] dark:text-[#1496A1]">
                             <Lock className="w-3.5 h-3.5" /> Acesso Administrativo R4 Ensina
                         </div>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>
@@ -529,10 +542,10 @@ export default function PainelAdmin({
                                 setModoLogin('perfil');
                                 setErroLogin(null);
                             }}
-                            className={`py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
                                 modoLogin === 'perfil'
                                     ? 'bg-[#0E7C86] text-white shadow-xs'
-                                    : `${clsSubtexto} hover:text-[#1496A1]`
+                                    : `${clsSubtexto} hover:text-[#0E7C86]`
                             }`}
                         >
                             Perfil (E-mail e Senha)
@@ -543,10 +556,10 @@ export default function PainelAdmin({
                                 setModoLogin('master');
                                 setErroLogin(null);
                             }}
-                            className={`py-2 px-3 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center justify-center gap-1.5 ${
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer inline-flex items-center justify-center gap-1.5 ${
                                 modoLogin === 'master'
                                     ? 'bg-[#0E7C86] text-white shadow-xs'
-                                    : `${clsSubtexto} hover:text-[#1496A1]`
+                                    : `${clsSubtexto} hover:text-[#0E7C86]`
                             }`}
                         >
                             <KeyRound className="w-3.5 h-3.5" />
@@ -559,7 +572,7 @@ export default function PainelAdmin({
                             <div>
                                 <label
                                     htmlFor="email-admin"
-                                    className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                                    className={`block text-xs font-semibold mb-1.5 ${clsSubtexto}`}
                                 >
                                     E-mail do Perfil *
                                 </label>
@@ -577,7 +590,9 @@ export default function PainelAdmin({
                             <div
                                 className={`border rounded-xl p-3 text-xs leading-relaxed ${clsSubCard} ${clsSubtexto}`}
                             >
-                                <strong className="text-[#1496A1]">Modo Chave Mestra:</strong>{' '}
+                                <strong className="text-[#0E7C86] dark:text-[#1496A1]">
+                                    Modo Chave Mestra:
+                                </strong>{' '}
                                 use a senha geral do sistema para entrar sem e-mail ou
                                 redefinir a senha de perfis esquecidos.
                             </div>
@@ -586,7 +601,7 @@ export default function PainelAdmin({
                         <div>
                             <label
                                 htmlFor="senha-admin"
-                                className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
+                                className={`block text-xs font-semibold mb-1.5 ${clsSubtexto}`}
                             >
                                 {modoLogin === 'master'
                                     ? 'Senha da Chave Mestra *'
@@ -606,7 +621,7 @@ export default function PainelAdmin({
                                     type="button"
                                     onClick={() => setMostrarSenhaLogin((v) => !v)}
                                     title={mostrarSenhaLogin ? 'Ocultar senha' : 'Ver senha'}
-                                    className={`absolute right-3 top-3.5 cursor-pointer ${clsSubtexto} hover:text-[#1496A1]`}
+                                    className={`absolute right-3 top-3.5 cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
                                 >
                                     {mostrarSenhaLogin ? (
                                         <EyeOff className="w-4 h-4" />
@@ -618,7 +633,7 @@ export default function PainelAdmin({
                         </div>
 
                         {erroLogin && (
-                            <p className="text-xs text-[#F87171] bg-[#BE1E23]/15 border border-[#BE1E23]/40 rounded-xl px-3.5 py-2.5">
+                            <p className="text-xs text-[#BE1E23] dark:text-[#F87171] bg-[#BE1E23]/15 border border-[#BE1E23]/40 rounded-xl px-3.5 py-2.5 font-medium">
                                 {erroLogin}
                             </p>
                         )}
@@ -638,12 +653,12 @@ export default function PainelAdmin({
 
                     <div
                         className={`pt-3 border-t text-center ${
-                            escuro ? 'border-[#232B35]' : 'border-stone-200'
+                            escuro ? 'border-[#232B35]' : 'border-slate-300'
                         }`}
                     >
                         <Link
                             href="/"
-                            className={`text-xs inline-flex items-center gap-1.5 hover:text-[#1496A1] ${clsSubtexto}`}
+                            className={`text-xs font-medium inline-flex items-center gap-1.5 hover:text-[#0E7C86] ${clsSubtexto}`}
                         >
                             <ArrowLeft className="w-3.5 h-3.5" /> Voltar para o agendamento
                         </Link>
@@ -740,7 +755,7 @@ export default function PainelAdmin({
         if (perfilAtual.role === 'atendimento') {
             return ['mapa', 'agendamentos', 'alunos'].includes(item.id);
         }
-        return true; // 'admin' vê todas as abas
+        return true;
     });
 
     const metaAbaAtual: Record<AbaAdmin, { titulo: string }> = {
@@ -845,12 +860,30 @@ export default function PainelAdmin({
         URL.revokeObjectURL(url);
     }
 
-    function renderConteudoSidebar() {
+    function renderConteudoSidebar(recolhida = false) {
         return (
-            <div className="flex flex-col justify-between h-full p-5 overflow-y-auto">
-                <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                        <LogoR4 temaEscuro={escuro} subtitulo="Painel Administrativo" />
+            <div
+                className={`flex flex-col justify-between h-full overflow-y-auto ${
+                    recolhida ? 'p-2.5 items-center' : 'p-5'
+                }`}
+            >
+                <div className={recolhida ? 'space-y-4 w-full flex flex-col items-center' : 'space-y-6'}>
+                    <div className="flex items-center justify-between w-full">
+                        {recolhida ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSidebarRecolhida(false);
+                                    setMapaTelaCheia(false);
+                                }}
+                                title="Expandir menu lateral"
+                                className="w-10 h-10 mx-auto rounded-xl bg-[#0E7C86] text-white font-extrabold text-xs flex items-center justify-center shadow-sm cursor-pointer"
+                            >
+                                R4
+                            </button>
+                        ) : (
+                            <LogoR4 temaEscuro={escuro} subtitulo="Painel Administrativo" />
+                        )}
                         <button
                             type="button"
                             onClick={() => setMenuMobileAberto(false)}
@@ -860,81 +893,129 @@ export default function PainelAdmin({
                         </button>
                     </div>
 
-                    <div className={`border rounded-2xl p-3 space-y-2.5 ${clsSubCard}`}>
-                        <div className="flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={() => inputFotoRapidaRef.current?.click()}
-                                title="Clique na foto para alterar seu avatar"
-                                className="relative w-11 h-11 rounded-full shrink-0 overflow-hidden border-2 border-[#0E7C86] group cursor-pointer bg-[#0E7C86]/20 flex items-center justify-center"
-                            >
-                                {perfilAtual.foto_url ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                        src={perfilAtual.foto_url}
-                                        alt={perfilAtual.nome}
-                                        className="w-full h-full object-cover"
-                                    />
-                                ) : (
-                                    <span className="text-xs font-bold text-[#1496A1]">
-                                        {obterIniciais(perfilAtual.nome)}
-                                    </span>
-                                )}
-                                <span className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                                    <Camera className="w-4 h-4" />
-                                </span>
-                            </button>
-
-                            <div className="min-w-0 flex-1">
-                                <p className={`text-xs font-bold truncate ${clsTitulo}`}>
-                                    {perfilAtual.nome}
-                                </p>
-                                <p className={`text-[10px] truncate ${clsSubtexto}`}>
-                                    {perfilAtual.email || 'Acesso Chave Mestra'}
-                                </p>
-                            </div>
-                        </div>
-
+                    {recolhida ? (
                         <button
                             type="button"
-                            onClick={() => {
-                                setFeedbackModalPerfil(null);
-                                setAbaModalPerfil(perfilAtual.id === 0 ? 'equipe' : 'meu');
-                                setModalPerfilAberto(true);
-                                setMenuMobileAberto(false);
-                            }}
-                            className={`w-full py-1.5 px-2.5 rounded-xl border text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition ${clsCard} ${clsSubtexto} hover:text-[#1496A1] hover:border-[#0E7C86]`}
+                            onClick={() => inputFotoRapidaRef.current?.click()}
+                            title={`${perfilAtual.nome} — clique para alterar foto`}
+                            className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-[#0E7C86] cursor-pointer bg-[#0E7C86]/20 flex items-center justify-center"
                         >
-                            <UserCog className="w-3.5 h-3.5 text-[#1496A1]" />
-                            Editar Perfil / Equipe
+                            {perfilAtual.foto_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                    src={perfilAtual.foto_url}
+                                    alt={perfilAtual.nome}
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <span className="text-[11px] font-bold text-[#0E7C86] dark:text-[#1496A1]">
+                                    {obterIniciais(perfilAtual.nome)}
+                                </span>
+                            )}
                         </button>
-                    </div>
+                    ) : (
+                        <div className={`border rounded-2xl p-3 space-y-2.5 ${clsSubCard}`}>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => inputFotoRapidaRef.current?.click()}
+                                    title="Clique na foto para alterar seu avatar"
+                                    className="relative w-11 h-11 rounded-full shrink-0 overflow-hidden border-2 border-[#0E7C86] group cursor-pointer bg-[#0E7C86]/20 flex items-center justify-center"
+                                >
+                                    {perfilAtual.foto_url ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                            src={perfilAtual.foto_url}
+                                            alt={perfilAtual.nome}
+                                            className="w-full h-full object-cover"
+                                        />
+                                    ) : (
+                                        <span className="text-xs font-bold text-[#0E7C86] dark:text-[#1496A1]">
+                                            {obterIniciais(perfilAtual.nome)}
+                                        </span>
+                                    )}
+                                    <span className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                                        <Camera className="w-4 h-4" />
+                                    </span>
+                                </button>
 
-                    <nav className="space-y-1">
-                        <p
-                            className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-2 ${clsSubtexto}`}
-                        >
-                            Módulos
-                        </p>
+                                <div className="min-w-0 flex-1">
+                                    <p className={`text-xs font-bold truncate ${clsTitulo}`}>
+                                        {perfilAtual.nome}
+                                    </p>
+                                    <p className={`text-[10px] truncate ${clsSubtexto}`}>
+                                        {perfilAtual.email || 'Acesso Chave Mestra'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setFeedbackModalPerfil(null);
+                                    setAbaModalPerfil(perfilAtual.id === 0 ? 'equipe' : 'meu');
+                                    setModalPerfilAberto(true);
+                                    setMenuMobileAberto(false);
+                                }}
+                                className={`w-full py-1.5 px-2.5 rounded-xl border text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition ${clsCard} ${clsSubtexto} hover:text-[#0E7C86] hover:border-[#0E7C86]`}
+                            >
+                                <UserCog className="w-3.5 h-3.5 text-[#0E7C86] dark:text-[#1496A1]" />
+                                Editar Perfil / Equipe
+                            </button>
+                        </div>
+                    )}
+
+                    <nav className="space-y-1.5 w-full">
+                        {!recolhida && (
+                            <p
+                                className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-2 ${clsSubtexto}`}
+                            >
+                                Módulos
+                            </p>
+                        )}
 
                         {itensVisiveis.map((item) => {
                             const ativo = aba === item.id;
+                            if (recolhida) {
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        title={item.rotulo}
+                                        onClick={() => {
+                                            setAba(item.id);
+                                            if (item.id !== 'mapa') setMapaTelaCheia(false);
+                                        }}
+                                        className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer ${
+                                            ativo
+                                                ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
+                                                : escuro
+                                                    ? 'text-stone-400 hover:bg-[#181E26] hover:text-white'
+                                                    : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                                        }`}
+                                    >
+                                        {item.icone}
+                                    </button>
+                                );
+                            }
+
                             return (
                                 <button
                                     key={item.id}
                                     type="button"
                                     onClick={() => {
                                         setAba(item.id);
+                                        if (item.id !== 'mapa') setMapaTelaCheia(false);
                                         setMenuMobileAberto(false);
                                     }}
                                     className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl transition cursor-pointer group ${
                                         ativo
                                             ? escuro
                                                 ? 'bg-[#0E7C86]/20 text-white border border-[#0E7C86]/50'
-                                                : 'bg-[#0E7C86]/10 text-[#0B5C63] border border-[#0E7C86]/30'
+                                                : 'bg-[#0E7C86]/15 text-[#094D54] border border-[#0E7C86]/40 font-bold'
                                             : escuro
                                                 ? 'text-stone-400 hover:bg-[#181E26] hover:text-stone-100 border border-transparent'
-                                                : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900 border border-transparent'
+                                                : 'text-slate-700 hover:bg-slate-200/75 hover:text-slate-950 border border-transparent'
                                     }`}
                                 >
                                     <div className="flex items-center gap-2.5 min-w-0">
@@ -944,13 +1025,13 @@ export default function PainelAdmin({
                                                     ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
                                                     : escuro
                                                         ? 'bg-[#0E1217] text-stone-400 group-hover:text-white border border-[#232B35]'
-                                                        : 'bg-stone-100 text-stone-500 group-hover:text-[#0E7C86] border border-stone-200'
+                                                        : 'bg-slate-200/90 text-slate-700 group-hover:text-[#0E7C86] border border-slate-300'
                                             }`}
                                         >
                                             {item.icone}
                                         </span>
                                         <div className="text-left truncate">
-                                            <p className="text-xs font-semibold leading-tight truncate">
+                                            <p className="text-xs font-bold leading-tight truncate">
                                                 {item.rotulo}
                                             </p>
                                             <p
@@ -958,7 +1039,7 @@ export default function PainelAdmin({
                                                     ativo
                                                         ? escuro
                                                             ? 'text-[#39B8C4]'
-                                                            : 'text-[#0E7C86]'
+                                                            : 'text-[#0B5C63] font-semibold'
                                                         : clsSubtexto
                                                 }`}
                                             >
@@ -974,7 +1055,7 @@ export default function PainelAdmin({
                                                     ? 'bg-[#0E7C86] text-white'
                                                     : escuro
                                                         ? 'bg-[#0E1217] text-stone-300 border border-[#232B35]'
-                                                        : 'bg-stone-100 text-stone-700'
+                                                        : 'bg-slate-200 text-slate-800 border border-slate-300'
                                             }`}
                                         >
                                             {item.badge}
@@ -987,49 +1068,55 @@ export default function PainelAdmin({
                 </div>
 
                 <div
-                    className={`pt-4 mt-4 border-t space-y-1.5 ${
-                        escuro ? 'border-[#1F262E]' : 'border-stone-200'
+                    className={`pt-4 mt-4 border-t space-y-1.5 w-full ${
+                        escuro ? 'border-[#1F262E]' : 'border-slate-300'
                     }`}
                 >
                     <Link
                         href="/"
-                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition ${
+                        title="Link dos Pais"
+                        className={`w-full flex items-center ${
+                            recolhida ? 'justify-center p-2' : 'gap-3 px-3 py-2'
+                        } rounded-xl text-xs font-semibold transition ${
                             escuro
                                 ? 'text-stone-300 hover:bg-[#181E26]'
-                                : 'text-stone-700 hover:bg-stone-100'
+                                : 'text-slate-800 hover:bg-slate-200/80'
                         }`}
                     >
                         <span
-                            className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                                 escuro
                                     ? 'bg-[#0E1217] text-[#25A4AF] border border-[#232B35]'
-                                    : 'bg-stone-100 text-[#0E7C86]'
+                                    : 'bg-slate-200 text-[#0E7C86] border border-slate-300'
                             }`}
                         >
                             <ExternalLink className="w-3.5 h-3.5" />
                         </span>
-                        <span>Link dos Pais</span>
+                        {!recolhida && <span>Link dos Pais</span>}
                     </Link>
 
                     <button
                         type="button"
+                        title="Sair do Painel"
                         onClick={() => void handleLogout()}
-                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                        className={`w-full flex items-center ${
+                            recolhida ? 'justify-center p-2' : 'gap-3 px-3 py-2'
+                        } rounded-xl text-xs font-semibold transition cursor-pointer ${
                             escuro
                                 ? 'text-rose-300 hover:bg-[#BE1E23]/15'
-                                : 'text-[#BE1E23] hover:bg-rose-50'
+                                : 'text-[#B91C1C] hover:bg-rose-100'
                         }`}
                     >
                         <span
-                            className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                                 escuro
                                     ? 'bg-[#0E1217] text-[#F87171] border border-[#232B35]'
-                                    : 'bg-rose-50 text-[#BE1E23]'
+                                    : 'bg-rose-100 text-[#B91C1C] border border-rose-200'
                             }`}
                         >
                             <LogOut className="w-3.5 h-3.5" />
                         </span>
-                        <span>Sair do Painel</span>
+                        {!recolhida && <span>Sair do Painel</span>}
                     </button>
                 </div>
             </div>
@@ -1046,10 +1133,36 @@ export default function PainelAdmin({
                 className="hidden"
             />
 
+            {/* Sidebar Desktop com Seta Flutuante para Expandir/Recolher */}
             <aside
-                className={`hidden lg:block w-72 shrink-0 border-r sticky top-0 h-screen ${clsSidebar}`}
+                className={`hidden lg:block shrink-0 border-r sticky top-0 h-screen relative transition-all duration-200 ${clsSidebar} ${
+                    sidebarRecolhida ? 'w-[74px]' : 'w-72'
+                }`}
             >
-                {renderConteudoSidebar()}
+                <button
+                    type="button"
+                    onClick={() => {
+                        setSidebarRecolhida((prev) => {
+                            const proximo = !prev;
+                            if (!proximo) setMapaTelaCheia(false);
+                            return proximo;
+                        });
+                    }}
+                    title={sidebarRecolhida ? 'Expandir barra lateral' : 'Recolher barra lateral'}
+                    className={`hidden lg:flex items-center justify-center w-7 h-7 rounded-full border shadow-md absolute -right-3.5 top-20 z-40 transition cursor-pointer ${
+                        escuro
+                            ? 'bg-[#1A222C] border-[#2E3947] text-stone-200 hover:bg-[#0E7C86] hover:text-white hover:border-[#0E7C86]'
+                            : 'bg-white border-slate-300 text-slate-700 hover:bg-[#0E7C86] hover:text-white hover:border-[#0E7C86]'
+                    }`}
+                >
+                    {sidebarRecolhida ? (
+                        <ChevronRight className="w-4 h-4" />
+                    ) : (
+                        <ChevronLeft className="w-4 h-4" />
+                    )}
+                </button>
+
+                {renderConteudoSidebar(sidebarRecolhida)}
             </aside>
 
             {menuMobileAberto && (
@@ -1061,20 +1174,24 @@ export default function PainelAdmin({
                     <aside
                         className={`relative w-72 max-w-[85vw] h-full border-r ${clsSidebar}`}
                     >
-                        {renderConteudoSidebar()}
+                        {renderConteudoSidebar(false)}
                     </aside>
                 </div>
             )}
 
             <div className="flex-1 min-w-0 flex flex-col">
                 <header
-                    className={`sticky top-0 z-30 border-b px-4 sm:px-8 py-4 backdrop-blur-md ${
+                    className={`sticky top-0 z-30 border-b px-4 sm:px-8 py-3.5 backdrop-blur-md ${
                         escuro
                             ? 'bg-[#0B0E11]/90 border-[#1F262E]'
-                            : 'bg-white/90 border-stone-200'
+                            : 'bg-[#F8FAFC]/95 border-slate-300 shadow-2xs'
                     }`}
                 >
-                    <div className="max-w-[1440px] mx-auto flex flex-wrap items-center justify-between gap-4">
+                    <div
+                        className={`${
+                            mapaTelaCheia ? 'max-w-full' : 'max-w-[1440px]'
+                        } mx-auto flex flex-wrap items-center justify-between gap-4`}
+                    >
                         <div className="flex items-center gap-3">
                             <button
                                 type="button"
@@ -1082,7 +1199,7 @@ export default function PainelAdmin({
                                 className={`lg:hidden p-2.5 rounded-xl border ${
                                     escuro
                                         ? 'bg-[#151A21] border-[#232B35] text-stone-200'
-                                        : 'bg-stone-100 border-stone-200 text-stone-700'
+                                        : 'bg-white border-slate-300 text-slate-800'
                                 }`}
                             >
                                 <Menu className="w-5 h-5" />
@@ -1090,16 +1207,16 @@ export default function PainelAdmin({
 
                             <div>
                                 <div
-                                    className={`flex items-center gap-2 text-xs ${clsSubtexto}`}
+                                    className={`flex items-center gap-2 text-xs font-medium ${clsSubtexto}`}
                                 >
                                     <span>Painel R4</span>
                                     <span>/</span>
-                                    <span className="text-[#1496A1] font-semibold">
+                                    <span className="text-[#0E7C86] dark:text-[#1496A1] font-bold">
                                         {metaAbaAtual[aba].titulo}
                                     </span>
                                 </div>
                                 <h1
-                                    className={`text-xl sm:text-2xl font-bold tracking-tight ${clsTitulo}`}
+                                    className={`text-xl sm:text-2xl font-extrabold tracking-tight ${clsTitulo}`}
                                 >
                                     {metaAbaAtual[aba].titulo}
                                 </h1>
@@ -1113,7 +1230,7 @@ export default function PainelAdmin({
                                 title={`Logado como ${perfilAtual.nome} — clique para trocar a foto`}
                                 className={`hidden sm:inline-flex items-center gap-2 pr-3 pl-1.5 py-1 rounded-full border transition cursor-pointer ${clsCard}`}
                             >
-                                <span className="w-7 h-7 rounded-full overflow-hidden bg-[#0E7C86]/20 border border-[#0E7C86] flex items-center justify-center text-[10px] font-bold text-[#1496A1]">
+                                <span className="w-7 h-7 rounded-full overflow-hidden bg-[#0E7C86]/20 border border-[#0E7C86] flex items-center justify-center text-[10px] font-bold text-[#0E7C86] dark:text-[#1496A1]">
                                     {perfilAtual.foto_url ? (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
@@ -1125,26 +1242,26 @@ export default function PainelAdmin({
                                         obterIniciais(perfilAtual.nome)
                                     )}
                                 </span>
-                                <span className={`text-xs font-semibold ${clsTitulo}`}>
+                                <span className={`text-xs font-bold ${clsTitulo}`}>
                                     {perfilAtual.nome.split(' ')[0]}
                                 </span>
                             </button>
 
                             <span
-                                className={`hidden md:inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-full border ${
+                                className={`hidden md:inline-flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-full border ${
                                     sistemaAbertoAgora
                                         ? escuro
                                             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                            : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                            : 'bg-emerald-100 border-emerald-300 text-emerald-800'
                                         : escuro
                                             ? 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-300'
-                                            : 'bg-rose-50 border-rose-200 text-[#BE1E23]'
+                                            : 'bg-rose-100 border-rose-300 text-rose-800'
                                 }`}
                             >
                                 <span
                                     className={`w-2 h-2 rounded-full ${
                                         sistemaAbertoAgora
-                                            ? 'bg-emerald-400'
+                                            ? 'bg-emerald-500'
                                             : 'bg-[#BE1E23]'
                                     }`}
                                 />
@@ -1158,7 +1275,7 @@ export default function PainelAdmin({
                                 className={`p-2.5 rounded-xl border transition cursor-pointer ${
                                     escuro
                                         ? 'bg-[#151A21] border-[#232B35] text-stone-300 hover:text-white hover:border-stone-600'
-                                        : 'bg-stone-100 border-stone-200 text-stone-700 hover:bg-stone-200'
+                                        : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-200'
                                 }`}
                             >
                                 <RefreshCw
@@ -1171,10 +1288,10 @@ export default function PainelAdmin({
                             <button
                                 type="button"
                                 onClick={alternarTema}
-                                className={`px-3.5 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-2 transition cursor-pointer ${
+                                className={`px-3.5 py-2 rounded-xl border text-xs font-bold inline-flex items-center gap-2 transition cursor-pointer ${
                                     escuro
                                         ? 'bg-[#151A21] border-[#232B35] text-amber-300 hover:border-stone-600'
-                                        : 'bg-[#231917] border-[#231917] text-white hover:bg-stone-800'
+                                        : 'bg-[#17232B] border-[#17232B] text-white hover:bg-slate-800 shadow-xs'
                                 }`}
                             >
                                 {escuro ? (
@@ -1193,7 +1310,13 @@ export default function PainelAdmin({
                     </div>
                 </header>
 
-                <div className="max-w-[1440px] w-full mx-auto px-4 sm:px-8 py-6">
+                <div
+                    className={`${
+                        mapaTelaCheia && aba === 'mapa'
+                            ? 'max-w-full px-3 sm:px-5 py-4'
+                            : 'max-w-[1440px] px-4 sm:px-8 py-6'
+                    } w-full mx-auto transition-all`}
+                >
                     {aba === 'agendamentos' && (
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
                             <section className="xl:col-span-8 space-y-4">
@@ -1201,7 +1324,7 @@ export default function PainelAdmin({
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                         <div>
                                             <label
-                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
                                             >
                                                 Período (Mês)
                                             </label>
@@ -1215,7 +1338,7 @@ export default function PainelAdmin({
 
                                         <div>
                                             <label
-                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
                                             >
                                                 Unidade
                                             </label>
@@ -1237,7 +1360,7 @@ export default function PainelAdmin({
 
                                         <div>
                                             <label
-                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
                                             >
                                                 Professor(a)
                                             </label>
@@ -1261,7 +1384,7 @@ export default function PainelAdmin({
 
                                         <div>
                                             <label
-                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
                                             >
                                                 Colégio
                                             </label>
@@ -1283,7 +1406,7 @@ export default function PainelAdmin({
 
                                         <div>
                                             <label
-                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
                                             >
                                                 Status
                                             </label>
@@ -1303,7 +1426,7 @@ export default function PainelAdmin({
 
                                         <div>
                                             <label
-                                                className={`block text-[11px] mb-1 ${clsSubtexto}`}
+                                                className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
                                             >
                                                 Lançamento Clin Care
                                             </label>
@@ -1325,7 +1448,7 @@ export default function PainelAdmin({
 
                                     <div
                                         className={`flex flex-wrap items-center justify-between gap-3 pt-3 border-t ${
-                                            escuro ? 'border-[#232B35]' : 'border-stone-200'
+                                            escuro ? 'border-[#232B35]' : 'border-slate-300'
                                         }`}
                                     >
                                         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1335,10 +1458,10 @@ export default function PainelAdmin({
                                             {demandaPorMateria.slice(0, 4).map(([mat, qtd]) => (
                                                 <span
                                                     key={mat}
-                                                    className={`px-2.5 py-0.5 rounded-full border text-[11px] ${clsSubCard}`}
+                                                    className={`px-2.5 py-0.5 rounded-full border text-[11px] font-medium ${clsSubCard}`}
                                                 >
                                                     {mat}:{' '}
-                                                    <strong className="text-[#1496A1]">
+                                                    <strong className="text-[#0E7C86] dark:text-[#1496A1]">
                                                         {qtd}
                                                     </strong>
                                                 </span>
@@ -1355,7 +1478,7 @@ export default function PainelAdmin({
                                                         setFiltroProfessor('todos');
                                                         setFiltroColegio('todos');
                                                     }}
-                                                    className="text-xs text-[#1496A1] hover:underline cursor-pointer"
+                                                    className="text-xs font-bold text-[#0E7C86] dark:text-[#1496A1] hover:underline cursor-pointer"
                                                 >
                                                     Limpar filtros
                                                 </button>
@@ -1376,7 +1499,7 @@ export default function PainelAdmin({
 
                                 {agendamentosFiltrados.length === 0 ? (
                                     <div
-                                        className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
+                                        className={`border rounded-2xl p-10 text-center text-sm font-medium ${clsCard} ${clsSubtexto}`}
                                     >
                                         Nenhum agendamento encontrado para este filtro.
                                     </div>
@@ -1400,7 +1523,7 @@ export default function PainelAdmin({
                                                             >
                                                                 {ag.nome_aluno}
                                                             </h3>
-                                                            <p className={`text-xs ${clsSubtexto}`}>
+                                                            <p className={`text-xs font-medium ${clsSubtexto}`}>
                                                                 {[ag.colegio_aluno, ag.serie_aluno]
                                                                     .filter(Boolean)
                                                                     .join(' • ')}
@@ -1411,10 +1534,10 @@ export default function PainelAdmin({
                                                             <span
                                                                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
                                                                     ag.status === 'confirmado'
-                                                                        ? 'bg-emerald-500/15 text-emerald-400'
+                                                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
                                                                         : ag.status === 'concluido'
-                                                                            ? 'bg-[#0E7C86]/20 text-[#25A4AF]'
-                                                                            : 'bg-[#BE1E23]/20 text-rose-400'
+                                                                            ? 'bg-[#0E7C86]/20 text-[#0E7C86] dark:text-[#25A4AF]'
+                                                                            : 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400'
                                                                 }`}
                                                             >
                                                                 {ag.status.toUpperCase()}
@@ -1426,16 +1549,16 @@ export default function PainelAdmin({
                                                                         ag.clincare_reserva_erro ||
                                                                         undefined
                                                                     }
-                                                                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                                                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                                                                         ag.sincronizado_clincare
-                                                                            ? 'bg-[#0E7C86]/15 text-[#25A4AF] border-[#0E7C86]/35'
+                                                                            ? 'bg-[#0E7C86]/15 text-[#0B5C63] dark:text-[#25A4AF] border-[#0E7C86]/40'
                                                                             : ag.clincare_reserva_status ===
                                                                             'reservado'
-                                                                                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                                                                                ? 'bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 border-cyan-500/40'
                                                                                 : ag.clincare_reserva_status ===
                                                                                 'erro'
-                                                                                    ? 'bg-[#BE1E23]/20 text-rose-400 border-[#BE1E23]/40'
-                                                                                    : 'bg-[#C24124]/15 text-amber-400 border-[#C24124]/35'
+                                                                                    ? 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400 border-[#BE1E23]/40'
+                                                                                    : 'bg-[#C24124]/15 text-amber-800 dark:text-amber-400 border-[#C24124]/40'
                                                                     }`}
                                                                 >
                                                                     {ag.sincronizado_clincare
@@ -1464,7 +1587,7 @@ export default function PainelAdmin({
                                                             <strong>Professor(a):</strong>{' '}
                                                             {ag.professor_nome}
                                                         </p>
-                                                        <p className="text-[#1496A1] font-bold">
+                                                        <p className="text-[#0E7C86] dark:text-[#1496A1] font-bold">
                                                             Data: {formatarDataBR(ag.data)}
                                                             {ag.horario
                                                                 ? ` às ${ag.horario}`
@@ -1486,7 +1609,7 @@ export default function PainelAdmin({
 
                                                         {ag.clincare_reserva_erro &&
                                                             !ag.sincronizado_clincare && (
-                                                                <p className="text-[11px] text-rose-400 bg-[#BE1E23]/15 border border-[#BE1E23]/35 rounded-lg px-2.5 py-1.5 mt-1.5">
+                                                                <p className="text-[11px] text-rose-700 dark:text-rose-400 bg-[#BE1E23]/15 border border-[#BE1E23]/35 rounded-lg px-2.5 py-1.5 mt-1.5">
                                                                     <strong>
                                                                         Robô Clin Care:
                                                                     </strong>{' '}
@@ -1501,7 +1624,7 @@ export default function PainelAdmin({
                                                                 href={linkWhatsapp}
                                                                 target="_blank"
                                                                 rel="noopener noreferrer"
-                                                                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-500 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-emerald-500/25"
+                                                                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-600/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold inline-flex items-center gap-1.5 hover:bg-emerald-500/25"
                                                             >
                                                                 <MessageCircle className="w-3.5 h-3.5" />{' '}
                                                                 WhatsApp
@@ -1517,10 +1640,10 @@ export default function PainelAdmin({
                                                                         ag.sincronizado_clincare
                                                                     )
                                                                 }
-                                                                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${
+                                                                className={`px-3 py-1.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition ${
                                                                     ag.sincronizado_clincare
-                                                                        ? 'bg-[#0E7C86]/15 border-[#0E7C86]/40 text-[#25A4AF]'
-                                                                        : 'bg-[#C24124]/15 border-[#C24124]/40 text-amber-500'
+                                                                        ? 'bg-[#0E7C86]/15 border-[#0E7C86]/45 text-[#0B5C63] dark:text-[#25A4AF]'
+                                                                        : 'bg-[#C24124]/15 border-[#C24124]/45 text-amber-800 dark:text-amber-400'
                                                                 }`}
                                                             >
                                                                 <ClipboardCheck className="w-3.5 h-3.5" />
@@ -1577,7 +1700,7 @@ export default function PainelAdmin({
                                                                         await carregarDados();
                                                                     }
                                                                 }}
-                                                                className="px-3 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-500/25"
+                                                                className="px-3 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-600/40 text-cyan-800 dark:text-cyan-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-500/25"
                                                             >
                                                                 <RefreshCw className="w-3.5 h-3.5" />
                                                                 {ag.status === 'cancelado'
@@ -1596,7 +1719,7 @@ export default function PainelAdmin({
                                                                             'concluido'
                                                                         )
                                                                     }
-                                                                    className="px-3 py-1.5 rounded-xl bg-[#0E7C86]/15 border border-[#0E7C86]/40 text-[#25A4AF] text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                                                                    className="px-3 py-1.5 rounded-xl bg-[#0E7C86]/15 border border-[#0E7C86]/45 text-[#0B5C63] dark:text-[#25A4AF] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                                                                 >
                                                                     <CheckCircle2 className="w-3.5 h-3.5" />{' '}
                                                                     Concluir
@@ -1609,7 +1732,7 @@ export default function PainelAdmin({
                                                                             'cancelado'
                                                                         )
                                                                     }
-                                                                    className="px-3 py-1.5 rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/40 text-rose-400 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                                                                    className="px-3 py-1.5 rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/45 text-rose-700 dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                                                                 >
                                                                     <XCircle className="w-3.5 h-3.5" />{' '}
                                                                     Cancelar
@@ -1644,8 +1767,8 @@ export default function PainelAdmin({
                                         <span
                                             className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
                                                 sistemaAbertoAgora
-                                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
-                                                    : 'bg-[#BE1E23]/20 text-rose-400 border border-[#BE1E23]/40'
+                                                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-600/40'
+                                                    : 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400 border border-[#BE1E23]/40'
                                             }`}
                                         >
                                             {sistemaAbertoAgora ? 'ABERTO' : 'FECHADO'}
@@ -1662,7 +1785,7 @@ export default function PainelAdmin({
                                             type="button"
                                             disabled={salvandoChaveMestra}
                                             onClick={() => void alterarChaveMestra('auto')}
-                                            className={`py-2 px-2 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
+                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
                                                 modoChaveMestra === 'auto'
                                                     ? 'bg-[#0E7C86] border-[#1496A1] text-white'
                                                     : `${clsSubCard} ${clsSubtexto}`
@@ -1675,7 +1798,7 @@ export default function PainelAdmin({
                                             type="button"
                                             disabled={salvandoChaveMestra}
                                             onClick={() => void alterarChaveMestra('ativo')}
-                                            className={`py-2 px-2 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
+                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
                                                 modoChaveMestra === 'ativo'
                                                     ? 'bg-emerald-700 border-emerald-500 text-white'
                                                     : `${clsSubCard} ${clsSubtexto}`
@@ -1688,7 +1811,7 @@ export default function PainelAdmin({
                                             type="button"
                                             disabled={salvandoChaveMestra}
                                             onClick={() => void alterarChaveMestra('inativo')}
-                                            className={`py-2 px-2 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
+                                            className={`py-2 px-2 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
                                                 modoChaveMestra === 'inativo'
                                                     ? 'bg-[#BE1E23] border-rose-500 text-white'
                                                     : `${clsSubCard} ${clsSubtexto}`
@@ -1712,7 +1835,7 @@ export default function PainelAdmin({
                                                 </strong>
                                             </p>
                                         </div>
-                                        <RefreshCw className="w-4 h-4 text-[#1496A1]" />
+                                        <RefreshCw className="w-4 h-4 text-[#0E7C86] dark:text-[#1496A1]" />
                                     </div>
 
                                     <div className="space-y-2">
@@ -1720,10 +1843,10 @@ export default function PainelAdmin({
                                             type="button"
                                             disabled={restanteHoje > 0 || disparandoSync !== null}
                                             onClick={() => void dispararSincronizacao('hoje')}
-                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between border transition ${
+                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between border transition ${
                                                 restanteHoje > 0
                                                     ? `${clsSubCard} ${clsSubtexto} cursor-not-allowed`
-                                                    : 'bg-[#0E7C86]/15 hover:bg-[#0E7C86] border-[#0E7C86]/45 text-[#25A4AF] hover:text-white cursor-pointer'
+                                                    : 'bg-[#0E7C86]/15 hover:bg-[#0E7C86] border-[#0E7C86]/45 text-[#0B5C63] dark:text-[#25A4AF] hover:text-white cursor-pointer'
                                             }`}
                                         >
                                             <span className="inline-flex items-center gap-2">
@@ -1743,10 +1866,10 @@ export default function PainelAdmin({
                                             type="button"
                                             disabled={restanteSemana > 0 || disparandoSync !== null}
                                             onClick={() => void dispararSincronizacao('semana')}
-                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between border transition ${
+                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between border transition ${
                                                 restanteSemana > 0
                                                     ? `${clsSubCard} ${clsSubtexto} cursor-not-allowed`
-                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/35 text-[#25A4AF] hover:text-white cursor-pointer'
+                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/40 text-[#0B5C63] dark:text-[#25A4AF] hover:text-white cursor-pointer'
                                             }`}
                                         >
                                             <span className="inline-flex items-center gap-2">
@@ -1766,10 +1889,10 @@ export default function PainelAdmin({
                                             type="button"
                                             disabled={restanteMes > 0 || disparandoSync !== null}
                                             onClick={() => void dispararSincronizacao('mes')}
-                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between border transition ${
+                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between border transition ${
                                                 restanteMes > 0
                                                     ? `${clsSubCard} ${clsSubtexto} cursor-not-allowed`
-                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/35 text-[#25A4AF] hover:text-white cursor-pointer'
+                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/40 text-[#0B5C63] dark:text-[#25A4AF] hover:text-white cursor-pointer'
                                             }`}
                                         >
                                             <span className="inline-flex items-center gap-2">
@@ -1790,8 +1913,8 @@ export default function PainelAdmin({
                                         <div
                                             className={`rounded-xl border p-3 text-xs flex items-start justify-between gap-2 ${
                                                 feedbackSync.tipo === 'sucesso'
-                                                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-400'
-                                                    : 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-400'
+                                                    ? 'bg-emerald-500/15 border-emerald-600/40 text-emerald-800 dark:text-emerald-400'
+                                                    : 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-800 dark:text-rose-400'
                                             }`}
                                         >
                                             <span>{feedbackSync.texto}</span>
@@ -1813,10 +1936,10 @@ export default function PainelAdmin({
 
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className={`border rounded-xl p-3.5 ${clsSubCard}`}>
-                                            <p className={`text-[11px] ${clsSubtexto}`}>
+                                            <p className={`text-[11px] font-semibold ${clsSubtexto}`}>
                                                 Confirmadas
                                             </p>
-                                            <p className="text-2xl font-bold text-[#1496A1] mt-0.5">
+                                            <p className="text-2xl font-extrabold text-[#0E7C86] dark:text-[#1496A1] mt-0.5">
                                                 {confirmadosCount}
                                             </p>
                                         </div>
@@ -1829,10 +1952,10 @@ export default function PainelAdmin({
                                             }}
                                             className={`border rounded-xl p-3.5 text-left transition cursor-pointer hover:border-[#C24124]/60 ${clsSubCard}`}
                                         >
-                                            <p className={`text-[11px] ${clsSubtexto}`}>
+                                            <p className={`text-[11px] font-semibold ${clsSubtexto}`}>
                                                 Pendentes Clin Care
                                             </p>
-                                            <p className="text-2xl font-bold text-[#D96B43] mt-0.5">
+                                            <p className="text-2xl font-extrabold text-[#C24124] dark:text-[#D96B43] mt-0.5">
                                                 {pendentesClinCare}
                                             </p>
                                         </button>
@@ -1853,6 +1976,8 @@ export default function PainelAdmin({
                             bloqueios={bloqueios}
                             escuro={escuro}
                             classes={classesCompartilhadas}
+                            modoTelaCheia={mapaTelaCheia}
+                            onAlternarTelaCheiaAction={alternarTelaCheiaMapa}
                             onRecarregarDadosAction={carregarDados}
                         />
                     )}
