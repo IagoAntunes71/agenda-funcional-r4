@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { enderecoMapa } from '@/lib/admin-navegacao';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     AlignLeft,
@@ -197,8 +200,14 @@ export default function AbaMapaDia({
     const ehProfessor = roleUsuario === 'professor';
 
     const [modoVisualizacao, setModoVisualizacao] = useState<'dia' | 'semana'>('dia');
-    const [unidadeId, setUnidadeId] = useState<number>(0);
-    const [dataGlobal, setDataGlobal] = useState<string>(() => obterHojeISO());
+    const parametros = useSearchParams();
+    const unidadeId = Number(parametros.get('unidade'));
+    const [hojeInicial] = useState(obterHojeISO);
+    const dataPedida = parametros.get('data') || '';
+    const dataLida = new Date(dataPedida + 'T12:00:00Z');
+    const dataGlobal = /^\d{4}-\d{2}-\d{2}$/.test(dataPedida) &&
+        Number.isFinite(dataLida.getTime()) && dataLida.toISOString().slice(0, 10) === dataPedida
+        ? dataPedida : hojeInicial;
     const [datasPorProfessor, setDatasPorProfessor] = useState<Record<number, string>>({});
     const [busca, setBusca] = useState<string>('');
     const [professorSemanaId, setProfessorSemanaId] = useState(0);
@@ -246,7 +255,29 @@ export default function AbaMapaDia({
 
     const scrollGradeRef = useRef<HTMLDivElement | null>(null);
     const [rolagem, setRolagem] = useState({ anterior: false, proximo: false });
-    const unidadeIdAtiva = unidadeId || unidades[0]?.id || 0;
+    const unidadeIdAtiva = unidades.find((unidade) => unidade.id === unidadeId)?.id || unidades[0]?.id || 0;
+
+    useEffect(() => {
+        function voltarNoMapa() { setDatasPorProfessor({}); }
+        window.addEventListener('popstate', voltarNoMapa);
+        return () => window.removeEventListener('popstate', voltarNoMapa);
+    }, []);
+
+    useEffect(() => {
+        if (!ehProfessor && !unidadeIdAtiva) return;
+        const endereco = enderecoMapa(dataGlobal, ehProfessor ? undefined : unidadeIdAtiva);
+        if (window.location.pathname === '/admin/mapa' &&
+            window.location.pathname + window.location.search !== endereco) {
+            window.history.replaceState(null, '', endereco);
+        }
+    }, [dataGlobal, unidadeIdAtiva, ehProfessor, parametros]);
+
+    function atualizarEndereco(data: string, unidade: number) {
+        const endereco = enderecoMapa(data, ehProfessor ? undefined : unidade);
+        if (endereco !== window.location.pathname + window.location.search) {
+            window.history.pushState(null, '', endereco);
+        }
+    }
     const semana = modoVisualizacao === 'semana';
 
     useEffect(() => {
@@ -349,7 +380,7 @@ export default function AbaMapaDia({
 
     function alterarDataGlobal(novaData: string) {
         if (!novaData) return;
-        setDataGlobal(novaData);
+        atualizarEndereco(novaData, unidadeIdAtiva);
         setDatasPorProfessor({});
     }
 
@@ -660,6 +691,8 @@ export default function AbaMapaDia({
                     </div>
                     <div className={styles.controles}>
                         {!ehProfessor && <>
+                            <Link className={styles.botao} href={enderecoMapa(dataGlobal, unidadeIdAtiva)}
+                                target="_blank" rel="noopener">Abrir em nova aba</Link>
                             <button type="button" className={styles.botao} onClick={() => setArquivoAberto(true)}>Aulas excluídas</button>
                             <button type="button" className={styles.botao} disabled={!colunas.length} onClick={() => abrirModalCriacao('bloqueio')}>
                                 <Ban /> Bloquear
@@ -684,7 +717,10 @@ export default function AbaMapaDia({
                     <div className={styles.controles}>
                         {!ehProfessor && (
                             <>
-                                <select aria-label="Unidade" value={unidadeIdAtiva} onChange={(e) => setUnidadeId(Number(e.target.value))}>
+                                <select aria-label="Unidade" value={unidadeIdAtiva} onChange={(e) => {
+                                    setDatasPorProfessor({});
+                                    atualizarEndereco(dataGlobal, Number(e.target.value));
+                                }}>
                                     {unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
                                 </select>
                                 <label className={styles.busca}>

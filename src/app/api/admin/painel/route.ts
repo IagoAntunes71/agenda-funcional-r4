@@ -40,6 +40,7 @@ export async function GET() {
             bloqueios,
             syncInfo,
             disparosRaw,
+            resumoSemanaRaw,
         ] = await Promise.all([
             sql`
         SELECT id, nome, clin_care_id, ativa
@@ -221,6 +222,26 @@ export async function GET() {
         FROM configuracoes_sistema
         WHERE chave IN ('sync_disparo_hoje', 'sync_disparo_semana', 'sync_disparo_mes')
       `,
+            sql`
+                WITH semana AS (
+                    SELECT date_trunc('week', now() AT TIME ZONE 'America/Bahia')::date AS inicio
+                )
+                SELECT to_char(s.inicio, 'YYYY-MM-DD') AS inicio,
+                    to_char(s.inicio + 6, 'YYYY-MM-DD') AS fim,
+                    count(a.id)::int AS total,
+                    count(*) FILTER (WHERE a.id IS NOT NULL AND coalesce(a.status, 'confirmado') IN ('agendado', 'confirmado'))::int AS marcadas,
+                    count(*) FILTER (WHERE a.status IN ('realizado', 'concluido'))::int AS realizadas,
+                    count(*) FILTER (WHERE a.status IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca'))::int AS desmarcadas
+                FROM semana s
+                LEFT JOIN agendamentos a ON a.data BETWEEN s.inicio AND s.inicio + 6 AND a.excluido_em IS NULL
+                    AND (${sessao.role !== 'professor'} OR EXISTS (
+                        SELECT 1 FROM professores vinculado
+                        JOIN professores destino ON destino.id = a.professor_id
+                        WHERE vinculado.id = ${sessao.professor_id}
+                            AND (vinculado.id = destino.id OR vinculado.clin_care_id = destino.clin_care_id)
+                    ))
+                GROUP BY s.inicio
+            `,
         ]);
 
         const listaAlunos = alunosRaw as {
@@ -283,6 +304,7 @@ export async function GET() {
 
         return NextResponse.json({
             sessao,
+            resumoSemana: resumoSemanaRaw[0] ?? null,
             chaveMestra: {
                 modo: modoChaveMestra,
                 aberto: statusChaveMestra.aberto,

@@ -127,15 +127,7 @@ export interface PerfilAdmin {
     criado_em?: string;
 }
 
-export type AbaAdmin =
-    | 'mapa'
-    | 'agendamentos'
-    | 'alunos'
-    | 'textos'
-    | 'datas'
-    | 'professores'
-    | 'unidades'
-    | 'whatsapp';
+export type { PaginaAdmin as AbaAdmin } from '@/lib/admin-navegacao';
 
 export interface TemaClasses {
     clsCard: string;

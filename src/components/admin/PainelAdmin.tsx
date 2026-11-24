@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import type { SessaoAdmin } from '@/lib/admin-auth';
+import { enderecoAdmin, podeAcessarModulo } from '@/lib/admin-navegacao';
+import InicioAdminR4, { type ResumoSemana } from './InicioAdminR4';
 import {
     ArrowLeft,
     Building2,
@@ -21,6 +25,7 @@ import {
     GraduationCap,
     KeyRound,
     Lock,
+    LayoutGrid,
     LogOut,
     Menu,
     MessageCircle,
@@ -81,11 +86,14 @@ function escaparCelulaCSV(valor: unknown): string {
 }
 
 export default function PainelAdmin({
-                                        autenticadoInicial,
+                                        sessaoInicial,
+                                        pagina,
                                     }: {
-    autenticadoInicial: boolean;
+    sessaoInicial: SessaoAdmin | null;
+    pagina: AbaAdmin;
 }) {
-    const [autenticado, setAutenticado] = useState(autenticadoInicial);
+    const router = useRouter();
+    const [autenticado, setAutenticado] = useState(Boolean(sessaoInicial));
     const [modoLogin, setModoLogin] = useState<'perfil' | 'master'>('perfil');
     const [emailLogin, setEmailLogin] = useState('');
     const [senha, setSenha] = useState('');
@@ -98,7 +106,7 @@ export default function PainelAdmin({
     const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
     const [mapaTelaCheia, setMapaTelaCheia] = useState(false);
 
-    const [aba, setAba] = useState<AbaAdmin>('mapa');
+    const [resumoSemana, setResumoSemana] = useState<ResumoSemana | null>(null);
     const [carregandoDados, setCarregandoDados] = useState(false);
     const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
 
@@ -109,7 +117,9 @@ export default function PainelAdmin({
         foto_url: null,
         role: 'admin',
         professor_id: null,
+        ...sessaoInicial,
     });
+    const aba = podeAcessarModulo(perfilAtual.role, pagina) ? pagina : 'inicio';
     const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
     const [modalPerfilAberto, setModalPerfilAberto] = useState(false);
     const [abaModalPerfil, setAbaModalPerfil] = useState<'meu' | 'equipe'>('meu');
@@ -247,15 +257,7 @@ export default function PainelAdmin({
                     professor_id: json.sessao.professor_id ?? null,
                 }));
 
-                if (json.sessao.role === 'professor') {
-                    setAba('mapa');
-                } else if (json.sessao.role === 'atendimento') {
-                    setAba((abaAtual) =>
-                        ['mapa', 'agendamentos', 'alunos'].includes(abaAtual)
-                            ? abaAtual
-                            : 'mapa'
-                    );
-                }
+
             }
 
             if (json.chaveMestra) {
@@ -278,6 +280,7 @@ export default function PainelAdmin({
             setResponsaveis(json.responsaveis || []);
             setDatasLiberadas(json.datasLiberadas || []);
             setAgendamentos(json.agendamentos || []);
+            setResumoSemana(json.resumoSemana || null);
             setBloqueios(json.bloqueios || []);
             setUltimaSincronizacao(json.ultimaSincronizacao || null);
 
@@ -442,6 +445,7 @@ export default function PainelAdmin({
     async function handleLogout() {
         await fetch('/api/admin/login', { method: 'DELETE' });
         setAutenticado(false);
+        if (pagina !== 'inicio') router.replace('/admin');
     }
 
     async function alterarStatusAgendamento(
@@ -694,6 +698,7 @@ export default function PainelAdmin({
         badge?: number;
         icone: React.ReactNode;
     }[] = [
+        { id: 'inicio', rotulo: 'Início', subtitulo: 'Visão geral e atalhos', icone: <LayoutGrid className="w-4 h-4" /> },
         {
             id: 'agendamentos',
             rotulo: 'Agendamentos',
@@ -748,15 +753,10 @@ export default function PainelAdmin({
         },
     ];
 
-    const itensVisiveis = itensMenuLateral.filter((item) => {
-        if (perfilAtual.role === 'professor') return item.id === 'mapa';
-        if (perfilAtual.role === 'atendimento') {
-            return ['mapa', 'agendamentos', 'alunos'].includes(item.id);
-        }
-        return true;
-    });
+    const itensVisiveis = itensMenuLateral.filter((item) => podeAcessarModulo(perfilAtual.role, item.id));
 
     const metaAbaAtual: Record<AbaAdmin, { titulo: string }> = {
+        inicio: { titulo: 'Visão geral' },
         agendamentos: { titulo: 'Agendamentos & Operação' },
         mapa: { titulo: 'Mapa do Dia' },
         alunos: { titulo: 'Alunos & Responsáveis' },
@@ -976,14 +976,11 @@ export default function PainelAdmin({
                             const ativo = aba === item.id;
                             if (recolhida) {
                                 return (
-                                    <button
+                                    <Link
                                         key={item.id}
-                                        type="button"
+                                        href={enderecoAdmin(item.id)}
+                                        aria-current={ativo ? 'page' : undefined}
                                         title={item.rotulo}
-                                        onClick={() => {
-                                            setAba(item.id);
-                                            if (item.id !== 'mapa') setMapaTelaCheia(false);
-                                        }}
                                         className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer ${
                                             ativo
                                                 ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
@@ -993,19 +990,16 @@ export default function PainelAdmin({
                                         }`}
                                     >
                                         {item.icone}
-                                    </button>
+                                    </Link>
                                 );
                             }
 
                             return (
-                                <button
+                                <Link
                                     key={item.id}
-                                    type="button"
-                                    onClick={() => {
-                                        setAba(item.id);
-                                        if (item.id !== 'mapa') setMapaTelaCheia(false);
-                                        setMenuMobileAberto(false);
-                                    }}
+                                    href={enderecoAdmin(item.id)}
+                                        aria-current={ativo ? 'page' : undefined}
+                                    onClick={() => setMenuMobileAberto(false)}
                                     className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl transition cursor-pointer group ${
                                         ativo
                                             ? escuro
@@ -1059,7 +1053,7 @@ export default function PainelAdmin({
                                             {item.badge}
                                         </span>
                                     )}
-                                </button>
+                                </Link>
                             );
                         })}
                     </nav>
@@ -1209,7 +1203,7 @@ export default function PainelAdmin({
                                 <div
                                     className={`flex items-center gap-2 text-xs font-medium ${clsSubtexto}`}
                                 >
-                                    <span>Painel R4</span>
+                                    <Link href="/admin" className="hover:underline">Painel R4</Link>
                                     <span>/</span>
                                     <span className="text-[#0E7C86] dark:text-[#1496A1] font-bold">
                                         {metaAbaAtual[aba].titulo}
@@ -1317,6 +1311,10 @@ export default function PainelAdmin({
                             : 'max-w-[1440px] px-4 sm:px-8 py-6'
                     } w-full mx-auto transition-all`}
                 >
+                    {aba === 'inicio' && (
+                        <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
+                            modulos={itensVisiveis.filter((item) => item.id !== 'inicio')} escuro={escuro} />
+                    )}
                     {aba === 'agendamentos' && (
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
                             <section className="xl:col-span-8 space-y-4">
