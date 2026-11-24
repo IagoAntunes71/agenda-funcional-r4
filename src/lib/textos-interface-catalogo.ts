@@ -1,10 +1,10 @@
 // Rótulos originais que podem ser publicados pelo editor do R4.
-export const TEXTOS_EDITAVEIS_R4: readonly string[
+export const TEXTOS_EDITAVEIS_R4: readonly string[] = [
     "Registrar o feedback",
     "Consultar o feedback do professor",
     "O professor ainda não registrou um feedback.",
     "O envio de confirmação será disponibilizado após a integração com o CRM.",
-    "Enviar confirmação",] = [
+    "Enviar confirmação",
     ", abre de segunda a sexta, das 18:00 às 22:00.",
     ", escolha uma senha numérica de 4 dígitos que você lembre facilmente.",
     ", mantenha",
