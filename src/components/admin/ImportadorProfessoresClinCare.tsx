@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useState } from 'react';
 
@@ -31,6 +33,7 @@ interface ProfessorAgrupado {
 }
 
 export default function ImportadorProfessoresClinCare() {
+    const textoR4 = useTextoR4();
     const [textoIds, setTextoIds] = useState('');
     const [itens, setItens] = useState<ItemImportacao[]>([]);
     const [carregando, setCarregando] = useState(true);
@@ -232,12 +235,9 @@ export default function ImportadorProfessoresClinCare() {
             <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                        <h2 className="text-lg font-semibold text-white">
-                            Unidades e Matérias dos Professores ({professores.length})
+                        <h2 className="text-lg font-semibold text-white">{textoR4("Unidades e Matérias dos Professores (")}{professores.length})
                         </h2>
-                        <p className="text-sm text-slate-400 mt-1">
-                            Clique na unidade de cada professor para salvar automaticamente. As matérias são importadas de &quot;Serviços e Valores&quot; no Clin Care.
-                        </p>
+                        <p className="text-sm text-slate-400 mt-1">{textoR4("Clique na unidade de cada professor para salvar automaticamente. As matérias são importadas de \"Serviços e Valores\" no Clin Care.")}</p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -247,8 +247,7 @@ export default function ImportadorProfessoresClinCare() {
                                 onClick={handleMesclarDuplicados}
                                 disabled={salvando}
                                 className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white transition"
-                            >
-                                Juntar Duplicados ({totalBruto} → {professores.length})
+                            >{textoR4("Juntar Duplicados (")}{totalBruto} → {professores.length})
                             </button>
                         )}
 
@@ -262,9 +261,7 @@ export default function ImportadorProfessoresClinCare() {
                             }
                             disabled={salvando}
                             className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-semibold text-white transition"
-                        >
-                            Reimportar Matérias (Serviços e Valores)
-                        </button>
+                        >{textoR4("Reimportar Matérias (Serviços e Valores)")}</button>
                     </div>
                 </div>
 
@@ -275,7 +272,7 @@ export default function ImportadorProfessoresClinCare() {
                             type="text"
                             value={buscaProf}
                             onChange={(e) => setBuscaProf(e.target.value)}
-                            placeholder="Buscar por nome ou matéria..."
+                            placeholder={textoR4("Buscar por nome ou matéria...")}
                             className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 w-64"
                         />
 
@@ -288,7 +285,7 @@ export default function ImportadorProfessoresClinCare() {
                             }
                             className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                         >
-                            <option value="todas">Todas as unidades</option>
+                            <option value="todas">{textoR4("Todas as unidades")}</option>
                             {unidades.map((u) => (
                                 <option key={u.id} value={u.id}>
                                     {u.nome}
@@ -303,33 +300,27 @@ export default function ImportadorProfessoresClinCare() {
                             checked={permitirMultiUnidade}
                             onChange={(e) => setPermitirMultiUnidade(e.target.checked)}
                             className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-0"
-                        />
-                        Permitir selecionar mais de 1 unidade por professor
-                    </label>
+                        />{textoR4("Permitir selecionar mais de 1 unidade por professor")}</label>
                 </div>
 
                 <div className="overflow-x-auto border border-slate-800 rounded-xl max-h-[520px] overflow-y-auto">
                     <table className="w-full text-left text-xs text-slate-300">
                         <thead className="bg-slate-950 text-slate-400 uppercase sticky top-0 z-10">
                         <tr>
-                            <th className="px-3 py-2.5">Professor</th>
-                            <th className="px-3 py-2.5">Unidade(s)</th>
-                            <th className="px-3 py-2.5">Matérias (Serviços Ativos)</th>
-                            <th className="px-3 py-2.5 text-right">Status</th>
+                            <th className="px-3 py-2.5">{textoR4("Professor")}</th>
+                            <th className="px-3 py-2.5">{textoR4("Unidade(s)")}</th>
+                            <th className="px-3 py-2.5">{textoR4("Matérias (Serviços Ativos)")}</th>
+                            <th className="px-3 py-2.5 text-right">{textoR4("Status")}</th>
                         </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800">
                         {carregando ? (
                             <tr>
-                                <td colSpan={4} className="px-3 py-6 text-center text-slate-400">
-                                    Carregando professores...
-                                </td>
+                                <td colSpan={4} className="px-3 py-6 text-center text-slate-400">{textoR4("Carregando professores...")}</td>
                             </tr>
                         ) : professoresFiltrados.length === 0 ? (
                             <tr>
-                                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
-                                    Nenhum professor encontrado para este filtro.
-                                </td>
+                                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">{textoR4("Nenhum professor encontrado para este filtro.")}</td>
                             </tr>
                         ) : (
                             professoresFiltrados.map((prof) => {
@@ -387,7 +378,7 @@ export default function ImportadorProfessoresClinCare() {
                                                         : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                                                 }`}
                                             >
-                                                {prof.ativo ? 'Ativo' : 'Inativo'}
+                                                {prof.ativo ? textoR4("Ativo") : textoR4("Inativo")}
                                             </button>
                                         </td>
                                     </tr>
@@ -403,12 +394,8 @@ export default function ImportadorProfessoresClinCare() {
             <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                        <h2 className="text-lg font-semibold text-white">
-                            Importação Automática de Professores (Clin Care)
-                        </h2>
-                        <p className="text-sm text-slate-400 mt-1">
-                            Descubra novos profissionais de /painel/profissionais ou cole IDs específicos abaixo.
-                        </p>
+                        <h2 className="text-lg font-semibold text-white">{textoR4("Importação Automática de Professores (Clin Care)")}</h2>
+                        <p className="text-sm text-slate-400 mt-1">{textoR4("Descubra novos profissionais de /painel/profissionais ou cole IDs específicos abaixo.")}</p>
                     </div>
 
                     <button
@@ -422,7 +409,7 @@ export default function ImportadorProfessoresClinCare() {
                         disabled={salvando}
                         className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-sm font-medium text-white transition"
                     >
-                        {salvando ? 'Agendando...' : 'Descobrir Novos do Clin Care'}
+                        {salvando ? textoR4("Agendando...") : textoR4("Descobrir Novos do Clin Care")}
                     </button>
                 </div>
 
@@ -431,7 +418,7 @@ export default function ImportadorProfessoresClinCare() {
               rows={2}
               value={textoIds}
               onChange={(e) => setTextoIds(e.target.value)}
-              placeholder="Opcional: cole IDs (UUID) de profissionais específicos..."
+              placeholder={textoR4("Opcional: cole IDs (UUID) de profissionais específicos...")}
               className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
           />
 
@@ -439,9 +426,7 @@ export default function ImportadorProfessoresClinCare() {
                         type="submit"
                         disabled={salvando || !textoIds.trim()}
                         className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium text-white transition"
-                    >
-                        Salvar IDs Específicos
-                    </button>
+                    >{textoR4("Salvar IDs Específicos")}</button>
 
                     {erro && (
                         <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-300">
@@ -457,10 +442,7 @@ export default function ImportadorProfessoresClinCare() {
                 </form>
 
                 {itens.length > 0 && (
-                    <p className="text-xs text-slate-400">
-                        Fila Clin Care: {itens.filter((i) => i.clin_care_id !== '__TODOS__').length}{' '}
-                        profissional(is) mapeado(s).
-                    </p>
+                    <p className="text-xs text-slate-400">{textoR4("Fila Clin Care:") + ' '}{itens.filter((i) => i.clin_care_id !== '__TODOS__').length}{' '}{textoR4("profissional(is) mapeado(s).")}</p>
                 )}
             </section>
         </div>

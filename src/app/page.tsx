@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useState } from 'react';
 import {
@@ -111,6 +113,7 @@ function formatarDiaSemana(isoDate: string): string {
 }
 
 export default function PaginaAgendamentoReforco() {
+    const textoR4 = useTextoR4();
   const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
   const [textos, setTextos] = useState<TextosPortal>(TEXTOS_PORTAL_PADRAO);
 
@@ -1054,16 +1057,16 @@ export default function PaginaAgendamentoReforco() {
   const escuro = tema === 'escuro';
 
   const clsBg = escuro
-      ? 'bg-[#0B0E11] text-stone-100'
-      : 'bg-[#F4F6F8] text-stone-900';
+      ? 'bg-[#221918] text-stone-100'
+      : 'bg-[#faf2ec] text-stone-900';
   const clsCard = escuro
-      ? 'bg-[#151A21] border-[#232B35] shadow-lg shadow-black/25'
+      ? 'bg-[#312320] border-[#513932] shadow-lg shadow-black/25'
       : 'bg-white border-stone-200/90 shadow-xs';
   const clsSubCard = escuro
-      ? 'bg-[#0E1217] border-[#232B35]'
+      ? 'bg-[#251b19] border-[#513932]'
       : 'bg-stone-50 border-stone-200/80';
   const clsInput = escuro
-      ? 'bg-[#0E1217] border-[#2B3440] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
+      ? 'bg-[#251b19] border-[#60443d] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
       : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400 focus:border-[#0E7C86]';
   const clsTitulo = escuro ? 'text-stone-100' : 'text-stone-900';
   const clsSubtexto = escuro ? 'text-stone-400' : 'text-stone-500';
@@ -1093,7 +1096,7 @@ export default function PaginaAgendamentoReforco() {
             }`}
         >
           <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
-            <LogoR4 temaEscuro={escuro} subtitulo="Portal de Agendamento" />
+            <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Portal de Agendamento")} />
 
             <div className="flex items-center gap-2.5">
             <span
@@ -1108,19 +1111,19 @@ export default function PaginaAgendamentoReforco() {
                   onClick={alternarTema}
                   className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer ${
                       escuro
-                          ? 'bg-[#151A21] border-[#232B35] text-amber-300 hover:border-stone-600'
+                          ? 'bg-[#312320] border-[#513932] text-amber-300 hover:border-stone-600'
                           : 'bg-[#231917] border-[#231917] text-white hover:bg-stone-800'
                   }`}
               >
                 {escuro ? (
                     <>
                       <Sun className="w-3.5 h-3.5" />
-                      <span>Tema Claro</span>
+                      <span>{textoR4("Tema Claro")}</span>
                     </>
                 ) : (
                     <>
                       <Moon className="w-3.5 h-3.5" />
-                      <span>Tema Escuro</span>
+                      <span>{textoR4("Tema Escuro")}</span>
                     </>
                 )}
               </button>
@@ -1136,8 +1139,7 @@ export default function PaginaAgendamentoReforco() {
               {textos.badge_topo}
             </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
-              <ShieldCheck className="w-4 h-4" /> Acesso protegido por PIN
-            </span>
+              <ShieldCheck className="w-4 h-4" />{' ' + textoR4("Acesso protegido por PIN")}</span>
             </div>
 
             <h1 className={`text-xl sm:text-2xl font-bold ${clsTitulo}`}>
@@ -1169,19 +1171,17 @@ export default function PaginaAgendamentoReforco() {
               <section className="bg-emerald-500/10 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1">
                   <p className="text-sm font-bold text-emerald-400 inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" /> Aula agendada na R4 Ensina
-                    com sucesso!
-                  </p>
+                    <CheckCircle2 className="w-4 h-4" />{' ' + textoR4("Aula agendada na R4 Ensina com sucesso!")}</p>
                   <p className={`text-xs ${clsTitulo}`}>
-                    <strong>Aluno(a):</strong> {comprovante.alunoNome}
+                    <strong>{textoR4("Aluno(a):")}</strong> {comprovante.alunoNome}
                     {comprovante.colegioNome ? ` • ${comprovante.colegioNome}` : ''}
                     {comprovante.serie ? ` (${comprovante.serie})` : ''}
                   </p>
                   <p className={`text-xs ${clsSubtexto}`}>
-                    <strong>Unidade:</strong> {comprovante.unidade} •{' '}
-                    <strong>Matéria:</strong> {comprovante.materia} •{' '}
-                    <strong>Professor(a):</strong> {comprovante.professor} •{' '}
-                    <strong>Data:</strong> {comprovante.data} às{' '}
+                    <strong>{textoR4("Unidade:")}</strong> {comprovante.unidade} •{' '}
+                    <strong>{textoR4("Matéria:")}</strong> {comprovante.materia} •{' '}
+                    <strong>{textoR4("Professor(a):")}</strong> {comprovante.professor} •{' '}
+                    <strong>{textoR4("Data:")}</strong> {comprovante.data}{' ' + textoR4("às")}{' '}
                     {comprovante.horario}
                   </p>
                 </div>
@@ -1193,17 +1193,13 @@ export default function PaginaAgendamentoReforco() {
                           rel="noopener noreferrer"
                           className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white inline-flex items-center gap-1.5 transition"
                       >
-                        <MessageCircle className="w-3.5 h-3.5" /> Enviar Comprovante no
-                        WhatsApp R4
-                      </a>
+                        <MessageCircle className="w-3.5 h-3.5" />{' ' + textoR4("Enviar Comprovante no WhatsApp R4")}</a>
                   )}
                   <button
                       type="button"
                       onClick={() => setComprovante(null)}
                       className={`px-3.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${clsCard} ${clsTitulo}`}
-                  >
-                    Fechar aviso
-                  </button>
+                  >{textoR4("Fechar aviso")}</button>
                 </div>
               </section>
           )}
@@ -1216,24 +1212,16 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    <Lock className="w-3.5 h-3.5" /> Acesso Exclusivo R4 Ensina
-                  </span>
-                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
-                          Informe seu WhatsApp
-                        </h2>
-                        <p className={`text-sm ${clsSubtexto}`}>
-                          Digite o número cadastrado com DDD. Sua sessão ficará
-                          lembrada neste dispositivo por 30 dias.
-                        </p>
+                    <Lock className="w-3.5 h-3.5" />{' ' + textoR4("Acesso Exclusivo R4 Ensina")}</span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Informe seu WhatsApp")}</h2>
+                        <p className={`text-sm ${clsSubtexto}`}>{textoR4("Digite o número cadastrado com DDD. Sua sessão ficará lembrada neste dispositivo por 30 dias.")}</p>
                       </div>
 
                       <form onSubmit={handleVerificarTelefone} className="space-y-4">
                         <div>
                           <label
                               className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
-                          >
-                            Número do WhatsApp com DDD *
-                          </label>
+                          >{textoR4("Número do WhatsApp com DDD *")}</label>
                           <input
                               type="tel"
                               required
@@ -1257,7 +1245,7 @@ export default function PaginaAgendamentoReforco() {
                             disabled={buscandoCliente}
                             className="w-full py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
                         >
-                          {buscandoCliente ? 'Verificando...' : 'Continuar'}
+                          {buscandoCliente ? textoR4("Verificando...") : textoR4("Continuar")}
                         </button>
                       </form>
                     </>
@@ -1267,13 +1255,9 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    <KeyRound className="w-3.5 h-3.5" /> Verificação de Segurança
-                  </span>
-                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
-                          Digite seu PIN de 4 dígitos
-                        </h2>
-                        <p className={`text-sm ${clsSubtexto}`}>
-                          Número:{' '}
+                    <KeyRound className="w-3.5 h-3.5" />{' ' + textoR4("Verificação de Segurança")}</span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Digite seu PIN de 4 dígitos")}</h2>
+                        <p className={`text-sm ${clsSubtexto}`}>{textoR4("Número:")}{' '}
                           <strong className={clsTitulo}>
                             {formatarTelefone(telefonePendente)}
                           </strong>
@@ -1284,9 +1268,7 @@ export default function PaginaAgendamentoReforco() {
                         <div>
                           <label
                               className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
-                          >
-                            PIN de Acesso (4 números) *
-                          </label>
+                          >{textoR4("PIN de Acesso (4 números) *")}</label>
                           <input
                               type="password"
                               inputMode="numeric"
@@ -1320,15 +1302,13 @@ export default function PaginaAgendamentoReforco() {
                                 setPinInput('');
                               }}
                               className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
-                          >
-                            Voltar
-                          </button>
+                          >{textoR4("Voltar")}</button>
                           <button
                               type="submit"
                               disabled={buscandoCliente || pinInput.length < 4}
                               className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
                           >
-                            {buscandoCliente ? 'Validando...' : 'Entrar na Agenda'}
+                            {buscandoCliente ? textoR4("Validando...") : textoR4("Entrar na Agenda")}
                           </button>
                         </div>
 
@@ -1340,8 +1320,8 @@ export default function PaginaAgendamentoReforco() {
                               className="text-xs font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
                           >
                             {enviandoCodigoOtp
-                                ? 'Enviando código no WhatsApp...'
-                                : 'Esqueci meu PIN (enviar código no WhatsApp)'}
+                                ? textoR4("Enviando código no WhatsApp...")
+                                : textoR4("Esqueci meu PIN (enviar código no WhatsApp)")}
                           </button>
                         </div>
                       </form>
@@ -1352,13 +1332,9 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    <KeyRound className="w-3.5 h-3.5" /> Recuperação via WhatsApp
-                  </span>
-                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
-                          Redefinir seu PIN
-                        </h2>
-                        <p className={`text-xs ${clsSubtexto}`}>
-                          WhatsApp:{' '}
+                    <KeyRound className="w-3.5 h-3.5" />{' ' + textoR4("Recuperação via WhatsApp")}</span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Redefinir seu PIN")}</h2>
+                        <p className={`text-xs ${clsSubtexto}`}>{textoR4("WhatsApp:")}{' '}
                           <strong className={clsTitulo}>
                             {formatarTelefone(telefonePendente)}
                           </strong>
@@ -1379,9 +1355,7 @@ export default function PaginaAgendamentoReforco() {
                           <div className="flex items-center justify-between mb-1.5">
                             <label
                                 className={`text-xs font-medium ${clsSubtexto}`}
-                            >
-                              Código de 4 dígitos (WhatsApp) *
-                            </label>
+                            >{textoR4("Código de 4 dígitos (WhatsApp) *")}</label>
                             <button
                                 type="button"
                                 disabled={
@@ -1391,10 +1365,10 @@ export default function PaginaAgendamentoReforco() {
                                 className="text-[11px] font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
                             >
                               {enviandoCodigoOtp
-                                  ? 'Reenviando...'
+                                  ? textoR4("Reenviando...")
                                   : cooldownOtpSegundos > 0
                                       ? `Reenviar em ${cooldownOtpSegundos}s`
-                                      : 'Reenviar código'}
+                                      : textoR4("Reenviar código")}
                             </button>
                           </div>
                           <input
@@ -1419,9 +1393,7 @@ export default function PaginaAgendamentoReforco() {
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
-                            >
-                              Novo PIN (4 dígitos) *
-                            </label>
+                            >{textoR4("Novo PIN (4 dígitos) *")}</label>
                             <input
                                 type="password"
                                 inputMode="numeric"
@@ -1442,9 +1414,7 @@ export default function PaginaAgendamentoReforco() {
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
-                            >
-                              Confirmar PIN *
-                            </label>
+                            >{textoR4("Confirmar PIN *")}</label>
                             <input
                                 type="password"
                                 inputMode="numeric"
@@ -1481,9 +1451,7 @@ export default function PaginaAgendamentoReforco() {
                                 setCodigoOtpInput('');
                               }}
                               className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
-                          >
-                            Voltar
-                          </button>
+                          >{textoR4("Voltar")}</button>
                           <button
                               type="submit"
                               disabled={
@@ -1494,8 +1462,8 @@ export default function PaginaAgendamentoReforco() {
                               className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
                           >
                             {buscandoCliente
-                                ? 'Salvando...'
-                                : 'Redefinir PIN e Entrar'}
+                                ? textoR4("Salvando...")
+                                : textoR4("Redefinir PIN e Entrar")}
                           </button>
                         </div>
                       </form>
@@ -1506,20 +1474,12 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-500">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Primeiro Acesso
-                    Protegido
-                  </span>
-                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
-                          Crie seu PIN de 4 dígitos
-                        </h2>
-                        <p className={`text-sm ${clsSubtexto}`}>
-                          Para proteger os agendamentos de{' '}
+                    <ShieldCheck className="w-3.5 h-3.5" />{' ' + textoR4("Primeiro Acesso Protegido")}</span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Crie seu PIN de 4 dígitos")}</h2>
+                        <p className={`text-sm ${clsSubtexto}`}>{textoR4("Para proteger os agendamentos de")}{' '}
                           <strong className={clsTitulo}>
                             {formatarTelefone(telefonePendente)}
-                          </strong>
-                          , escolha uma senha numérica de 4 dígitos que você lembre
-                          facilmente.
-                        </p>
+                          </strong>{textoR4(", escolha uma senha numérica de 4 dígitos que você lembre facilmente.")}</p>
                       </div>
 
                       <form
@@ -1530,9 +1490,7 @@ export default function PaginaAgendamentoReforco() {
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
-                            >
-                              Criar PIN (4 dígitos) *
-                            </label>
+                            >{textoR4("Criar PIN (4 dígitos) *")}</label>
                             <input
                                 type="password"
                                 inputMode="numeric"
@@ -1554,9 +1512,7 @@ export default function PaginaAgendamentoReforco() {
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1.5 ${clsSubtexto}`}
-                            >
-                              Confirmar PIN *
-                            </label>
+                            >{textoR4("Confirmar PIN *")}</label>
                             <input
                                 type="password"
                                 inputMode="numeric"
@@ -1589,15 +1545,13 @@ export default function PaginaAgendamentoReforco() {
                                 setErroCliente(null);
                               }}
                               className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
-                          >
-                            Voltar
-                          </button>
+                          >{textoR4("Voltar")}</button>
                           <button
                               type="submit"
                               disabled={buscandoCliente}
                               className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
                           >
-                            {buscandoCliente ? 'Salvando...' : 'Salvar PIN e Entrar'}
+                            {buscandoCliente ? textoR4("Salvando...") : textoR4("Salvar PIN e Entrar")}
                           </button>
                         </div>
                       </form>
@@ -1608,13 +1562,9 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                    <UserCheck className="w-3.5 h-3.5" /> Primeiro Cadastro R4
-                  </span>
-                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
-                          Complete seus dados e crie seu PIN
-                        </h2>
-                        <p className={`text-xs ${clsSubtexto}`}>
-                          WhatsApp:{' '}
+                    <UserCheck className="w-3.5 h-3.5" />{' ' + textoR4("Primeiro Cadastro R4")}</span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Complete seus dados e crie seu PIN")}</h2>
+                        <p className={`text-xs ${clsSubtexto}`}>{textoR4("WhatsApp:")}{' '}
                           <strong className={clsTitulo}>
                             {formatarTelefone(telefonePendente)}
                           </strong>
@@ -1628,15 +1578,13 @@ export default function PaginaAgendamentoReforco() {
                         <div>
                           <label
                               className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                          >
-                            Nome Completo do Responsável *
-                          </label>
+                          >{textoR4("Nome Completo do Responsável *")}</label>
                           <input
                               type="text"
                               required
                               value={responsavelInput}
                               onChange={(e) => setResponsavelInput(e.target.value)}
-                              placeholder="Ex: Maria Silva"
+                              placeholder={textoR4("Ex: Maria Silva")}
                               className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                           />
                         </div>
@@ -1644,15 +1592,13 @@ export default function PaginaAgendamentoReforco() {
                         <div>
                           <label
                               className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                          >
-                            Nome Completo do Aluno(a) *
-                          </label>
+                          >{textoR4("Nome Completo do Aluno(a) *")}</label>
                           <input
                               type="text"
                               required
                               value={novoAlunoNome}
                               onChange={(e) => setNovoAlunoNome(e.target.value)}
-                              placeholder="Ex: Lucas Andrade"
+                              placeholder={textoR4("Ex: Lucas Andrade")}
                               className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                           />
                         </div>
@@ -1661,9 +1607,7 @@ export default function PaginaAgendamentoReforco() {
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                            >
-                              Colégio *
-                            </label>
+                            >{textoR4("Colégio *")}</label>
                             <select
                                 required
                                 value={colegioOpcao}
@@ -1675,16 +1619,14 @@ export default function PaginaAgendamentoReforco() {
                                     {col.nome}
                                   </option>
                               ))}
-                              <option value="outros">Outros (digitar)</option>
+                              <option value="outros">{textoR4("Outros (digitar)")}</option>
                             </select>
                           </div>
 
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                            >
-                              Série / Ano *
-                            </label>
+                            >{textoR4("Série / Ano *")}</label>
                             <select
                                 required
                                 value={serieAluno}
@@ -1702,15 +1644,13 @@ export default function PaginaAgendamentoReforco() {
 
                         {colegioOpcao === 'outros' && (
                             <div>
-                              <label className="block text-xs font-medium text-[#D96B43] mb-1">
-                                Nome do Colégio *
-                              </label>
+                              <label className="block text-xs font-medium text-[#D96B43] mb-1">{textoR4("Nome do Colégio *")}</label>
                               <input
                                   type="text"
                                   required
                                   value={colegioOutroNome}
                                   onChange={(e) => setColegioOutroNome(e.target.value)}
-                                  placeholder="Ex: Colégio Antônio Vieira"
+                                  placeholder={textoR4("Ex: Colégio Antônio Vieira")}
                                   className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                               />
                             </div>
@@ -1719,10 +1659,7 @@ export default function PaginaAgendamentoReforco() {
                         <div
                             className={`border rounded-xl p-3.5 space-y-2.5 ${clsSubCard}`}
                         >
-                          <p className="text-xs font-semibold text-[#1496A1]">
-                            Crie um PIN de 4 números para proteger seus próximos
-                            acessos:
-                          </p>
+                          <p className="text-xs font-semibold text-[#1496A1]">{textoR4("Crie um PIN de 4 números para proteger seus próximos acessos:")}</p>
                           <div className="grid grid-cols-2 gap-3">
                             <input
                                 type="password"
@@ -1736,7 +1673,7 @@ export default function PaginaAgendamentoReforco() {
                                         e.target.value.replace(/\D/g, '').slice(0, 4)
                                     )
                                 }
-                                placeholder="PIN (4 dígitos)"
+                                placeholder={textoR4("PIN (4 dígitos)")}
                                 className={`w-full rounded-xl border px-3 py-2.5 text-center text-base font-bold tracking-widest focus:outline-none ${clsInput}`}
                             />
                             <input
@@ -1751,7 +1688,7 @@ export default function PaginaAgendamentoReforco() {
                                         e.target.value.replace(/\D/g, '').slice(0, 4)
                                     )
                                 }
-                                placeholder="Confirmar PIN"
+                                placeholder={textoR4("Confirmar PIN")}
                                 className={`w-full rounded-xl border px-3 py-2.5 text-center text-base font-bold tracking-widest focus:outline-none ${clsInput}`}
                             />
                           </div>
@@ -1771,21 +1708,19 @@ export default function PaginaAgendamentoReforco() {
                                 setErroCliente(null);
                               }}
                               className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
-                          >
-                            Voltar
-                          </button>
+                          >{textoR4("Voltar")}</button>
                           <button
                               type="submit"
                               disabled={buscandoCliente || enviandoCodigoOtp}
                               className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
                           >
                             {enviandoCodigoOtp
-                                ? 'Enviando código...'
+                                ? textoR4("Enviando código...")
                                 : buscandoCliente
-                                    ? 'Finalizando...'
+                                    ? textoR4("Finalizando...")
                                     : exigeVerificacaoCadastro
-                                        ? 'Confirmar WhatsApp com Código'
-                                        : 'Concluir Cadastro e Acessar'}
+                                        ? textoR4("Confirmar WhatsApp com Código")
+                                        : textoR4("Concluir Cadastro e Acessar")}
                           </button>
                         </div>
                       </form>
@@ -1796,18 +1731,12 @@ export default function PaginaAgendamentoReforco() {
                     <>
                       <div className="space-y-1">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-500">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Confirmação de WhatsApp
-                  </span>
-                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
-                          Digite o código de 4 dígitos
-                        </h2>
-                        <p className={`text-xs ${clsSubtexto}`}>
-                          Enviamos um código para{' '}
+                    <ShieldCheck className="w-3.5 h-3.5" />{' ' + textoR4("Confirmação de WhatsApp")}</span>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Digite o código de 4 dígitos")}</h2>
+                        <p className={`text-xs ${clsSubtexto}`}>{textoR4("Enviamos um código para")}{' '}
                           <strong className={clsTitulo}>
                             {formatarTelefone(telefonePendente)}
-                          </strong>{' '}
-                          para confirmar que este WhatsApp pertence a você.
-                        </p>
+                          </strong>{' '}{textoR4("para confirmar que este WhatsApp pertence a você.")}</p>
                       </div>
 
                       {avisoOtp && (
@@ -1824,9 +1753,7 @@ export default function PaginaAgendamentoReforco() {
                           <div className="flex items-center justify-between mb-1.5">
                             <label
                                 className={`text-xs font-medium ${clsSubtexto}`}
-                            >
-                              Código de Verificação *
-                            </label>
+                            >{textoR4("Código de Verificação *")}</label>
                             <button
                                 type="button"
                                 disabled={
@@ -1838,10 +1765,10 @@ export default function PaginaAgendamentoReforco() {
                                 className="text-[11px] font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
                             >
                               {enviandoCodigoOtp
-                                  ? 'Reenviando...'
+                                  ? textoR4("Reenviando...")
                                   : cooldownOtpSegundos > 0
                                       ? `Reenviar em ${cooldownOtpSegundos}s`
-                                      : 'Reenviar código'}
+                                      : textoR4("Reenviar código")}
                             </button>
                           </div>
                           <input
@@ -1878,9 +1805,7 @@ export default function PaginaAgendamentoReforco() {
                                 setCodigoOtpInput('');
                               }}
                               className={`px-4 py-3 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
-                          >
-                            Voltar
-                          </button>
+                          >{textoR4("Voltar")}</button>
                           <button
                               type="submit"
                               disabled={
@@ -1889,8 +1814,8 @@ export default function PaginaAgendamentoReforco() {
                               className="flex-1 py-3 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-sm font-semibold text-white transition cursor-pointer"
                           >
                             {buscandoCliente
-                                ? 'Concluindo...'
-                                : 'Validar Código e Entrar'}
+                                ? textoR4("Concluindo...")
+                                : textoR4("Validar Código e Entrar")}
                           </button>
                         </div>
                       </form>
@@ -1903,21 +1828,17 @@ export default function PaginaAgendamentoReforco() {
                 <section className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                   <div
                       className={`flex flex-wrap items-center justify-between gap-3 pb-3 border-b ${
-                          escuro ? 'border-[#232B35]' : 'border-stone-200'
+                          escuro ? 'border-[#513932]' : 'border-stone-200'
                       }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <UserCheck className="w-5 h-5 text-[#1496A1]" />
                       <div>
-                        <p className={`text-sm font-bold ${clsTitulo}`}>
-                          Responsável: {responsavelConfirmado}
+                        <p className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Responsável:") + ' '}{responsavelConfirmado}
                         </p>
-                        <p className={`text-xs ${clsSubtexto}`}>
-                          WhatsApp: {formatarTelefone(telefoneConfirmado)} •{' '}
+                        <p className={`text-xs ${clsSubtexto}`}>{textoR4("WhatsApp:") + ' '}{formatarTelefone(telefoneConfirmado)} •{' '}
                           <span className="text-[#1496A1] font-medium">
-                        {aulasAtivasAlunoSelecionado}/{limiteSimultaneo} aulas
-                        ativas para o aluno selecionado
-                      </span>
+                        {aulasAtivasAlunoSelecionado}/{limiteSimultaneo}{' ' + textoR4("aulas ativas para o aluno selecionado")}</span>
                         </p>
                       </div>
                     </div>
@@ -1939,8 +1860,7 @@ export default function PaginaAgendamentoReforco() {
                                       : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86]/20 border-[#0E7C86]/30 text-[#0B5C63]'
                               }`}
                           >
-                            <Plus className="w-3.5 h-3.5" /> Cadastrar Outro Filho(a)
-                          </button>
+                            <Plus className="w-3.5 h-3.5" />{' ' + textoR4("Cadastrar Outro Filho(a)")}</button>
                       )}
 
                       <button
@@ -1948,16 +1868,13 @@ export default function PaginaAgendamentoReforco() {
                           onClick={() => void handleSairConta()}
                           className={`px-3 py-1.5 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsSubtexto} hover:text-rose-400`}
                       >
-                        <LogOut className="w-3.5 h-3.5" /> Sair / Trocar Conta
-                      </button>
+                        <LogOut className="w-3.5 h-3.5" />{' ' + textoR4("Sair / Trocar Conta")}</button>
                     </div>
                   </div>
 
                   {alunos.length > 0 && (
                       <div className="space-y-2">
-                        <p className={`text-xs font-medium ${clsSubtexto}`}>
-                          Selecione o aluno(a) que terá a aula:
-                        </p>
+                        <p className={`text-xs font-medium ${clsSubtexto}`}>{textoR4("Selecione o aluno(a) que terá a aula:")}</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                           {alunos.map((al) => {
                             const ativo = al.id === alunoSelecionadoId;
@@ -1996,12 +1913,10 @@ export default function PaginaAgendamentoReforco() {
                                       }}
                                       className={`text-[11px] font-semibold px-2 py-1 rounded-lg border cursor-pointer shrink-0 ${
                                           escuro
-                                              ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#1496A1]'
+                                              ? 'bg-[#251b19] border-[#513932] text-stone-300 hover:border-[#1496A1]'
                                               : 'bg-white border-stone-200 text-stone-600 hover:border-[#0E7C86]'
                                       }`}
-                                  >
-                                    Editar
-                                  </button>
+                                  >{textoR4("Editar")}</button>
                                 </div>
                             );
                           })}
@@ -2017,8 +1932,8 @@ export default function PaginaAgendamentoReforco() {
                         <div className="flex items-center justify-between">
                           <h3 className="text-sm font-bold text-[#1496A1]">
                             {alunoEditandoId
-                                ? 'Editar Dados do Aluno(a)'
-                                : 'Cadastrar Aluno(a) na R4 Ensina'}
+                                ? textoR4("Editar Dados do Aluno(a)")
+                                : textoR4("Cadastrar Aluno(a) na R4 Ensina")}
                           </h3>
                           {alunos.length > 0 && (
                               <button
@@ -2028,9 +1943,7 @@ export default function PaginaAgendamentoReforco() {
                                     setAlunoEditandoId(null);
                                   }}
                                   className={`text-xs cursor-pointer ${clsSubtexto}`}
-                              >
-                                Cancelar
-                              </button>
+                              >{textoR4("Cancelar")}</button>
                           )}
                         </div>
 
@@ -2038,15 +1951,13 @@ export default function PaginaAgendamentoReforco() {
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                            >
-                              Nome Completo do Aluno(a) *
-                            </label>
+                            >{textoR4("Nome Completo do Aluno(a) *")}</label>
                             <input
                                 type="text"
                                 required
                                 value={novoAlunoNome}
                                 onChange={(e) => setNovoAlunoNome(e.target.value)}
-                                placeholder="Ex: Lucas Andrade"
+                                placeholder={textoR4("Ex: Lucas Andrade")}
                                 className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                             />
                           </div>
@@ -2054,9 +1965,7 @@ export default function PaginaAgendamentoReforco() {
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                            >
-                              Colégio *
-                            </label>
+                            >{textoR4("Colégio *")}</label>
                             <select
                                 required
                                 value={colegioOpcao}
@@ -2068,16 +1977,14 @@ export default function PaginaAgendamentoReforco() {
                                     {col.nome}
                                   </option>
                               ))}
-                              <option value="outros">Outros (digitar)</option>
+                              <option value="outros">{textoR4("Outros (digitar)")}</option>
                             </select>
                           </div>
 
                           <div>
                             <label
                                 className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                            >
-                              Série / Ano *
-                            </label>
+                            >{textoR4("Série / Ano *")}</label>
                             <select
                                 required
                                 value={serieAluno}
@@ -2095,15 +2002,13 @@ export default function PaginaAgendamentoReforco() {
 
                         {colegioOpcao === 'outros' && (
                             <div>
-                              <label className="block text-xs font-medium text-[#D96B43] mb-1">
-                                Nome do Colégio *
-                              </label>
+                              <label className="block text-xs font-medium text-[#D96B43] mb-1">{textoR4("Nome do Colégio *")}</label>
                               <input
                                   type="text"
                                   required
                                   value={colegioOutroNome}
                                   onChange={(e) => setColegioOutroNome(e.target.value)}
-                                  placeholder="Ex: Colégio Antônio Vieira"
+                                  placeholder={textoR4("Ex: Colégio Antônio Vieira")}
                                   className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                               />
                             </div>
@@ -2121,10 +2026,10 @@ export default function PaginaAgendamentoReforco() {
                             className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
                         >
                           {salvandoAluno
-                              ? 'Salvando...'
+                              ? textoR4("Salvando...")
                               : alunoEditandoId
-                                  ? 'Salvar Alterações'
-                                  : 'Salvar Aluno(a)'}
+                                  ? textoR4("Salvar Alterações")
+                                  : textoR4("Salvar Aluno(a)")}
                         </button>
                       </form>
                   )}
@@ -2135,11 +2040,8 @@ export default function PaginaAgendamentoReforco() {
                     <section className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#1496A1]">
-                      Sua Agenda na R4 Ensina
-                    </span>
-                          <h2 className={`text-base font-bold ${clsTitulo}`}>
-                            Próximas Aulas Agendadas ({proximasAulas.length})
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#1496A1]">{textoR4("Sua Agenda na R4 Ensina")}</span>
+                          <h2 className={`text-base font-bold ${clsTitulo}`}>{textoR4("Próximas Aulas Agendadas (")}{proximasAulas.length})
                           </h2>
                         </div>
                       </div>
@@ -2186,7 +2088,7 @@ export default function PaginaAgendamentoReforco() {
                                     <span
                                         className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
                                             escuro
-                                                ? 'bg-[#151A21] text-stone-300 border border-[#232B35]'
+                                                ? 'bg-[#312320] text-stone-300 border border-[#513932]'
                                                 : 'bg-white text-stone-700 border border-stone-200'
                                         }`}
                                     >
@@ -2201,8 +2103,7 @@ export default function PaginaAgendamentoReforco() {
                             </span>
                                   </p>
 
-                                  <p className={`text-xs ${clsSubtexto}`}>
-                                    Professor(a):{' '}
+                                  <p className={`text-xs ${clsSubtexto}`}>{textoR4("Professor(a):")}{' '}
                                     <strong className={clsTitulo}>
                                       {aula.professor_nome}
                                     </strong>
@@ -2211,20 +2112,14 @@ export default function PaginaAgendamentoReforco() {
 
                                 <div
                                     className={`pt-2.5 border-t ${
-                                        escuro ? 'border-[#232B35]' : 'border-stone-200'
+                                        escuro ? 'border-[#513932]' : 'border-stone-200'
                                     }`}
                                 >
                                   {!aula.pode_cancelar ? (
-                                      <p className="text-[11px] font-medium text-rose-400">
-                                        Prazo de 2h encerrado: cancelamento gratuito
-                                        indisponível (taxa da aula aplicável). Contate a
-                                        secretaria R4.
-                                      </p>
+                                      <p className="text-[11px] font-medium text-rose-400">{textoR4("Prazo de 2h encerrado: cancelamento gratuito indisponível (taxa da aula aplicável). Contate a secretaria R4.")}</p>
                                   ) : pedindoConfirmacao ? (
                                       <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="text-xs font-semibold text-rose-400">
-                                Confirmar cancelamento gratuito?
-                              </span>
+                              <span className="text-xs font-semibold text-rose-400">{textoR4("Confirmar cancelamento gratuito?")}</span>
                                         <div className="flex items-center gap-1.5">
                                           <button
                                               type="button"
@@ -2233,9 +2128,7 @@ export default function PaginaAgendamentoReforco() {
                                                   setConfirmandoCancelamentoId(null)
                                               }
                                               className={`px-2.5 py-1 rounded-lg border text-xs cursor-pointer ${clsCard}`}
-                                          >
-                                            Não
-                                          </button>
+                                          >{textoR4("Não")}</button>
                                           <button
                                               type="button"
                                               disabled={cancelandoAulaId === aula.id}
@@ -2245,8 +2138,8 @@ export default function PaginaAgendamentoReforco() {
                                               className="px-3 py-1 rounded-lg bg-[#BE1E23] hover:bg-rose-700 text-xs font-semibold text-white cursor-pointer"
                                           >
                                             {cancelandoAulaId === aula.id
-                                                ? 'Cancelando...'
-                                                : 'Sim, cancelar'}
+                                                ? textoR4("Cancelando...")
+                                                : textoR4("Sim, cancelar")}
                                           </button>
                                         </div>
                                       </div>
@@ -2257,9 +2150,7 @@ export default function PaginaAgendamentoReforco() {
                                               setConfirmandoCancelamentoId(aula.id)
                                           }
                                           className="text-xs font-semibold text-rose-400 hover:underline cursor-pointer"
-                                      >
-                                        Cancelar agendamento (gratuito até 2h antes)
-                                      </button>
+                                      >{textoR4("Cancelar agendamento (gratuito até 2h antes)")}</button>
                                   )}
                                 </div>
                               </div>
@@ -2276,9 +2167,7 @@ export default function PaginaAgendamentoReforco() {
                           <section className="rounded-2xl border border-[#C24124]/45 bg-[#C24124]/15 p-5 flex items-start gap-3">
                             <AlertCircle className="w-5 h-5 text-[#E07A5F] shrink-0 mt-0.5" />
                             <div className="space-y-1 text-sm">
-                              <p className="font-bold text-[#E07A5F]">
-                                Agendamento Online Indisponível Neste Momento
-                              </p>
+                              <p className="font-bold text-[#E07A5F]">{textoR4("Agendamento Online Indisponível Neste Momento")}</p>
                               <p className={clsSubtexto}>
                                 {motivoFechado || textos.aviso_sistema_fechado}
                               </p>
@@ -2295,9 +2184,7 @@ export default function PaginaAgendamentoReforco() {
                                 <label
                                     className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
                                 >
-                                  <MapPin className="w-3.5 h-3.5 text-[#1496A1]" /> 1.
-                                  Escolha a Unidade R4
-                                </label>
+                                  <MapPin className="w-3.5 h-3.5 text-[#1496A1]" />{' ' + textoR4("1. Escolha a Unidade R4")}</label>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                                   {unidades.map((u) => {
                                     const ativa = u.id === unidadeId;
@@ -2323,18 +2210,12 @@ export default function PaginaAgendamentoReforco() {
                                 <label
                                     className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
                                 >
-                                  <Calendar className="w-3.5 h-3.5 text-[#1496A1]" /> 2.
-                                  Datas Liberadas Esta Semana
-                                </label>
+                                  <Calendar className="w-3.5 h-3.5 text-[#1496A1]" />{' ' + textoR4("2. Datas Liberadas Esta Semana")}</label>
 
                                 {datas.length === 0 ? (
                                     <div
                                         className={`rounded-xl border p-3.5 text-xs ${clsSubCard} ${clsSubtexto}`}
-                                    >
-                                      Não há mais datas disponíveis para esta semana. Para
-                                      marcar na próxima semana, fale com nossa secretaria
-                                      (segunda a sexta, das 08:00 às 18:00).
-                                    </div>
+                                    >{textoR4("Não há mais datas disponíveis para esta semana. Para marcar na próxima semana, fale com nossa secretaria (segunda a sexta, das 08:00 às 18:00).")}</div>
                                 ) : (
                                     <div className="flex gap-2.5 overflow-x-auto pb-1">
                                       {datas.map((d) => {
@@ -2373,8 +2254,7 @@ export default function PaginaAgendamentoReforco() {
                                 <div>
                                   <label
                                       className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                                  >
-                                    Filtrar por Matéria (para {alunoAtivo.serie})
+                                  >{textoR4("Filtrar por Matéria (para") + ' '}{alunoAtivo.serie})
                                   </label>
                                   <select
                                       value={materiaFiltro}
@@ -2383,9 +2263,7 @@ export default function PaginaAgendamentoReforco() {
                                       }
                                       className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                                   >
-                                    <option value="todas">
-                                      Todas as matérias para esta série
-                                    </option>
+                                    <option value="todas">{textoR4("Todas as matérias para esta série")}</option>
                                     {materias.map((m) => (
                                         <option key={m} value={m}>
                                           {m}
@@ -2397,9 +2275,7 @@ export default function PaginaAgendamentoReforco() {
                                 <div>
                                   <label
                                       className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                                  >
-                                    Buscar Professor(a)
-                                  </label>
+                                  >{textoR4("Buscar Professor(a)")}</label>
                                   <div className="relative">
                                     <Search
                                         className={`w-4 h-4 absolute left-3.5 top-3 ${clsSubtexto}`}
@@ -2410,7 +2286,7 @@ export default function PaginaAgendamentoReforco() {
                                         onChange={(e) =>
                                             setBuscaProfessor(e.target.value)
                                         }
-                                        placeholder="Digite o nome do professor..."
+                                        placeholder={textoR4("Digite o nome do professor...")}
                                         className={`w-full rounded-xl border pl-10 pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                                     />
                                   </div>
@@ -2426,12 +2302,11 @@ export default function PaginaAgendamentoReforco() {
 
                             <section className="space-y-4">
                               <div className="flex items-center justify-between">
-                                <h2 className={`text-base font-bold ${clsTitulo}`}>
-                                  3. Horários Disponíveis (100 min) —{' '}
+                                <h2 className={`text-base font-bold ${clsTitulo}`}>{textoR4("3. Horários Disponíveis (100 min) —")}{' '}
                                   {unidadeAtual?.nome || 'Unidade'}
                                 </h2>
                                 <span className={`text-xs ${clsSubtexto}`}>
-                          {professoresExibidos.length} professor(es) para{' '}
+                          {professoresExibidos.length}{' ' + textoR4("professor(es) para")}{' '}
                                   {alunoAtivo.serie}
                         </span>
                               </div>
@@ -2439,17 +2314,12 @@ export default function PaginaAgendamentoReforco() {
                               {carregandoHorarios ? (
                                   <div
                                       className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
-                                  >
-                                    Sincronizando agenda em tempo real...
-                                  </div>
+                                  >{textoR4("Sincronizando agenda em tempo real...")}</div>
                               ) : datas.length === 0 ? null : professoresExibidos.length ===
                               0 ? (
                                   <div
                                       className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
-                                  >
-                                    Nenhum professor encontrado para {alunoAtivo.serie}{' '}
-                                    com esta matéria/unidade.
-                                  </div>
+                                  >{textoR4("Nenhum professor encontrado para") + ' '}{alunoAtivo.serie}{' '}{textoR4("com esta matéria/unidade.")}</div>
                               ) : (
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {professoresExibidos.map((prof) => {
@@ -2476,8 +2346,7 @@ export default function PaginaAgendamentoReforco() {
                                                             : `${clsSubCard} ${clsSubtexto}`
                                                     }`}
                                                 >
-                                      {prof.slotsDisponiveis.length} livre(s)
-                                    </span>
+                                      {prof.slotsDisponiveis.length}{' ' + textoR4("livre(s)")}</span>
                                               </div>
                                               <p className={`text-xs ${clsSubtexto}`}>
                                                 {prof.materias.join(' • ')}
@@ -2533,17 +2402,14 @@ export default function PaginaAgendamentoReforco() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                  Confirmar Aula R4 Ensina (100 min)
-                </span>
+                <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">{textoR4("Confirmar Aula R4 Ensina (100 min)")}</span>
                     <h2 className={`text-lg font-bold mt-0.5 ${clsTitulo}`}>
                       {selecaoSlot.professor.nome}
                     </h2>
                     <p className={`text-xs mt-0.5 ${clsSubtexto}`}>
                       {unidadeAtual?.nome} •{' '}
                       {datas.find((d) => d.data === dataSelecionada)
-                          ?.data_formatada || dataSelecionada}{' '}
-                      às {selecaoSlot.slot.label}
+                          ?.data_formatada || dataSelecionada}{' '}{textoR4("às") + ' '}{selecaoSlot.slot.label}
                     </p>
                   </div>
                   <button
@@ -2559,14 +2425,14 @@ export default function PaginaAgendamentoReforco() {
                     className={`rounded-xl border p-3.5 text-xs space-y-1 ${clsSubCard}`}
                 >
                   <p>
-                    <strong>Aluno(a):</strong> {alunoAtivo.nome_aluno}
+                    <strong>{textoR4("Aluno(a):")}</strong> {alunoAtivo.nome_aluno}
                   </p>
                   <p>
-                    <strong>Colégio / Série:</strong> {alunoAtivo.colegio_nome} •{' '}
+                    <strong>{textoR4("Colégio / Série:")}</strong> {alunoAtivo.colegio_nome} •{' '}
                     {alunoAtivo.serie}
                   </p>
                   <p>
-                    <strong>Responsável:</strong> {responsavelConfirmado} (
+                    <strong>{textoR4("Responsável:")}</strong> {responsavelConfirmado} (
                     {formatarTelefone(telefoneConfirmado)})
                   </p>
                 </div>
@@ -2579,9 +2445,7 @@ export default function PaginaAgendamentoReforco() {
                   <div>
                     <label
                         className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                    >
-                      Matéria da Aula *
-                    </label>
+                    >{textoR4("Matéria da Aula *")}</label>
                     <select
                         required
                         value={materiaAula}
@@ -2599,14 +2463,12 @@ export default function PaginaAgendamentoReforco() {
                   <div>
                     <label
                         className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                    >
-                      Conteúdo / Assunto da Prova (opcional)
-                    </label>
+                    >{textoR4("Conteúdo / Assunto da Prova (opcional)")}</label>
                     <textarea
                         rows={2}
                         value={observacoes}
                         onChange={(e) => setObservacoes(e.target.value)}
-                        placeholder="Ex: Revisão de equações do 2º grau para prova"
+                        placeholder={textoR4("Ex: Revisão de equações do 2º grau para prova")}
                         className={`w-full rounded-xl border px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                     />
                   </div>
@@ -2622,17 +2484,15 @@ export default function PaginaAgendamentoReforco() {
                         type="button"
                         onClick={() => setSelecaoSlot(null)}
                         className={`px-4 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard} ${clsSubtexto}`}
-                    >
-                      Voltar
-                    </button>
+                    >{textoR4("Voltar")}</button>
                     <button
                         type="submit"
                         disabled={enviandoAgendamento}
                         className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-xs font-bold text-white shadow-md cursor-pointer"
                     >
                       {enviandoAgendamento
-                          ? 'Agendando...'
-                          : 'Confirmar Agendamento'}
+                          ? textoR4("Agendando...")
+                          : textoR4("Confirmar Agendamento")}
                     </button>
                   </div>
                 </form>

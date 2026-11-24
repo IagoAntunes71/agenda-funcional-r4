@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, BookOpen, Building2, Calendar, ChevronRight, Clock3, GraduationCap, History, Paperclip, Pencil, Trash2, X } from 'lucide-react';
@@ -67,6 +69,7 @@ export default function ModalDetalhesAulaR4(props: Props) {
 }
 
 function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro, iniciarNoHistorico, onFecharAction, onAtualizadoAction }: Props & { inicial: AgendamentoAdmin }) {
+    const textoR4 = useTextoR4();
     const [aula, setAula] = useState(inicial);
     const [tela, setTela] = useState<Tela>(iniciarNoHistorico ? 'historico' : 'detalhes');
     const [form, setForm] = useState(() => montarFormulario(inicial));
@@ -182,11 +185,11 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                     <span className={css.avatar}>{tela === 'detalhes' ? obterIniciais(aula.nome_aluno || 'R4') :
                         tela === 'historico' ? <History /> : <Pencil />}</span>
                     <div>
-                        {tela === 'detalhes' && <small>R4 · {titulos[tela]}</small>}
-                        <h2 id="r4-detalhes-titulo">{tela === 'detalhes' ? aula.nome_aluno : titulos[tela]}</h2>
+                        {tela === 'detalhes' && <small>{textoR4("R4 ·") + ' '}{textoR4(titulos[tela])}</small>}
+                        <h2 id="r4-detalhes-titulo">{tela === 'detalhes' ? aula.nome_aluno : textoR4(titulos[tela])}</h2>
                         <p>{(tela === 'detalhes' ? [aula.serie_aluno, aula.colegio_aluno] : [aula.nome_aluno, aula.materia]).filter(Boolean).join(' · ')}</p>
                     </div>
-                    <button type="button" className={css.fechar} aria-label="Fechar agendamento" onClick={onFecharAction} disabled={ocupado}><X /></button>
+                    <button type="button" className={css.fechar} aria-label={textoR4("Fechar agendamento")} onClick={onFecharAction} disabled={ocupado}><X /></button>
                 </header>
 
                 <div className={css.corpo}>
@@ -195,101 +198,101 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                     {tela === 'detalhes' && <>
                         <section className={css.ficha}>
                             <div className={css.profissional}>
-                                <Dado icone={<GraduationCap />} cor="teal" titulo="Professor" valor={aula.professor_nome} />
+                                <Dado icone={<GraduationCap />} cor="teal" titulo={textoR4("Professor")} valor={aula.professor_nome} />
                                 <label className={css.status} data-status={status}>
                                     <span className={css.ponto} />
-                                    <select aria-label="Status da aula" value={status} disabled={desabilitado || Boolean(aula.excluido_em)}
+                                    <select aria-label={textoR4("Status da aula")} value={status} disabled={desabilitado || Boolean(aula.excluido_em)}
                                         onChange={(e) => void salvar({ status: e.target.value }, 'Status atualizado.')}>
                                         {LISTA_STATUS_AULA_R4.filter((item) => !professor || item.valor === 'realizado' || item.valor === status)
                                             .map((item) => <option key={item.valor} value={item.valor}
-                                                disabled={professor && item.valor !== 'realizado'}>{item.rotulo}</option>)}
+                                                disabled={professor && item.valor !== 'realizado'}>{textoR4(item.rotulo)}</option>)}
                                     </select>
                                 </label>
                             </div>
                             <div className={css.grade}>
-                                <Dado icone={<Calendar />} cor="azul" titulo="Data" valor={formatarDataBR(aula.data)} />
-                                <Dado icone={<Clock3 />} cor="teal" titulo="Horário" valor={
+                                <Dado icone={<Calendar />} cor="azul" titulo={textoR4("Data")} valor={formatarDataBR(aula.data)} />
+                                <Dado icone={<Clock3 />} cor="teal" titulo={textoR4("Horário")} valor={
                                     (aula.hora_inicio || '—') + (aula.hora_fim ? ' – ' + aula.hora_fim : '') + ' (' + duracaoReal(aula) + ' min)'} />
-                                <Dado icone={<BookOpen />} cor="violeta" titulo="Matéria" valor={aula.materia} />
-                                <Dado icone={<Building2 />} cor="coral" titulo="Unidade" valor={aula.unidade_nome} />
+                                <Dado icone={<BookOpen />} cor="violeta" titulo={textoR4("Matéria")} valor={aula.materia} />
+                                <Dado icone={<Building2 />} cor="coral" titulo={textoR4("Unidade")} valor={aula.unidade_nome} />
                             </div>
                         </section>
                         {(aula.nome_responsavel || aula.whatsapp_responsavel) && <p className={css.contato}>
-                            <strong>Responsável</strong> {[aula.nome_responsavel, aula.whatsapp_responsavel].filter(Boolean).join(' · ')}
+                            <strong>{textoR4("Responsável")}</strong> {[aula.nome_responsavel, aula.whatsapp_responsavel].filter(Boolean).join(' · ')}
                         </p>}
-                        {aula.observacoes && <section className={css.nota}><strong>Assuntos e observações</strong><p>{aula.observacoes}</p></section>}
+                        {aula.observacoes && <section className={css.nota}><strong>{textoR4("Assuntos e observações")}</strong><p>{aula.observacoes}</p></section>}
                         <div className={css.lista}>
-                            <Linha titulo="Histórico do atendimento" icone={<History />} onClick={() => abrir('historico')} />
-                            {!podeEditar && anexos.length > 0 && <Linha titulo="Anexos da aula" icone={<Paperclip />} onClick={() => abrir('anexos')} />}
+                            <Linha titulo={textoR4("Histórico do atendimento")} icone={<History />} onClick={() => abrir('historico')} />
+                            {!podeEditar && anexos.length > 0 && <Linha titulo={textoR4("Anexos da aula")} icone={<Paperclip />} onClick={() => abrir('anexos')} />}
                         </div>
                         {!aula.excluido_em && <form className={css.form} onSubmit={(e) => {
                             e.preventDefault(); void salvar({ feedback_professor: feedback }, 'Feedback salvo.');
                         }}>
-                            <label>Feedback da aula<textarea value={feedback} maxLength={10000} rows={2}
-                                onChange={(e) => setFeedback(e.target.value)} placeholder="Conteúdo trabalhado e recomendações" /></label>
-                            <button className={css.secundario} type="submit" disabled={desabilitado || feedback === (aula.feedback_professor || '')}>Salvar feedback</button>
+                            <label>{textoR4("Feedback da aula")}<textarea value={feedback} maxLength={10000} rows={2}
+                                onChange={(e) => setFeedback(e.target.value)} placeholder={textoR4("Conteúdo trabalhado e recomendações")} /></label>
+                            <button className={css.secundario} type="submit" disabled={desabilitado || feedback === (aula.feedback_professor || '')}>{textoR4("Salvar feedback")}</button>
                         </form>}
                     </>}
 
                     {tela === 'editar' && <>
                         <div className={css.lista}>
-                            <Linha titulo="Editar agenda" descricao="Professor, unidade, aluno, matéria e horário" icone={<Calendar />} onClick={() => abrir('agenda')} />
-                            <Linha titulo="Observações" descricao="Assuntos e anotações da aula" icone={<BookOpen />} onClick={() => abrir('observacoes')} />
-                            <Linha titulo="Anexos" descricao={anexos.length ? anexos.length + ' arquivo(s)' : 'Materiais, arquivos e documentos'} icone={<Paperclip />} onClick={() => abrir('anexos')} />
+                            <Linha titulo={textoR4("Editar agenda")} descricao={textoR4("Professor, unidade, aluno, matéria e horário")} icone={<Calendar />} onClick={() => abrir('agenda')} />
+                            <Linha titulo={textoR4("Observações")} descricao={textoR4("Assuntos e anotações da aula")} icone={<BookOpen />} onClick={() => abrir('observacoes')} />
+                            <Linha titulo={textoR4("Anexos")} descricao={anexos.length ? anexos.length + ' arquivo(s)' : textoR4("Materiais, arquivos e documentos")} icone={<Paperclip />} onClick={() => abrir('anexos')} />
                         </div>
                         <div className={css.lista}>
-                            <Linha titulo="Excluir agendamento" descricao="Remover a aula da grade" icone={<Trash2 />} perigo onClick={() => abrir('excluir')} />
+                            <Linha titulo={textoR4("Excluir agendamento")} descricao={textoR4("Remover a aula da grade")} icone={<Trash2 />} perigo onClick={() => abrir('excluir')} />
                         </div>
                     </>}
 
                     {tela === 'agenda' && <form className={css.form} onSubmit={salvarAgenda}>
-                        <label>Aluno<select value={form.aluno_id} onChange={(e) => setForm({ ...form, aluno_id: Number(e.target.value) })}>
-                            <option value={aula.aluno_id ?? 0}>{aula.nome_aluno} (atual)</option>
+                        <label>{textoR4("Aluno")}<select value={form.aluno_id} onChange={(e) => setForm({ ...form, aluno_id: Number(e.target.value) })}>
+                            <option value={aula.aluno_id ?? 0}>{aula.nome_aluno}{' ' + textoR4("(atual)")}</option>
                             {alunos.filter((a) => a.id !== aula.aluno_id).map((a) =>
                                 <option value={a.id} key={a.id}>{a.nome_aluno}{a.colegio_nome ? ' · ' + a.colegio_nome : ''}</option>)}
                         </select></label>
-                        <label>Unidade<select required value={form.unidade_id} onChange={(e) =>
+                        <label>{textoR4("Unidade")}<select required value={form.unidade_id} onChange={(e) =>
                             setForm({ ...form, unidade_id: Number(e.target.value), professor_id: 0, materia: '' })}>
                             {unidades.filter((u) => u.ativa || u.id === aula.unidade_id).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
                         </select></label>
-                        <label>Professor<select required value={form.professor_id || ''} onChange={(e) => {
+                        <label>{textoR4("Professor")}<select required value={form.professor_id || ''} onChange={(e) => {
                             const p = professores.find((item) => item.id === Number(e.target.value));
                             const opcoes = p ? filtrarMateriasVisiveis(p.materias) : [];
                             setForm({ ...form, professor_id: p?.id ?? 0, materia: opcoes.includes(form.materia) ? form.materia : opcoes[0] || '' });
                         }}>
-                            <option value="" disabled>Selecione um professor</option>
+                            <option value="" disabled>{textoR4("Selecione um professor")}</option>
                             {professoresUnidade.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
                         </select></label>
-                        <label>Matéria<input required list="r4-materias-edicao" value={form.materia} maxLength={150}
+                        <label>{textoR4("Matéria")}<input required list="r4-materias-edicao" value={form.materia} maxLength={150}
                             onChange={(e) => setForm({ ...form, materia: e.target.value })} /></label>
                         <datalist id="r4-materias-edicao">{materias.map((materia) => <option key={materia} value={materia} />)}</datalist>
                         <div className={css.campos}>
-                            <label>Data<input required type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></label>
-                            <label>Início<input required type="time" value={form.hora_inicio} onChange={(e) => setForm({ ...form, hora_inicio: e.target.value })} /></label>
-                            <label>Duração (min)<input required type="number" min={10} max={300} value={form.duracao_minutos}
+                            <label>{textoR4("Data")}<input required type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></label>
+                            <label>{textoR4("Início")}<input required type="time" value={form.hora_inicio} onChange={(e) => setForm({ ...form, hora_inicio: e.target.value })} /></label>
+                            <label>{textoR4("Duração (min)")}<input required type="number" min={10} max={300} value={form.duracao_minutos}
                                 onChange={(e) => setForm({ ...form, duracao_minutos: Number(e.target.value) })} /></label>
                         </div>
-                        <button className={css.primario} type="submit" disabled={desabilitado}>Salvar alterações</button>
+                        <button className={css.primario} type="submit" disabled={desabilitado}>{textoR4("Salvar alterações")}</button>
                     </form>}
 
                     {tela === 'observacoes' && <form className={css.form} onSubmit={(e) => {
                         e.preventDefault(); void salvar({ observacoes }, 'Observações salvas.', 'editar');
                     }}>
-                        <label>Assuntos e anotações<textarea value={observacoes} rows={6} maxLength={10000}
+                        <label>{textoR4("Assuntos e anotações")}<textarea value={observacoes} rows={6} maxLength={10000}
                             onChange={(e) => setObservacoes(e.target.value)} /></label>
-                        <button className={css.primario} type="submit" disabled={desabilitado}>Salvar observações</button>
+                        <button className={css.primario} type="submit" disabled={desabilitado}>{textoR4("Salvar observações")}</button>
                     </form>}
 
                     {tela === 'anexos' && <>
                         {podeEditar && <label className={css.upload}>
-                            <Paperclip /> Adicionar arquivo <small>Até 2 MB por arquivo</small>
-                            <input type="file" disabled={desabilitado} aria-label="Adicionar arquivo"
+                            <Paperclip />{' ' + textoR4("Adicionar arquivo") + ' '}<small>{textoR4("Até 2 MB por arquivo")}</small>
+                            <input type="file" disabled={desabilitado} aria-label={textoR4("Adicionar arquivo")}
                                 onChange={(e) => { adicionarArquivo(e.target.files?.[0]); e.target.value = ''; }} />
                         </label>}
-                        {!anexos.length && <p className={css.mudo}>{carregando ? 'Carregando anexos…' : 'Nenhum arquivo anexado.'}</p>}
+                        {!anexos.length && <p className={css.mudo}>{carregando ? textoR4("Carregando anexos…") : textoR4("Nenhum arquivo anexado.")}</p>}
                         {anexos.map((anexo) => <div className={css.arquivo} key={anexo.id}>
                             <a href={url + '&anexo=' + anexo.id}>{anexo.nome}</a>
-                            <small>{Math.max(1, Math.round(anexo.tamanho / 1024))} KB</small>
+                            <small>{Math.max(1, Math.round(anexo.tamanho / 1024))}{' ' + textoR4("KB")}</small>
                             {podeEditar && <button type="button" aria-label={'Remover ' + anexo.nome} disabled={desabilitado}
                                 onClick={() => {
                                     if (window.confirm('Remover este anexo da aula?')) {
@@ -301,7 +304,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
 
                     {tela === 'historico' && <>
                         <p className={css.filtroHistorico}><Calendar /> {aula.nome_aluno} · {formatarDataBR(aula.data)}</p>
-                        {!historico.length && !erro && <p className={css.mudo}>{carregando ? 'Carregando histórico…' : 'Nenhuma ação registrada.'}</p>}
+                        {!historico.length && !erro && <p className={css.mudo}>{carregando ? textoR4("Carregando histórico…") : textoR4("Nenhuma ação registrada.")}</p>}
                         <ol className={css.historico}>
                             {historico.map((evento) => <li key={evento.id}>
                                 <time dateTime={evento.criado_em}>{new Date(evento.criado_em).toLocaleString('pt-BR', {
@@ -310,24 +313,23 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                                 <strong>{evento.acao.startsWith('Status: ') ?
                                     'Status: ' + evento.acao.slice(8).split(' → ').map((valor) =>
                                         LISTA_STATUS_AULA_R4.find((statusAula) => statusAula.valor === valor)?.rotulo || valor).join(' → ')
-                                    : evento.acao}</strong><p>Responsável: {evento.responsavel}</p>
+                                    : evento.acao}</strong><p>{textoR4("Responsável:") + ' '}{evento.responsavel}</p>
                                 {evento.campos.length > 0 && <small>{evento.campos.map((campo) => nomesCampos[campo] || campo).join(' · ')}</small>}
                             </li>)}
                         </ol>
                     </>}
 
                     {tela === 'excluir' && <div className={css.form}>
-                        <p>Confirma a exclusão da aula de <strong>{aula.nome_aluno}</strong>? Ela será retirada da agenda e a exclusão ficará registrada no histórico.</p>
+                        <p>{textoR4("Confirma a exclusão da aula de") + ' '}<strong>{aula.nome_aluno}</strong>{textoR4("? Ela será retirada da agenda e a exclusão ficará registrada no histórico.")}</p>
                         <button className={css.perigo} type="button" disabled={desabilitado}
-                            onClick={() => void alterar({ method: 'DELETE' }, 'Agendamento excluído.', 'historico')}>Confirmar exclusão</button>
+                            onClick={() => void alterar({ method: 'DELETE' }, 'Agendamento excluído.', 'historico')}>{textoR4("Confirmar exclusão")}</button>
                     </div>}
                 </div>
 
                 {(tela !== 'detalhes' || podeEditar) && <footer className={css.rodape}>
                     {tela === 'detalhes' ? <button type="button" className={css.primario} disabled={desabilitado} onClick={() => abrir('editar')}>
-                        <Pencil /> Editar agendamento
-                    </button> : <button type="button" className={css.secundario} disabled={ocupado}
-                        onClick={aula.excluido_em ? onFecharAction : volta}><ArrowLeft /> {aula.excluido_em ? 'Fechar' : 'Voltar'}</button>}
+                        <Pencil />{' ' + textoR4("Editar agendamento")}</button> : <button type="button" className={css.secundario} disabled={ocupado}
+                        onClick={aula.excluido_em ? onFecharAction : volta}><ArrowLeft /> {aula.excluido_em ? textoR4("Fechar") : textoR4("Voltar")}</button>}
                 </footer>}
             </div>
         </dialog>

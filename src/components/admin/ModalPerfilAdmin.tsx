@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useState } from 'react';
 import { Camera, Eye, EyeOff, Plus, Save, Trash2, UserPlus, X } from 'lucide-react';
@@ -49,6 +51,7 @@ export default function ModalPerfilAdmin({
     onRecarregarPerfisAction: () => Promise<void>;
     classes: TemaClasses;
 }) {
+    const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
     const [abaModalPerfil, setAbaModalPerfil] = useState<'meu' | 'equipe'>(abaInicial);
@@ -192,12 +195,8 @@ export default function ModalPerfilAdmin({
             >
                 <div className="flex items-center justify-between">
                     <div>
-                        <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                            Conta & Controle de Acesso R4
-                        </span>
-                        <h2 className={`text-lg font-bold ${clsTitulo}`}>
-                            Perfil e Equipe do Sistema
-                        </h2>
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">{textoR4("Conta & Controle de Acesso R4")}</span>
+                        <h2 className={`text-lg font-bold ${clsTitulo}`}>{textoR4("Perfil e Equipe do Sistema")}</h2>
                     </div>
                     <button
                         type="button"
@@ -221,9 +220,7 @@ export default function ModalPerfilAdmin({
                                     ? 'bg-[#0E7C86] text-white'
                                     : `${clsSubCard} ${clsSubtexto}`
                             }`}
-                        >
-                            Meu Perfil & Foto
-                        </button>
+                        >{textoR4("Meu Perfil & Foto")}</button>
                         <button
                             type="button"
                             onClick={() => {
@@ -235,8 +232,7 @@ export default function ModalPerfilAdmin({
                                     ? 'bg-[#0E7C86] text-white'
                                     : `${clsSubCard} ${clsSubtexto}`
                             }`}
-                        >
-                            Criar / Gerenciar Perfis ({perfisAdmin.length})
+                        >{textoR4("Criar / Gerenciar Perfis (")}{perfisAdmin.length})
                         </button>
                     </div>
                 )}
@@ -261,7 +257,7 @@ export default function ModalPerfilAdmin({
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img
                                         src={editMinhaFoto}
-                                        alt="Avatar"
+                                        alt={textoR4("Avatar")}
                                         className="w-full h-full object-cover"
                                     />
                                 ) : (
@@ -283,16 +279,14 @@ export default function ModalPerfilAdmin({
                                 />
                             </label>
                             <div>
-                                <p className={`text-sm font-bold ${clsTitulo}`}>Foto de Perfil</p>
-                                <p className={`text-xs ${clsSubtexto}`}>
-                                    Clique no círculo para alterar sua foto de exibição.
-                                </p>
+                                <p className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Foto de Perfil")}</p>
+                                <p className={`text-xs ${clsSubtexto}`}>{textoR4("Clique no círculo para alterar sua foto de exibição.")}</p>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>Nome *</label>
+                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Nome *")}</label>
                                 <input
                                     type="text"
                                     required
@@ -302,7 +296,7 @@ export default function ModalPerfilAdmin({
                                 />
                             </div>
                             <div>
-                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>E-mail *</label>
+                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("E-mail *")}</label>
                                 <input
                                     type="email"
                                     required
@@ -314,15 +308,13 @@ export default function ModalPerfilAdmin({
                         </div>
 
                         <div>
-                            <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                                Nova Senha (opcional)
-                            </label>
+                            <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Nova Senha (opcional)")}</label>
                             <div className="relative">
                                 <input
                                     type={mostrarMinhaNovaSenha ? 'text' : 'password'}
                                     value={editMinhaNovaSenha}
                                     onChange={(e) => setEditMinhaNovaSenha(e.target.value)}
-                                    placeholder="Deixe em branco para manter a atual"
+                                    placeholder={textoR4("Deixe em branco para manter a atual")}
                                     className={`w-full border rounded-xl pl-3.5 pr-10 py-2.5 text-sm ${clsInput}`}
                                 />
                                 <button
@@ -344,16 +336,14 @@ export default function ModalPerfilAdmin({
                                 type="button"
                                 onClick={onFecharAction}
                                 className={`px-4 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard}`}
-                            >
-                                Fechar
-                            </button>
+                            >{textoR4("Fechar")}</button>
                             <button
                                 type="submit"
                                 disabled={salvandoMeuPerfil}
                                 className="px-5 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
                             >
                                 <Save className="w-3.5 h-3.5" />
-                                {salvandoMeuPerfil ? 'Salvando...' : 'Salvar Perfil'}
+                                {salvandoMeuPerfil ? textoR4("Salvando...") : textoR4("Salvar Perfil")}
                             </button>
                         </div>
                     </form>
@@ -364,8 +354,7 @@ export default function ModalPerfilAdmin({
                             className={`border rounded-xl p-4 space-y-3 ${clsSubCard}`}
                         >
                             <p className="text-xs font-bold text-[#1496A1] flex items-center gap-1.5">
-                                <UserPlus className="w-4 h-4" /> Cadastrar Novo Perfil de Acesso
-                            </p>
+                                <UserPlus className="w-4 h-4" />{' ' + textoR4("Cadastrar Novo Perfil de Acesso")}</p>
 
                             <div className="grid grid-cols-3 gap-2">
                                 {(
@@ -392,9 +381,7 @@ export default function ModalPerfilAdmin({
 
                             {novoRole === 'professor' && (
                                 <div>
-                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                        Vincular ao Professor Cadastrado *
-                                    </label>
+                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Vincular ao Professor Cadastrado *")}</label>
                                     <select
                                         required
                                         value={novoProfessorId}
@@ -406,7 +393,7 @@ export default function ModalPerfilAdmin({
                                         }}
                                         className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                     >
-                                        <option value={0}>Selecione o professor(a)...</option>
+                                        <option value={0}>{textoR4("Selecione o professor(a)...")}</option>
                                         {professoresUnicos.map((p) => (
                                             <option key={p.id} value={p.id}>
                                                 {p.nome} ({p.materias.join(', ')})
@@ -422,7 +409,7 @@ export default function ModalPerfilAdmin({
                                     required
                                     value={novoNome}
                                     onChange={(e) => setNovoNome(e.target.value)}
-                                    placeholder="Nome completo *"
+                                    placeholder={textoR4("Nome completo *")}
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                 />
                                 <input
@@ -431,7 +418,7 @@ export default function ModalPerfilAdmin({
                                     autoComplete="off"
                                     value={novoEmail}
                                     onChange={(e) => setNovoEmail(e.target.value)}
-                                    placeholder="E-mail de acesso *"
+                                    placeholder={textoR4("E-mail de acesso *")}
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                 />
                                 <div className="relative">
@@ -441,7 +428,7 @@ export default function ModalPerfilAdmin({
                                         autoComplete="new-password"
                                         value={novoSenha}
                                         onChange={(e) => setNovoSenha(e.target.value)}
-                                        placeholder="Senha (mín. 6) *"
+                                        placeholder={textoR4("Senha (mín. 6) *")}
                                         className={`w-full border rounded-xl pl-3 pr-8 py-2 text-xs ${clsInput}`}
                                     />
                                     <button
@@ -463,7 +450,7 @@ export default function ModalPerfilAdmin({
                                     className={`text-xs inline-flex items-center gap-2 cursor-pointer ${clsSubtexto} hover:text-[#1496A1]`}
                                 >
                                     <Camera className="w-4 h-4 text-[#1496A1]" />
-                                    <span>{novoFoto ? 'Foto selecionada ✓' : 'Foto opcional'}</span>
+                                    <span>{novoFoto ? textoR4("Foto selecionada ✓") : textoR4("Foto opcional")}</span>
                                     <input
                                         type="file"
                                         accept="image/*"
@@ -481,14 +468,13 @@ export default function ModalPerfilAdmin({
                                     className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
                                 >
                                     <Plus className="w-3.5 h-3.5" />
-                                    {criandoNovo ? 'Criando...' : 'Criar Perfil'}
+                                    {criandoNovo ? textoR4("Criando...") : textoR4("Criar Perfil")}
                                 </button>
                             </div>
                         </form>
 
                         <div className="space-y-2">
-                            <p className={`text-xs font-bold ${clsTitulo}`}>
-                                Perfis Cadastrados ({perfisAdmin.length})
+                            <p className={`text-xs font-bold ${clsTitulo}`}>{textoR4("Perfis Cadastrados (")}{perfisAdmin.length})
                             </p>
                             {perfisAdmin.map((p) => {
                                 const metaCargo = ROTULO_CARGO[p.role || 'admin'];
@@ -541,9 +527,7 @@ export default function ModalPerfilAdmin({
                                                         setNovaSenhaEquipe('');
                                                     }}
                                                     className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer ${clsCard} ${clsSubtexto}`}
-                                                >
-                                                    Redefinir Senha
-                                                </button>
+                                                >{textoR4("Redefinir Senha")}</button>
                                                 {p.id !== perfilAtual.id && (
                                                     <button
                                                         type="button"
@@ -567,16 +551,14 @@ export default function ModalPerfilAdmin({
                                                     type="text"
                                                     value={novaSenhaEquipe}
                                                     onChange={(e) => setNovaSenhaEquipe(e.target.value)}
-                                                    placeholder="Nova senha (mín. 6 caracteres)"
+                                                    placeholder={textoR4("Nova senha (mín. 6 caracteres)")}
                                                     className={`flex-1 border rounded-lg px-3 py-1.5 text-xs ${clsInput}`}
                                                 />
                                                 <button
                                                     type="button"
                                                     onClick={() => void handleRedefinirSenhaEquipe(p.id)}
                                                     className="px-3 py-1.5 rounded-lg bg-[#0E7C86] text-xs font-semibold text-white cursor-pointer"
-                                                >
-                                                    Salvar
-                                                </button>
+                                                >{textoR4("Salvar")}</button>
                                             </div>
                                         )}
                                     </div>

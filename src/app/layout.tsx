@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import { ProvedorTextosR4 } from '@/components/TextosInterfaceR4';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -28,7 +29,7 @@ export default function RootLayout({
   return (
       <html lang="pt-BR">
       <body className={`${inter.className} bg-slate-950 text-slate-100 antialiased`}>
-      {children}
+      <ProvedorTextosR4>{children}</ProvedorTextosR4>
       </body>
       </html>
   );

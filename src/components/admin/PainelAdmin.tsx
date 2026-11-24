@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -49,7 +51,9 @@ import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos-padrao';
 import AbaAlunos from './AbaAlunos';
 import AbaDatas from './AbaDatas';
 import AbaMapaDia from './AbaMapaDia';
+import DiretorioProfessoresR4 from './DiretorioProfessoresR4';
 import AbaProfessores from './AbaProfessores';
+import EditorTextosInterface from './EditorTextosInterface';
 import AbaTextosPortal from './AbaTextosPortal';
 import AbaUnidades from './AbaUnidades';
 import ModalPerfilAdmin from './ModalPerfilAdmin';
@@ -92,6 +96,7 @@ export default function PainelAdmin({
     sessaoInicial: SessaoAdmin | null;
     pagina: AbaAdmin;
 }) {
+    const textoR4 = useTextoR4();
     const router = useRouter();
     const [autenticado, setAutenticado] = useState(Boolean(sessaoInicial));
     const [modoLogin, setModoLogin] = useState<'perfil' | 'master'>('perfil');
@@ -104,7 +109,6 @@ export default function PainelAdmin({
     const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
     const [menuMobileAberto, setMenuMobileAberto] = useState(false);
     const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
-    const [mapaTelaCheia, setMapaTelaCheia] = useState(false);
 
     const [resumoSemana, setResumoSemana] = useState<ResumoSemana | null>(null);
     const [carregandoDados, setCarregandoDados] = useState(false);
@@ -120,6 +124,9 @@ export default function PainelAdmin({
         ...sessaoInicial,
     });
     const aba = podeAcessarModulo(perfilAtual.role, pagina) ? pagina : 'inicio';
+    const inicio = aba === 'inicio';
+    const mapa = aba === 'mapa';
+    const admin = perfilAtual.role === 'admin';
     const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
     const [modalPerfilAberto, setModalPerfilAberto] = useState(false);
     const [abaModalPerfil, setAbaModalPerfil] = useState<'meu' | 'equipe'>('meu');
@@ -184,12 +191,6 @@ export default function PainelAdmin({
             window.localStorage.setItem('r4_admin_tema', proximo);
             return proximo;
         });
-    }
-
-    function alternarTelaCheiaMapa() {
-        const proximo = !(mapaTelaCheia || sidebarRecolhida);
-        setMapaTelaCheia(proximo);
-        setSidebarRecolhida(proximo);
     }
 
     useEffect(() => {
@@ -437,6 +438,7 @@ export default function PainelAdmin({
                 });
             }
             setAutenticado(true);
+            window.dispatchEvent(new Event('r4-sessao-alterada'));
         } finally {
             setEntrando(false);
         }
@@ -445,6 +447,7 @@ export default function PainelAdmin({
     async function handleLogout() {
         await fetch('/api/admin/login', { method: 'DELETE' });
         setAutenticado(false);
+        window.dispatchEvent(new Event('r4-sessao-alterada'));
         if (pagina !== 'inicio') router.replace('/admin');
     }
 
@@ -473,19 +476,16 @@ export default function PainelAdmin({
 
     // Paleta com alto contraste no Modo Claro e identidade R4 no Modo Escuro
     const clsBgApp = escuro
-        ? 'bg-[#0B0E11] text-stone-100'
-        : 'bg-[#E6ECEF] text-slate-900';
-    const clsSidebar = escuro
-        ? 'bg-[#11151A] border-[#1F262E]'
-        : 'bg-[#F8FAFC] border-slate-300 shadow-sm';
+        ? 'bg-[#221918] text-stone-100'
+        : 'bg-[#faf2ec] text-slate-900';
     const clsCard = escuro
-        ? 'bg-[#151A21] border-[#232B35] shadow-lg shadow-black/25'
+        ? 'bg-[#312320] border-[#513932] shadow-lg shadow-black/25'
         : 'bg-white border-slate-300 shadow-xs';
     const clsSubCard = escuro
-        ? 'bg-[#0E1217] border-[#232B35]'
-        : 'bg-[#EDF2F6] border-slate-300/90';
+        ? 'bg-[#251b19] border-[#513932]'
+        : 'bg-[#f8eae1] border-slate-300/90';
     const clsInput = escuro
-        ? 'bg-[#0E1217] border-[#2B3440] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
+        ? 'bg-[#251b19] border-[#60443d] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
         : 'bg-white border-slate-400/80 text-slate-900 font-medium placeholder:text-slate-500 focus:border-[#0E7C86] focus:ring-2 focus:ring-[#0E7C86]/20';
     const clsTitulo = escuro ? 'text-stone-100' : 'text-slate-900';
     const clsSubtexto = escuro ? 'text-stone-400' : 'text-slate-600';
@@ -507,14 +507,14 @@ export default function PainelAdmin({
                     className={`max-w-md w-full border rounded-2xl p-7 sm:p-8 space-y-6 ${clsCard}`}
                 >
                     <div className="flex items-center justify-between">
-                        <LogoR4 temaEscuro={escuro} subtitulo="Painel Administrativo" />
+                        <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
                         <button
                             type="button"
                             onClick={alternarTema}
-                            title="Alternar tema claro/escuro"
+                            title={textoR4("Alternar tema claro/escuro")}
                             className={`p-2.5 rounded-xl border transition cursor-pointer ${
                                 escuro
-                                    ? 'bg-[#0E1217] border-[#2B3440] text-amber-300 hover:border-stone-500'
+                                    ? 'bg-[#251b19] border-[#60443d] text-amber-300 hover:border-stone-500'
                                     : 'bg-slate-200 border-slate-300 text-slate-800 hover:bg-slate-300'
                             }`}
                         >
@@ -528,11 +528,8 @@ export default function PainelAdmin({
 
                     <div className="space-y-1">
                         <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0E7C86] dark:text-[#1496A1]">
-                            <Lock className="w-3.5 h-3.5" /> Acesso Administrativo R4 Ensina
-                        </div>
-                        <h2 className={`text-xl font-bold ${clsTitulo}`}>
-                            Entrar no Sistema
-                        </h2>
+                            <Lock className="w-3.5 h-3.5" />{' ' + textoR4("Acesso Administrativo R4 Ensina")}</div>
+                        <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Entrar no Sistema")}</h2>
                     </div>
 
                     <div
@@ -549,9 +546,7 @@ export default function PainelAdmin({
                                     ? 'bg-[#0E7C86] text-white shadow-xs'
                                     : `${clsSubtexto} hover:text-[#0E7C86]`
                             }`}
-                        >
-                            Perfil (E-mail e Senha)
-                        </button>
+                        >{textoR4("Perfil (E-mail e Senha)")}</button>
                         <button
                             type="button"
                             onClick={() => {
@@ -564,9 +559,7 @@ export default function PainelAdmin({
                                     : `${clsSubtexto} hover:text-[#0E7C86]`
                             }`}
                         >
-                            <KeyRound className="w-3.5 h-3.5" />
-                            Chave Mestra
-                        </button>
+                            <KeyRound className="w-3.5 h-3.5" />{textoR4("Chave Mestra")}</button>
                     </div>
 
                     <form onSubmit={handleLogin} className="space-y-4">
@@ -575,16 +568,14 @@ export default function PainelAdmin({
                                 <label
                                     htmlFor="email-admin"
                                     className={`block text-xs font-semibold mb-1.5 ${clsSubtexto}`}
-                                >
-                                    E-mail do Perfil *
-                                </label>
+                                >{textoR4("E-mail do Perfil *")}</label>
                                 <input
                                     id="email-admin"
                                     type="email"
                                     required
                                     value={emailLogin}
                                     onChange={(e) => setEmailLogin(e.target.value)}
-                                    placeholder="seuemail@r4ensina.com.br"
+                                    placeholder={textoR4("seuemail@r4ensina.com.br")}
                                     className={`w-full border rounded-xl px-4 py-3 text-sm focus:outline-none ${clsInput}`}
                                 />
                             </div>
@@ -592,12 +583,7 @@ export default function PainelAdmin({
                             <div
                                 className={`border rounded-xl p-3 text-xs leading-relaxed ${clsSubCard} ${clsSubtexto}`}
                             >
-                                <strong className="text-[#0E7C86] dark:text-[#1496A1]">
-                                    Modo Chave Mestra:
-                                </strong>{' '}
-                                use a senha geral do sistema para entrar sem e-mail ou
-                                redefinir a senha de perfis esquecidos.
-                            </div>
+                                <strong className="text-[#0E7C86] dark:text-[#1496A1]">{textoR4("Modo Chave Mestra:")}</strong>{' '}{textoR4("use a senha geral do sistema para entrar sem e-mail ou redefinir a senha de perfis esquecidos.")}</div>
                         )}
 
                         <div>
@@ -606,8 +592,8 @@ export default function PainelAdmin({
                                 className={`block text-xs font-semibold mb-1.5 ${clsSubtexto}`}
                             >
                                 {modoLogin === 'master'
-                                    ? 'Senha da Chave Mestra *'
-                                    : 'Senha do Perfil *'}
+                                    ? textoR4("Senha da Chave Mestra *")
+                                    : textoR4("Senha do Perfil *")}
                             </label>
                             <div className="relative">
                                 <input
@@ -622,7 +608,7 @@ export default function PainelAdmin({
                                 <button
                                     type="button"
                                     onClick={() => setMostrarSenhaLogin((v) => !v)}
-                                    title={mostrarSenhaLogin ? 'Ocultar senha' : 'Ver senha'}
+                                    title={mostrarSenhaLogin ? textoR4("Ocultar senha") : textoR4("Ver senha")}
                                     className={`absolute right-3 top-3.5 cursor-pointer ${clsSubtexto} hover:text-[#0E7C86]`}
                                 >
                                     {mostrarSenhaLogin ? (
@@ -646,24 +632,23 @@ export default function PainelAdmin({
                             className="w-full py-3 px-4 bg-[#0E7C86] hover:bg-[#118E99] text-white font-semibold rounded-xl text-base shadow-md shadow-[#0E7C86]/25 transition cursor-pointer"
                         >
                             {entrando
-                                ? 'Verificando...'
+                                ? textoR4("Verificando...")
                                 : modoLogin === 'master'
-                                    ? 'Entrar com Chave Mestra'
-                                    : 'Acessar Painel'}
+                                    ? textoR4("Entrar com Chave Mestra")
+                                    : textoR4("Acessar Painel")}
                         </button>
                     </form>
 
                     <div
                         className={`pt-3 border-t text-center ${
-                            escuro ? 'border-[#232B35]' : 'border-slate-300'
+                            escuro ? 'border-[#513932]' : 'border-slate-300'
                         }`}
                     >
                         <Link
                             href="/"
                             className={`text-xs font-medium inline-flex items-center gap-1.5 hover:text-[#0E7C86] ${clsSubtexto}`}
                         >
-                            <ArrowLeft className="w-3.5 h-3.5" /> Voltar para o agendamento
-                        </Link>
+                            <ArrowLeft className="w-3.5 h-3.5" />{' ' + textoR4("Voltar para o agendamento")}</Link>
                     </div>
                 </div>
             </div>
@@ -721,8 +706,8 @@ export default function PainelAdmin({
         },
         {
             id: 'textos',
-            rotulo: 'Textos do Portal',
-            subtitulo: 'Avisos e regras ao vivo',
+            rotulo: 'Textos do Sistema',
+            subtitulo: 'Cabeçalhos, rótulos e textos do portal',
             icone: <FileText className="w-4 h-4" />,
         },
         {
@@ -735,7 +720,7 @@ export default function PainelAdmin({
         {
             id: 'professores',
             rotulo: 'Professores',
-            subtitulo: 'Turnos, matérias e séries',
+            subtitulo: 'Professores, matérias e unidades',
             badge: professoresUnicosCount,
             icone: <GraduationCap className="w-4 h-4" />,
         },
@@ -760,7 +745,7 @@ export default function PainelAdmin({
         agendamentos: { titulo: 'Agendamentos & Operação' },
         mapa: { titulo: 'Mapa do Dia' },
         alunos: { titulo: 'Alunos & Responsáveis' },
-        textos: { titulo: 'Textos & Avisos do Portal' },
+        textos: { titulo: 'Textos do Sistema' },
         datas: { titulo: 'Bloquear ou Liberar Datas' },
         professores: { titulo: 'Equipe de Professores' },
         unidades: { titulo: 'Unidades & Distribuição' },
@@ -872,15 +857,12 @@ export default function PainelAdmin({
                                 type="button"
                                 onClick={() => {
                                     setSidebarRecolhida(false);
-                                    setMapaTelaCheia(false);
                                 }}
-                                title="Expandir menu lateral"
+                                title={textoR4("Expandir menu lateral")}
                                 className="w-10 h-10 mx-auto rounded-xl bg-[#0E7C86] text-white font-extrabold text-xs flex items-center justify-center shadow-sm cursor-pointer"
-                            >
-                                R4
-                            </button>
+                            >{textoR4("R4")}</button>
                         ) : (
-                            <LogoR4 temaEscuro={escuro} subtitulo="Painel Administrativo" />
+                            <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
                         )}
                         <button
                             type="button"
@@ -917,7 +899,7 @@ export default function PainelAdmin({
                                 <button
                                     type="button"
                                     onClick={() => inputFotoRapidaRef.current?.click()}
-                                    title="Clique na foto para alterar seu avatar"
+                                    title={textoR4("Clique na foto para alterar seu avatar")}
                                     className="relative w-11 h-11 rounded-full shrink-0 overflow-hidden border-2 border-[#0E7C86] group cursor-pointer bg-[#0E7C86]/20 flex items-center justify-center"
                                 >
                                     {perfilAtual.foto_url ? (
@@ -957,9 +939,7 @@ export default function PainelAdmin({
                                 }}
                                 className={`w-full py-1.5 px-2.5 rounded-xl border text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition ${clsCard} ${clsSubtexto} hover:text-[#0E7C86] hover:border-[#0E7C86]`}
                             >
-                                <UserCog className="w-3.5 h-3.5 text-[#0E7C86] dark:text-[#1496A1]" />
-                                Editar Perfil / Equipe
-                            </button>
+                                <UserCog className="w-3.5 h-3.5 text-[#0E7C86] dark:text-[#1496A1]" />{textoR4("Editar Perfil / Equipe")}</button>
                         </div>
                     )}
 
@@ -967,9 +947,7 @@ export default function PainelAdmin({
                         {!recolhida && (
                             <p
                                 className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-2 ${clsSubtexto}`}
-                            >
-                                Módulos
-                            </p>
+                            >{textoR4("Módulos")}</p>
                         )}
 
                         {itensVisiveis.map((item) => {
@@ -980,7 +958,7 @@ export default function PainelAdmin({
                                         key={item.id}
                                         href={enderecoAdmin(item.id)}
                                         aria-current={ativo ? 'page' : undefined}
-                                        title={item.rotulo}
+                                        title={textoR4(item.rotulo)}
                                         className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer ${
                                             ativo
                                                 ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
@@ -1016,7 +994,7 @@ export default function PainelAdmin({
                                                 ativo
                                                     ? 'bg-[#0E7C86] text-white shadow-sm shadow-[#0E7C86]/40'
                                                     : escuro
-                                                        ? 'bg-[#0E1217] text-stone-400 group-hover:text-white border border-[#232B35]'
+                                                        ? 'bg-[#251b19] text-stone-400 group-hover:text-white border border-[#513932]'
                                                         : 'bg-slate-200/90 text-slate-700 group-hover:text-[#0E7C86] border border-slate-300'
                                             }`}
                                         >
@@ -1024,7 +1002,7 @@ export default function PainelAdmin({
                                         </span>
                                         <div className="text-left truncate">
                                             <p className="text-xs font-bold leading-tight truncate">
-                                                {item.rotulo}
+                                                {textoR4(item.rotulo)}
                                             </p>
                                             <p
                                                 className={`text-[10px] truncate ${
@@ -1035,7 +1013,7 @@ export default function PainelAdmin({
                                                         : clsSubtexto
                                                 }`}
                                             >
-                                                {item.subtitulo}
+                                                {textoR4(item.subtitulo)}
                                             </p>
                                         </div>
                                     </div>
@@ -1046,7 +1024,7 @@ export default function PainelAdmin({
                                                 ativo
                                                     ? 'bg-[#0E7C86] text-white'
                                                     : escuro
-                                                        ? 'bg-[#0E1217] text-stone-300 border border-[#232B35]'
+                                                        ? 'bg-[#251b19] text-stone-300 border border-[#513932]'
                                                         : 'bg-slate-200 text-slate-800 border border-slate-300'
                                             }`}
                                         >
@@ -1066,7 +1044,7 @@ export default function PainelAdmin({
                 >
                     <Link
                         href="/"
-                        title="Link dos Pais"
+                        title={textoR4("Link dos Pais")}
                         className={`w-full flex items-center ${
                             recolhida ? 'justify-center p-2' : 'gap-3 px-3 py-2'
                         } rounded-xl text-xs font-semibold transition ${
@@ -1078,18 +1056,18 @@ export default function PainelAdmin({
                         <span
                             className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                                 escuro
-                                    ? 'bg-[#0E1217] text-[#25A4AF] border border-[#232B35]'
+                                    ? 'bg-[#251b19] text-[#25A4AF] border border-[#513932]'
                                     : 'bg-slate-200 text-[#0E7C86] border border-slate-300'
                             }`}
                         >
                             <ExternalLink className="w-3.5 h-3.5" />
                         </span>
-                        {!recolhida && <span>Link dos Pais</span>}
+                        {!recolhida && <span>{textoR4("Link dos Pais")}</span>}
                     </Link>
 
                     <button
                         type="button"
-                        title="Sair do Painel"
+                        title={textoR4("Sair do Painel")}
                         onClick={() => void handleLogout()}
                         className={`w-full flex items-center ${
                             recolhida ? 'justify-center p-2' : 'gap-3 px-3 py-2'
@@ -1102,13 +1080,13 @@ export default function PainelAdmin({
                         <span
                             className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                                 escuro
-                                    ? 'bg-[#0E1217] text-[#F87171] border border-[#232B35]'
+                                    ? 'bg-[#251b19] text-[#F87171] border border-[#513932]'
                                     : 'bg-rose-100 text-[#B91C1C] border border-rose-200'
                             }`}
                         >
                             <LogOut className="w-3.5 h-3.5" />
                         </span>
-                        {!recolhida && <span>Sair do Painel</span>}
+                        {!recolhida && <span>{textoR4("Sair do Painel")}</span>}
                     </button>
                 </div>
             </div>
@@ -1116,7 +1094,7 @@ export default function PainelAdmin({
     }
 
     return (
-        <div className={`min-h-screen flex transition-colors ${aba === 'mapa' && escuro ? 'bg-[#0b2028] text-stone-100' : clsBgApp}`}>
+        <div className="r4-admin min-h-screen flex transition-colors" data-tema={escuro ? 'escuro' : 'claro'}>
             <input
                 ref={inputFotoRapidaRef}
                 type="file"
@@ -1125,9 +1103,8 @@ export default function PainelAdmin({
                 className="hidden"
             />
 
-            {/* Sidebar Desktop com Seta Flutuante para Expandir/Recolher */}
-            <aside
-                className={`hidden lg:block shrink-0 border-r sticky top-0 h-screen relative transition-all duration-200 ${aba === 'mapa' && escuro ? 'bg-[#10272f] border-[#29414a]' : clsSidebar} ${
+            {inicio && <aside
+                className={`hidden lg:block shrink-0 border-r sticky top-0 h-screen relative transition-all duration-200 r4-admin-sidebar ${
                     sidebarRecolhida ? 'w-[74px]' : 'w-72'
                 }`}
             >
@@ -1136,11 +1113,10 @@ export default function PainelAdmin({
                     onClick={() => {
                         setSidebarRecolhida((prev) => {
                             const proximo = !prev;
-                            if (!proximo) setMapaTelaCheia(false);
                             return proximo;
                         });
                     }}
-                    title={sidebarRecolhida ? 'Expandir barra lateral' : 'Recolher barra lateral'}
+                    title={sidebarRecolhida ? textoR4("Expandir barra lateral") : textoR4("Recolher barra lateral")}
                     className={`hidden lg:flex items-center justify-center w-7 h-7 rounded-full border shadow-md absolute -right-3.5 top-20 z-40 transition cursor-pointer ${
                         escuro
                             ? 'bg-[#1A222C] border-[#2E3947] text-stone-200 hover:bg-[#0E7C86] hover:text-white hover:border-[#0E7C86]'
@@ -1155,16 +1131,16 @@ export default function PainelAdmin({
                 </button>
 
                 {renderConteudoSidebar(sidebarRecolhida)}
-            </aside>
+            </aside>}
 
-            {menuMobileAberto && (
+            {inicio && menuMobileAberto && (
                 <div className="fixed inset-0 z-50 lg:hidden flex">
                     <div
                         onClick={() => setMenuMobileAberto(false)}
                         className="fixed inset-0 bg-black/60 backdrop-blur-xs"
                     />
                     <aside
-                        className={`relative w-72 max-w-[85vw] h-full border-r ${clsSidebar}`}
+                        className={`relative w-72 max-w-[85vw] h-full border-r r4-admin-sidebar`}
                     >
                         {renderConteudoSidebar(false)}
                     </aside>
@@ -1173,52 +1149,51 @@ export default function PainelAdmin({
 
             <div className="flex-1 min-w-0 flex flex-col">
                 <header
-                    className={`sticky top-0 z-30 border-b px-4 sm:px-8 py-3.5 backdrop-blur-md ${
-                        escuro
-                            ? aba === 'mapa' ? 'bg-[#0d242c]/95 border-[#29414a]' : 'bg-[#0B0E11]/90 border-[#1F262E]'
-                            : 'bg-[#F8FAFC]/95 border-slate-300 shadow-2xs'
-                    }`}
+                    className="r4-admin-topo sticky top-0 z-30 border-b px-4 sm:px-6 py-2.5"
                 >
                     <div
                         className={`${
-                            aba === 'mapa' && (mapaTelaCheia || sidebarRecolhida)
+                            mapa
                                 ? 'max-w-full'
                                 : 'max-w-[1440px]'
                         } mx-auto flex flex-wrap items-center justify-between gap-4`}
                     >
                         <div className="flex items-center gap-3">
-                            <button
+                            {inicio && <button
                                 type="button"
                                 onClick={() => setMenuMobileAberto(true)}
                                 className={`lg:hidden p-2.5 rounded-xl border ${
                                     escuro
-                                        ? 'bg-[#151A21] border-[#232B35] text-stone-200'
+                                        ? 'bg-[#312320] border-[#513932] text-stone-200'
                                         : 'bg-white border-slate-300 text-slate-800'
                                 }`}
                             >
                                 <Menu className="w-5 h-5" />
-                            </button>
+                            </button>}
 
-                            <div>
+                            {!inicio && <Link href="/admin" aria-label={textoR4("Voltar ao painel R4")} className="shrink-0">
+                                <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
+                            </Link>}
+                            {!mapa && <div>
                                 <div
                                     className={`flex items-center gap-2 text-xs font-medium ${clsSubtexto}`}
                                 >
-                                    <Link href="/admin" className="hover:underline">Painel R4</Link>
+                                    <Link href="/admin" className="hover:underline">{textoR4("Painel R4")}</Link>
                                     <span>/</span>
                                     <span className="text-[#0E7C86] dark:text-[#1496A1] font-bold">
-                                        {metaAbaAtual[aba].titulo}
+                                        {textoR4(metaAbaAtual[aba].titulo)}
                                     </span>
                                 </div>
                                 <h1
                                     className={`text-xl sm:text-2xl font-extrabold tracking-tight ${clsTitulo}`}
                                 >
-                                    {metaAbaAtual[aba].titulo}
+                                    {textoR4(metaAbaAtual[aba].titulo)}
                                 </h1>
-                            </div>
+                            </div>}
                         </div>
 
                         <div className="flex items-center gap-2.5">
-                            <button
+                            {!mapa && <button
                                 type="button"
                                 onClick={() => inputFotoRapidaRef.current?.click()}
                                 title={`Logado como ${perfilAtual.nome} — clique para trocar a foto`}
@@ -1239,9 +1214,9 @@ export default function PainelAdmin({
                                 <span className={`text-xs font-bold ${clsTitulo}`}>
                                     {perfilAtual.nome.split(' ')[0]}
                                 </span>
-                            </button>
+                            </button>}
 
-                            <span
+                            {admin && <span
                                 className={`hidden md:inline-flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-full border ${
                                     sistemaAbertoAgora
                                         ? escuro
@@ -1259,16 +1234,17 @@ export default function PainelAdmin({
                                             : 'bg-[#BE1E23]'
                                     }`}
                                 />
-                                {sistemaAbertoAgora ? 'Link Aberto' : 'Link Fechado'}
-                            </span>
+                                {sistemaAbertoAgora ? textoR4("Link Aberto") : textoR4("Link Fechado")}
+                            </span>}
 
+                            {!mapa && <>
                             <button
                                 type="button"
                                 onClick={() => void carregarDados()}
-                                title="Atualizar dados"
+                                title={textoR4("Atualizar dados")}
                                 className={`p-2.5 rounded-xl border transition cursor-pointer ${
                                     escuro
-                                        ? 'bg-[#151A21] border-[#232B35] text-stone-300 hover:text-white hover:border-stone-600'
+                                        ? 'bg-[#312320] border-[#513932] text-stone-300 hover:text-white hover:border-stone-600'
                                         : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-200'
                                 }`}
                             >
@@ -1284,29 +1260,30 @@ export default function PainelAdmin({
                                 onClick={alternarTema}
                                 className={`px-3.5 py-2 rounded-xl border text-xs font-bold inline-flex items-center gap-2 transition cursor-pointer ${
                                     escuro
-                                        ? 'bg-[#151A21] border-[#232B35] text-amber-300 hover:border-stone-600'
+                                        ? 'bg-[#312320] border-[#513932] text-amber-300 hover:border-stone-600'
                                         : 'bg-[#17232B] border-[#17232B] text-white hover:bg-slate-800 shadow-xs'
                                 }`}
                             >
                                 {escuro ? (
                                     <>
                                         <Sun className="w-4 h-4" />
-                                        <span>Tema Claro</span>
+                                        <span>{textoR4("Tema Claro")}</span>
                                     </>
                                 ) : (
                                     <>
                                         <Moon className="w-4 h-4" />
-                                        <span>Tema Escuro</span>
+                                        <span>{textoR4("Tema Escuro")}</span>
                                     </>
                                 )}
                             </button>
+                            </>}
                         </div>
                     </div>
                 </header>
 
                 <div
                     className={`${
-                        aba === 'mapa' && (mapaTelaCheia || sidebarRecolhida)
+                        mapa
                             ? 'max-w-full px-3 sm:px-5 py-4'
                             : 'max-w-[1440px] px-4 sm:px-8 py-6'
                     } w-full mx-auto transition-all`}
@@ -1323,9 +1300,7 @@ export default function PainelAdmin({
                                         <div>
                                             <label
                                                 className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
-                                            >
-                                                Período (Mês)
-                                            </label>
+                                            >{textoR4("Período (Mês)")}</label>
                                             <input
                                                 type="month"
                                                 value={filtroMes}
@@ -1337,9 +1312,7 @@ export default function PainelAdmin({
                                         <div>
                                             <label
                                                 className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
-                                            >
-                                                Unidade
-                                            </label>
+                                            >{textoR4("Unidade")}</label>
                                             <select
                                                 value={filtroUnidade}
                                                 onChange={(e) =>
@@ -1347,7 +1320,7 @@ export default function PainelAdmin({
                                                 }
                                                 className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${clsInput}`}
                                             >
-                                                <option value="todas">Todas as Unidades</option>
+                                                <option value="todas">{textoR4("Todas as Unidades")}</option>
                                                 {unidades.map((u) => (
                                                     <option key={u.id} value={String(u.id)}>
                                                         {u.nome}
@@ -1359,9 +1332,7 @@ export default function PainelAdmin({
                                         <div>
                                             <label
                                                 className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
-                                            >
-                                                Professor(a)
-                                            </label>
+                                            >{textoR4("Professor(a)")}</label>
                                             <select
                                                 value={filtroProfessor}
                                                 onChange={(e) =>
@@ -1369,9 +1340,7 @@ export default function PainelAdmin({
                                                 }
                                                 className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${clsInput}`}
                                             >
-                                                <option value="todos">
-                                                    Todos os Professores
-                                                </option>
+                                                <option value="todos">{textoR4("Todos os Professores")}</option>
                                                 {professores.map((p) => (
                                                     <option key={p.id} value={String(p.id)}>
                                                         {p.nome} ({p.unidade_nome})
@@ -1383,9 +1352,7 @@ export default function PainelAdmin({
                                         <div>
                                             <label
                                                 className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
-                                            >
-                                                Colégio
-                                            </label>
+                                            >{textoR4("Colégio")}</label>
                                             <select
                                                 value={filtroColegio}
                                                 onChange={(e) =>
@@ -1393,7 +1360,7 @@ export default function PainelAdmin({
                                                 }
                                                 className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${clsInput}`}
                                             >
-                                                <option value="todos">Todos os Colégios</option>
+                                                <option value="todos">{textoR4("Todos os Colégios")}</option>
                                                 {colegiosUnicos.map((col) => (
                                                     <option key={col} value={col}>
                                                         {col}
@@ -1405,9 +1372,7 @@ export default function PainelAdmin({
                                         <div>
                                             <label
                                                 className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
-                                            >
-                                                Status
-                                            </label>
+                                            >{textoR4("Status")}</label>
                                             <select
                                                 value={filtroStatus}
                                                 onChange={(e) =>
@@ -1415,19 +1380,17 @@ export default function PainelAdmin({
                                                 }
                                                 className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${clsInput}`}
                                             >
-                                                <option value="confirmado">Confirmados</option>
-                                                <option value="concluido">Concluídos</option>
-                                                <option value="cancelado">Cancelados</option>
-                                                <option value="todos">Todos os Status</option>
+                                                <option value="confirmado">{textoR4("Confirmados")}</option>
+                                                <option value="concluido">{textoR4("Concluídos")}</option>
+                                                <option value="cancelado">{textoR4("Cancelados")}</option>
+                                                <option value="todos">{textoR4("Todos os Status")}</option>
                                             </select>
                                         </div>
 
                                         <div>
                                             <label
                                                 className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
-                                            >
-                                                Lançamento Clin Care
-                                            </label>
+                                            >{textoR4("Lançamento Clin Care")}</label>
                                             <select
                                                 value={filtroClinCare}
                                                 onChange={(e) =>
@@ -1435,24 +1398,21 @@ export default function PainelAdmin({
                                                 }
                                                 className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${clsInput}`}
                                             >
-                                                <option value="todos">Todos</option>
-                                                <option value="pendentes">
-                                                    Pendentes de lançar
-                                                </option>
-                                                <option value="lancados">Já lançados</option>
+                                                <option value="todos">{textoR4("Todos")}</option>
+                                                <option value="pendentes">{textoR4("Pendentes de lançar")}</option>
+                                                <option value="lancados">{textoR4("Já lançados")}</option>
                                             </select>
                                         </div>
                                     </div>
 
                                     <div
                                         className={`flex flex-wrap items-center justify-between gap-3 pt-3 border-t ${
-                                            escuro ? 'border-[#232B35]' : 'border-slate-300'
+                                            escuro ? 'border-[#513932]' : 'border-slate-300'
                                         }`}
                                     >
                                         <div className="flex flex-wrap items-center gap-2 text-xs">
                                             <span className={`font-bold ${clsTitulo}`}>
-                                                {agendamentosFiltrados.length} aula(s)
-                                            </span>
+                                                {agendamentosFiltrados.length}{' ' + textoR4("aula(s)")}</span>
                                             {demandaPorMateria.slice(0, 4).map(([mat, qtd]) => (
                                                 <span
                                                     key={mat}
@@ -1477,9 +1437,7 @@ export default function PainelAdmin({
                                                         setFiltroColegio('todos');
                                                     }}
                                                     className="text-xs font-bold text-[#0E7C86] dark:text-[#1496A1] hover:underline cursor-pointer"
-                                                >
-                                                    Limpar filtros
-                                                </button>
+                                                >{textoR4("Limpar filtros")}</button>
                                             )}
                                         </div>
 
@@ -1489,18 +1447,14 @@ export default function PainelAdmin({
                                             onClick={exportarRelatorioCSV}
                                             className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-40 text-xs font-semibold text-white inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition"
                                         >
-                                            <Download className="w-3.5 h-3.5" />
-                                            Exportar CSV
-                                        </button>
+                                            <Download className="w-3.5 h-3.5" />{textoR4("Exportar CSV")}</button>
                                     </div>
                                 </div>
 
                                 {agendamentosFiltrados.length === 0 ? (
                                     <div
                                         className={`border rounded-2xl p-10 text-center text-sm font-medium ${clsCard} ${clsSubtexto}`}
-                                    >
-                                        Nenhum agendamento encontrado para este filtro.
-                                    </div>
+                                    >{textoR4("Nenhum agendamento encontrado para este filtro.")}</div>
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         {agendamentosFiltrados.map((ag) => {
@@ -1560,14 +1514,14 @@ export default function PainelAdmin({
                                                                     }`}
                                                                 >
                                                                     {ag.sincronizado_clincare
-                                                                        ? 'Confirmado (Aluno Vinculado)'
+                                                                        ? textoR4("Confirmado (Aluno Vinculado)")
                                                                         : ag.clincare_reserva_status ===
                                                                         'reservado'
-                                                                            ? 'RESERVADO APP (Trocar p/ Aluno)'
+                                                                            ? textoR4("RESERVADO APP (Trocar p/ Aluno)")
                                                                             : ag.clincare_reserva_status ===
                                                                             'erro'
-                                                                                ? 'Erro Robô Clin Care'
-                                                                                : 'Robô Reservando...'}
+                                                                                ? textoR4("Erro Robô Clin Care")
+                                                                                : textoR4("Robô Reservando...")}
                                                                 </span>
                                                             )}
                                                         </div>
@@ -1577,22 +1531,21 @@ export default function PainelAdmin({
                                                         className={`border rounded-xl p-3.5 text-xs space-y-1.5 ${clsSubCard}`}
                                                     >
                                                         <p>
-                                                            <strong>Unidade:</strong>{' '}
+                                                            <strong>{textoR4("Unidade:")}</strong>{' '}
                                                             {ag.unidade_nome} •{' '}
-                                                            <strong>Matéria:</strong> {ag.materia}
+                                                            <strong>{textoR4("Matéria:")}</strong> {ag.materia}
                                                         </p>
                                                         <p>
-                                                            <strong>Professor(a):</strong>{' '}
+                                                            <strong>{textoR4("Professor(a):")}</strong>{' '}
                                                             {ag.professor_nome}
                                                         </p>
-                                                        <p className="text-[#0E7C86] dark:text-[#1496A1] font-bold">
-                                                            Data: {formatarDataBR(ag.data)}
+                                                        <p className="text-[#0E7C86] dark:text-[#1496A1] font-bold">{textoR4("Data:") + ' '}{formatarDataBR(ag.data)}
                                                             {ag.horario
                                                                 ? ` às ${ag.horario}`
                                                                 : ''}
                                                         </p>
                                                         <p>
-                                                            <strong>Responsável:</strong>{' '}
+                                                            <strong>{textoR4("Responsável:")}</strong>{' '}
                                                             {ag.nome_responsavel || 'Não informado'}
                                                             {ag.whatsapp_responsavel
                                                                 ? ` (${ag.whatsapp_responsavel})`
@@ -1600,7 +1553,7 @@ export default function PainelAdmin({
                                                         </p>
                                                         {ag.observacoes && (
                                                             <p className={clsSubtexto}>
-                                                                <strong>Assunto:</strong>{' '}
+                                                                <strong>{textoR4("Assunto:")}</strong>{' '}
                                                                 {ag.observacoes}
                                                             </p>
                                                         )}
@@ -1608,9 +1561,7 @@ export default function PainelAdmin({
                                                         {ag.clincare_reserva_erro &&
                                                             !ag.sincronizado_clincare && (
                                                                 <p className="text-[11px] text-rose-700 dark:text-rose-400 bg-[#BE1E23]/15 border border-[#BE1E23]/35 rounded-lg px-2.5 py-1.5 mt-1.5">
-                                                                    <strong>
-                                                                        Robô Clin Care:
-                                                                    </strong>{' '}
+                                                                    <strong>{textoR4("Robô Clin Care:")}</strong>{' '}
                                                                     {ag.clincare_reserva_erro}
                                                                 </p>
                                                             )}
@@ -1624,9 +1575,7 @@ export default function PainelAdmin({
                                                                 rel="noopener noreferrer"
                                                                 className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-600/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold inline-flex items-center gap-1.5 hover:bg-emerald-500/25"
                                                             >
-                                                                <MessageCircle className="w-3.5 h-3.5" />{' '}
-                                                                WhatsApp
-                                                            </a>
+                                                                <MessageCircle className="w-3.5 h-3.5" />{' '}{textoR4("WhatsApp")}</a>
                                                         )}
 
                                                         {ag.status !== 'cancelado' && (
@@ -1646,8 +1595,8 @@ export default function PainelAdmin({
                                                             >
                                                                 <ClipboardCheck className="w-3.5 h-3.5" />
                                                                 {ag.sincronizado_clincare
-                                                                    ? 'Lançado ✓'
-                                                                    : 'Marcar Lançado'}
+                                                                    ? textoR4("Lançado ✓")
+                                                                    : textoR4("Marcar Lançado")}
                                                             </button>
                                                         )}
 
@@ -1702,8 +1651,8 @@ export default function PainelAdmin({
                                                             >
                                                                 <RefreshCw className="w-3.5 h-3.5" />
                                                                 {ag.status === 'cancelado'
-                                                                    ? 'Repetir cancelamento no ClinCare'
-                                                                    : 'Reenviar Robô'}
+                                                                    ? textoR4("Repetir cancelamento no ClinCare")
+                                                                    : textoR4("Reenviar Robô")}
                                                             </button>
                                                         )}
 
@@ -1719,9 +1668,7 @@ export default function PainelAdmin({
                                                                     }
                                                                     className="px-3 py-1.5 rounded-xl bg-[#0E7C86]/15 border border-[#0E7C86]/45 text-[#0B5C63] dark:text-[#25A4AF] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                                                                 >
-                                                                    <CheckCircle2 className="w-3.5 h-3.5" />{' '}
-                                                                    Concluir
-                                                                </button>
+                                                                    <CheckCircle2 className="w-3.5 h-3.5" />{' '}{textoR4("Concluir")}</button>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() =>
@@ -1732,9 +1679,7 @@ export default function PainelAdmin({
                                                                     }
                                                                     className="px-3 py-1.5 rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/45 text-rose-700 dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                                                                 >
-                                                                    <XCircle className="w-3.5 h-3.5" />{' '}
-                                                                    Cancelar
-                                                                </button>
+                                                                    <XCircle className="w-3.5 h-3.5" />{' '}{textoR4("Cancelar")}</button>
                                                             </>
                                                         )}
                                                     </div>
@@ -1746,19 +1691,15 @@ export default function PainelAdmin({
                             </section>
 
                             <aside className="xl:col-span-4 space-y-5">
-                                <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
+                                {admin && <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="flex items-center gap-2.5">
                                             <div className="w-9 h-9 rounded-xl bg-[#0E7C86] text-white flex items-center justify-center shadow-xs">
                                                 <Power className="w-4 h-4" />
                                             </div>
                                             <div>
-                                                <h2 className={`text-sm font-bold ${clsTitulo}`}>
-                                                    Chave Mestra
-                                                </h2>
-                                                <p className={`text-[11px] ${clsSubtexto}`}>
-                                                    Controle do Link dos Pais
-                                                </p>
+                                                <h2 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Chave Mestra")}</h2>
+                                                <p className={`text-[11px] ${clsSubtexto}`}>{textoR4("Controle do Link dos Pais")}</p>
                                             </div>
                                         </div>
 
@@ -1769,14 +1710,11 @@ export default function PainelAdmin({
                                                     : 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400 border border-[#BE1E23]/40'
                                             }`}
                                         >
-                                            {sistemaAbertoAgora ? 'ABERTO' : 'FECHADO'}
+                                            {sistemaAbertoAgora ? textoR4("ABERTO") : textoR4("FECHADO")}
                                         </span>
                                     </div>
 
-                                    <p className={`text-xs leading-relaxed ${clsSubtexto}`}>
-                                        No modo <strong>Automático</strong>, abre de segunda a
-                                        sexta, das 18:00 às 22:00.
-                                    </p>
+                                    <p className={`text-xs leading-relaxed ${clsSubtexto}`}>{textoR4("No modo") + ' '}<strong>{textoR4("Automático")}</strong>{textoR4(", abre de segunda a sexta, das 18:00 às 22:00.")}</p>
 
                                     <div className="grid grid-cols-3 gap-2">
                                         <button
@@ -1788,9 +1726,7 @@ export default function PainelAdmin({
                                                     ? 'bg-[#0E7C86] border-[#1496A1] text-white'
                                                     : `${clsSubCard} ${clsSubtexto}`
                                             }`}
-                                        >
-                                            Automático
-                                        </button>
+                                        >{textoR4("Automático")}</button>
 
                                         <button
                                             type="button"
@@ -1801,9 +1737,7 @@ export default function PainelAdmin({
                                                     ? 'bg-emerald-700 border-emerald-500 text-white'
                                                     : `${clsSubCard} ${clsSubtexto}`
                                             }`}
-                                        >
-                                            Sempre Ativo
-                                        </button>
+                                        >{textoR4("Sempre Ativo")}</button>
 
                                         <button
                                             type="button"
@@ -1814,20 +1748,15 @@ export default function PainelAdmin({
                                                     ? 'bg-[#BE1E23] border-rose-500 text-white'
                                                     : `${clsSubCard} ${clsSubtexto}`
                                             }`}
-                                        >
-                                            Desativado
-                                        </button>
+                                        >{textoR4("Desativado")}</button>
                                     </div>
-                                </div>
+                                </div>}
 
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <h2 className={`text-sm font-bold ${clsTitulo}`}>
-                                                Sincronizar Clin Care
-                                            </h2>
-                                            <p className={`text-[11px] ${clsSubtexto}`}>
-                                                Última leitura:{' '}
+                                            <h2 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Sincronizar Clin Care")}</h2>
+                                            <p className={`text-[11px] ${clsSubtexto}`}>{textoR4("Última leitura:")}{' '}
                                                 <strong>
                                                     {ultimaSincronizacao || 'Aguardando'}
                                                 </strong>
@@ -1850,13 +1779,13 @@ export default function PainelAdmin({
                                             <span className="inline-flex items-center gap-2">
                                                 <Play className="w-3.5 h-3.5" />
                                                 {disparandoSync === 'hoje'
-                                                    ? 'Iniciando...'
-                                                    : 'Sincronizar Hoje (Rápido)'}
+                                                    ? textoR4("Iniciando...")
+                                                    : textoR4("Sincronizar Hoje (Rápido)")}
                                             </span>
                                             <span className="text-[11px] font-mono">
                                                 {restanteHoje > 0
                                                     ? formatarCronometro(restanteHoje)
-                                                    : '5 min trava'}
+                                                    : textoR4("5 min trava")}
                                             </span>
                                         </button>
 
@@ -1873,13 +1802,13 @@ export default function PainelAdmin({
                                             <span className="inline-flex items-center gap-2">
                                                 <Play className="w-3.5 h-3.5" />
                                                 {disparandoSync === 'semana'
-                                                    ? 'Iniciando...'
-                                                    : 'Sincronizar Semana (7d)'}
+                                                    ? textoR4("Iniciando...")
+                                                    : textoR4("Sincronizar Semana (7d)")}
                                             </span>
                                             <span className="text-[11px] font-mono">
                                                 {restanteSemana > 0
                                                     ? formatarCronometro(restanteSemana)
-                                                    : '30 min trava'}
+                                                    : textoR4("30 min trava")}
                                             </span>
                                         </button>
 
@@ -1896,13 +1825,13 @@ export default function PainelAdmin({
                                             <span className="inline-flex items-center gap-2">
                                                 <Play className="w-3.5 h-3.5" />
                                                 {disparandoSync === 'mes'
-                                                    ? 'Iniciando...'
-                                                    : 'Sincronizar Mês (30d)'}
+                                                    ? textoR4("Iniciando...")
+                                                    : textoR4("Sincronizar Mês (30d)")}
                                             </span>
                                             <span className="text-[11px] font-mono">
                                                 {restanteMes > 0
                                                     ? formatarCronometro(restanteMes)
-                                                    : '1h trava'}
+                                                    : textoR4("1h trava")}
                                             </span>
                                         </button>
                                     </div>
@@ -1928,15 +1857,11 @@ export default function PainelAdmin({
                                 </div>
 
                                 <div className={`border rounded-2xl p-5 space-y-3 ${clsCard}`}>
-                                    <h2 className={`text-sm font-bold ${clsTitulo}`}>
-                                        Resumo Operacional
-                                    </h2>
+                                    <h2 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Resumo Operacional")}</h2>
 
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className={`border rounded-xl p-3.5 ${clsSubCard}`}>
-                                            <p className={`text-[11px] font-semibold ${clsSubtexto}`}>
-                                                Confirmadas
-                                            </p>
+                                            <p className={`text-[11px] font-semibold ${clsSubtexto}`}>{textoR4("Confirmadas")}</p>
                                             <p className="text-2xl font-extrabold text-[#0E7C86] dark:text-[#1496A1] mt-0.5">
                                                 {confirmadosCount}
                                             </p>
@@ -1950,9 +1875,7 @@ export default function PainelAdmin({
                                             }}
                                             className={`border rounded-xl p-3.5 text-left transition cursor-pointer hover:border-[#C24124]/60 ${clsSubCard}`}
                                         >
-                                            <p className={`text-[11px] font-semibold ${clsSubtexto}`}>
-                                                Pendentes Clin Care
-                                            </p>
+                                            <p className={`text-[11px] font-semibold ${clsSubtexto}`}>{textoR4("Pendentes Clin Care")}</p>
                                             <p className="text-2xl font-extrabold text-[#C24124] dark:text-[#D96B43] mt-0.5">
                                                 {pendentesClinCare}
                                             </p>
@@ -1974,8 +1897,7 @@ export default function PainelAdmin({
                             bloqueios={bloqueios}
                             escuro={escuro}
                             classes={classesCompartilhadas}
-                            modoTelaCheia={mapaTelaCheia || sidebarRecolhida}
-                            onAlternarTelaCheiaAction={alternarTelaCheiaMapa}
+                            modoTelaCheia
                             onRecarregarDadosAction={carregarDados}
                         />
                     )}
@@ -1988,12 +1910,15 @@ export default function PainelAdmin({
                         />
                     )}
 
-                    {aba === 'textos' && (
+                    {aba === 'textos' && admin && (
+                        <div className="space-y-5">
+                        <EditorTextosInterface classes={classesCompartilhadas} />
                         <AbaTextosPortal
                             textosIniciais={textosPortal}
                             onTextosAtualizadosAction={setTextosPortal}
                             classes={classesCompartilhadas}
                         />
+                        </div>
                     )}
 
                     {aba === 'datas' && (
@@ -2004,7 +1929,7 @@ export default function PainelAdmin({
                         />
                     )}
 
-                    {aba === 'professores' && (
+                    {aba === 'professores' && (admin ? (
                         <AbaProfessores
                             unidades={unidades}
                             professores={professores}
@@ -2012,7 +1937,7 @@ export default function PainelAdmin({
                             classes={classesCompartilhadas}
                             onRecarregarDadosAction={carregarDados}
                         />
-                    )}
+                    ) : <DiretorioProfessoresR4 professores={professores} classes={classesCompartilhadas} />)}
 
                     {aba === 'unidades' && (
                         <AbaUnidades

@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useState } from 'react';
 import { Ban, CalendarPlus, Check, Plus, Search, UserPlus, X } from 'lucide-react';
@@ -47,6 +49,7 @@ export default function ModalNovoAgendamentoR4({
     onSucessoAction: () => Promise<void>;
     classes: TemaClasses;
 }) {
+    const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
     const ehProfessor = roleUsuario === 'professor';
 
@@ -239,12 +242,12 @@ export default function ModalNovoAgendamentoR4({
                         </span>
                         <div>
                             <h2 className={`text-base font-bold ${clsTitulo}`}>
-                                {modo === 'bloqueio' ? 'Bloqueio de Agenda' : 'Nova Marcação R4'}
+                                {modo === 'bloqueio' ? textoR4("Bloqueio de Agenda") : textoR4("Nova Marcação R4")}
                             </h2>
                             <p className={`text-[11px] ${clsSubtexto}`}>
                                 {modo === 'bloqueio'
-                                    ? 'Bloqueia horários na grade e no portal do aluno'
-                                    : 'Agendamento flexível (50 a 300 min • individual ou grupo)'}
+                                    ? textoR4("Bloqueia horários na grade e no portal do aluno")
+                                    : textoR4("Agendamento flexível (50 a 300 min • individual ou grupo)")}
                             </p>
                         </div>
                     </div>
@@ -272,9 +275,7 @@ export default function ModalNovoAgendamentoR4({
                                     ? 'bg-[#0E7C86] text-white'
                                     : `${clsSubtexto} hover:text-[#1496A1]`
                             }`}
-                        >
-                            Agendar Aula
-                        </button>
+                        >{textoR4("Agendar Aula")}</button>
                         <button
                             type="button"
                             onClick={() => {
@@ -288,9 +289,7 @@ export default function ModalNovoAgendamentoR4({
                                     ? 'bg-[#C24124] text-white'
                                     : `${clsSubtexto} hover:text-[#E07A5F]`
                             }`}
-                        >
-                            Bloqueio de Agenda
-                        </button>
+                        >{textoR4("Bloqueio de Agenda")}</button>
                     </div>
                 )}
 
@@ -298,9 +297,7 @@ export default function ModalNovoAgendamentoR4({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {!ehProfessor && (
                             <div>
-                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                    Unidade *
-                                </label>
+                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Unidade *")}</label>
                                 <select
                                     value={unidadeId}
                                     onChange={(e) => {
@@ -326,9 +323,7 @@ export default function ModalNovoAgendamentoR4({
                         )}
 
                         <div className={ehProfessor ? 'sm:col-span-2' : ''}>
-                            <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                Professor(a) *
-                            </label>
+                            <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Professor(a) *")}</label>
                             <select
                                 disabled={ehProfessor}
                                 value={professorId}
@@ -355,9 +350,7 @@ export default function ModalNovoAgendamentoR4({
                         <>
                             <div className={`border rounded-xl p-3 space-y-2.5 ${clsSubCard}`}>
                                 <div className="flex items-center justify-between">
-                                    <span className={`text-xs font-bold ${clsTitulo}`}>
-                                        Aluno(a) *
-                                    </span>
+                                    <span className={`text-xs font-bold ${clsTitulo}`}>{textoR4("Aluno(a) *")}</span>
                                     <button
                                         type="button"
                                         onClick={() => setCadastroRapido((v) => !v)}
@@ -365,8 +358,8 @@ export default function ModalNovoAgendamentoR4({
                                     >
                                         <UserPlus className="w-3.5 h-3.5" />
                                         {cadastroRapido
-                                            ? 'Selecionar aluno já cadastrado'
-                                            : '+ Cadastrar novo aluno'}
+                                            ? textoR4("Selecionar aluno já cadastrado")
+                                            : textoR4("+ Cadastrar novo aluno")}
                                     </button>
                                 </div>
 
@@ -380,7 +373,7 @@ export default function ModalNovoAgendamentoR4({
                                                 type="text"
                                                 value={buscaAluno}
                                                 onChange={(e) => setBuscaAluno(e.target.value)}
-                                                placeholder="Buscar aluno por nome, responsável ou telefone..."
+                                                placeholder={textoR4("Buscar aluno por nome, responsável ou telefone...")}
                                                 className={`w-full border rounded-xl pl-8 pr-3 py-2 text-xs ${clsInput}`}
                                             />
                                         </div>
@@ -390,10 +383,10 @@ export default function ModalNovoAgendamentoR4({
                                             onChange={(e) => setAlunoId(Number(e.target.value))}
                                             className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         >
-                                            <option value={0}>Selecione o aluno...</option>
+                                            <option value={0}>{textoR4("Selecione o aluno...")}</option>
                                             {alunosFiltrados.map((al) => (
                                                 <option key={al.id} value={al.id}>
-                                                    {al.nome_aluno} — {al.serie} ({al.colegio_nome}) • Resp.:{' '}
+                                                    {al.nome_aluno} — {al.serie} ({al.colegio_nome}{textoR4(") • Resp.:")}{' '}
                                                     {al.responsavel_nome || al.telefone_formatado}
                                                 </option>
                                             ))}
@@ -406,7 +399,7 @@ export default function ModalNovoAgendamentoR4({
                                             required
                                             value={novoAlunoNome}
                                             onChange={(e) => setNovoAlunoNome(e.target.value)}
-                                            placeholder="Nome do aluno *"
+                                            placeholder={textoR4("Nome do aluno *")}
                                             className={`border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         />
                                         <input
@@ -414,28 +407,28 @@ export default function ModalNovoAgendamentoR4({
                                             required
                                             value={novoTelefone}
                                             onChange={(e) => setNovoTelefone(e.target.value)}
-                                            placeholder="WhatsApp c/ DDD *"
+                                            placeholder={textoR4("WhatsApp c/ DDD *")}
                                             className={`border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         />
                                         <input
                                             type="text"
                                             value={novoRespNome}
                                             onChange={(e) => setNovoRespNome(e.target.value)}
-                                            placeholder="Nome do responsável"
+                                            placeholder={textoR4("Nome do responsável")}
                                             className={`border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         />
                                         <input
                                             type="text"
                                             value={novoSerie}
                                             onChange={(e) => setNovoSerie(e.target.value)}
-                                            placeholder="Série (ex: 8º Ano)"
+                                            placeholder={textoR4("Série (ex: 8º Ano)")}
                                             className={`border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         />
                                         <input
                                             type="text"
                                             value={novoColegio}
                                             onChange={(e) => setNovoColegio(e.target.value)}
-                                            placeholder="Colégio"
+                                            placeholder={textoR4("Colégio")}
                                             className={`sm:col-span-2 border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         />
                                     </div>
@@ -444,9 +437,7 @@ export default function ModalNovoAgendamentoR4({
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                        Matéria / Serviço *
-                                    </label>
+                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Matéria / Serviço *")}</label>
                                     <select
                                         required
                                         value={materia}
@@ -462,9 +453,7 @@ export default function ModalNovoAgendamentoR4({
                                 </div>
 
                                 <div>
-                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                        Status Inicial
-                                    </label>
+                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Status Inicial")}</label>
                                     <select
                                         value={statusInicial}
                                         onChange={(e) =>
@@ -474,21 +463,19 @@ export default function ModalNovoAgendamentoR4({
                                         }
                                         className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                     >
-                                        <option value="confirmado">Confirmado</option>
-                                        <option value="agendado">Agendado</option>
+                                        <option value="confirmado">{textoR4("Confirmado")}</option>
+                                        <option value="agendado">{textoR4("Agendado")}</option>
                                     </select>
                                 </div>
                             </div>
 
                             <div>
-                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                    Assuntos / Conteúdo da Aula
-                                </label>
+                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Assuntos / Conteúdo da Aula")}</label>
                                 <input
                                     type="text"
                                     value={observacoes}
                                     onChange={(e) => setObservacoes(e.target.value)}
-                                    placeholder="Ex: Equação do 2º grau, revisão prova trimestral..."
+                                    placeholder={textoR4("Ex: Equação do 2º grau, revisão prova trimestral...")}
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                 />
                             </div>
@@ -496,27 +483,23 @@ export default function ModalNovoAgendamentoR4({
                     ) : (
                         <>
                             <div>
-                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                    Título do Bloqueio *
-                                </label>
+                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Título do Bloqueio *")}</label>
                                 <input
                                     type="text"
                                     required
                                     value={tituloBloqueio}
                                     onChange={(e) => setTituloBloqueio(e.target.value)}
-                                    placeholder="Ex: Indisponível, Reunião pedagógica, Almoço..."
+                                    placeholder={textoR4("Ex: Indisponível, Reunião pedagógica, Almoço...")}
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                 />
                             </div>
                             <div>
-                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                                    Descrição do Bloqueio (opcional)
-                                </label>
+                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Descrição do Bloqueio (opcional)")}</label>
                                 <textarea
                                     rows={2}
                                     value={descricaoBloqueio}
                                     onChange={(e) => setDescricaoBloqueio(e.target.value)}
-                                    placeholder="Detalhes adicionais sobre o bloqueio..."
+                                    placeholder={textoR4("Detalhes adicionais sobre o bloqueio...")}
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                 />
                             </div>
@@ -525,7 +508,7 @@ export default function ModalNovoAgendamentoR4({
 
                     <div className={`border rounded-xl p-3.5 space-y-3 ${clsSubCard}`}>
                         <div className="flex flex-wrap items-center gap-2">
-                            <span className={`text-xs font-bold w-16 ${clsTitulo}`}>Início *</span>
+                            <span className={`text-xs font-bold w-16 ${clsTitulo}`}>{textoR4("Início *")}</span>
                             <input
                                 type="date"
                                 required
@@ -559,7 +542,7 @@ export default function ModalNovoAgendamentoR4({
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
-                            <span className={`text-xs font-bold w-16 ${clsTitulo}`}>Duração *</span>
+                            <span className={`text-xs font-bold w-16 ${clsTitulo}`}>{textoR4("Duração *")}</span>
                             <select
                                 value={duracaoHoras}
                                 onChange={(e) => setDuracaoHoras(Number(e.target.value))}
@@ -574,7 +557,7 @@ export default function ModalNovoAgendamentoR4({
                                     </option>
                                 ))}
                             </select>
-                            <span className={`text-xs ${clsSubtexto}`}>hr</span>
+                            <span className={`text-xs ${clsSubtexto}`}>{textoR4("hr")}</span>
 
                             <select
                                 value={duracaoMinutos}
@@ -587,7 +570,7 @@ export default function ModalNovoAgendamentoR4({
                                     </option>
                                 ))}
                             </select>
-                            <span className={`text-xs ${clsSubtexto}`}>min</span>
+                            <span className={`text-xs ${clsSubtexto}`}>{textoR4("min")}</span>
 
                             <span className="ml-auto px-3 py-1.5 rounded-lg bg-[#0E7C86]/20 border border-[#0E7C86]/40 text-xs font-bold text-[#25A4AF]">
                                 {formatarDuracaoLabel(totalMinutos)}
@@ -596,16 +579,16 @@ export default function ModalNovoAgendamentoR4({
                     </div>
 
                     <div className="flex items-center justify-between gap-3">
-                        <span className={`text-xs font-semibold ${clsSubtexto}`}>Recorrência</span>
+                        <span className={`text-xs font-semibold ${clsSubtexto}`}>{textoR4("Recorrência")}</span>
                         <select
                             value={recorrencia}
                             onChange={(e) => setRecorrencia(Number(e.target.value))}
                             className={`border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                         >
-                            <option value={1}>Não se repete</option>
-                            <option value={2}>Repetir semanalmente (2 semanas)</option>
-                            <option value={4}>Repetir semanalmente (4 semanas)</option>
-                            <option value={8}>Repetir semanalmente (8 semanas)</option>
+                            <option value={1}>{textoR4("Não se repete")}</option>
+                            <option value={2}>{textoR4("Repetir semanalmente (2 semanas)")}</option>
+                            <option value={4}>{textoR4("Repetir semanalmente (4 semanas)")}</option>
+                            <option value={8}>{textoR4("Repetir semanalmente (8 semanas)")}</option>
                         </select>
                     </div>
 
@@ -620,9 +603,7 @@ export default function ModalNovoAgendamentoR4({
                             type="button"
                             onClick={onFecharAction}
                             className={`px-4 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard}`}
-                        >
-                            Cancelar
-                        </button>
+                        >{textoR4("Cancelar")}</button>
                         <button
                             type="submit"
                             disabled={salvando}
@@ -638,10 +619,10 @@ export default function ModalNovoAgendamentoR4({
                                 <Check className="w-4 h-4" />
                             )}
                             {salvando
-                                ? 'Salvando...'
+                                ? textoR4("Salvando...")
                                 : modo === 'bloqueio'
-                                    ? 'Salvar Bloqueio'
-                                    : 'Criar Atendimento'}
+                                    ? textoR4("Salvar Bloqueio")
+                                    : textoR4("Criar Atendimento")}
                         </button>
                     </div>
                 </form>

@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useState } from 'react';
 import { Building2, Save } from 'lucide-react';
@@ -14,6 +16,7 @@ export default function AbaUnidades({
     classes: TemaClasses;
     onRecarregarDadosAction: () => Promise<void>;
 }) {
+    const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
     const [edicaoUnidades, setEdicaoUnidades] = useState<Record<number, string>>({});
@@ -51,14 +54,8 @@ export default function AbaUnidades({
                 <h3
                     className={`text-sm font-bold flex items-center gap-2 ${clsTitulo}`}
                 >
-                    <Building2 className="w-4 h-4 text-[#1496A1]" />
-                    Vínculo de Unidades com o Clin Care
-                </h3>
-                <p className={`text-xs ${clsSubtexto}`}>
-                    Para as unidades <strong>Online</strong> e <strong>Imbuí</strong>,
-                    mantenha <code>id-online</code> e <code>id-imbui</code> (ou informe
-                    o UUID caso elas também possuam agenda no Clin Care).
-                </p>
+                    <Building2 className="w-4 h-4 text-[#1496A1]" />{textoR4("Vínculo de Unidades com o Clin Care")}</h3>
+                <p className={`text-xs ${clsSubtexto}`}>{textoR4("Para as unidades") + ' '}<strong>{textoR4("Online")}</strong> e <strong>{textoR4("Imbuí")}</strong>{textoR4(", mantenha") + ' '}<code>{textoR4("id-online")}</code> e <code>{textoR4("id-imbui")}</code>{' ' + textoR4("(ou informe o UUID caso elas também possuam agenda no Clin Care).")}</p>
 
                 <div className="space-y-3">
                     {unidades.map((u) => (
@@ -68,9 +65,7 @@ export default function AbaUnidades({
                         >
                             <div>
                                 <p className={`font-bold text-sm ${clsTitulo}`}>{u.nome}</p>
-                                <p className={`text-xs ${clsSubtexto}`}>
-                                    ID de Unidade no Clin Care
-                                </p>
+                                <p className={`text-xs ${clsSubtexto}`}>{textoR4("ID de Unidade no Clin Care")}</p>
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -92,7 +87,7 @@ export default function AbaUnidades({
                                     className="px-3.5 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer"
                                 >
                                     <Save className="w-3.5 h-3.5" />
-                                    {salvandoId === u.id ? 'Salvando...' : 'Salvar'}
+                                    {salvandoId === u.id ? textoR4("Salvando...") : textoR4("Salvar")}
                                 </button>
                             </div>
                         </div>

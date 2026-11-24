@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useState } from 'react';
 
@@ -13,6 +15,7 @@ export default function LogoR4({
                                    subtitulo = 'Gestão Acadêmica',
                                    compacto = false,
                                }: LogoR4Props) {
+    const textoR4 = useTextoR4();
     const [erroImagem, setErroImagem] = useState(false);
 
     return (
@@ -20,7 +23,7 @@ export default function LogoR4({
             {!erroImagem ? (
                 <img
                     src="/logo-r4.png"
-                    alt="Logo R4 Ensina"
+                    alt={textoR4("Logo R4 Ensina")}
                     onError={() => setErroImagem(true)}
                     className="w-11 h-11 object-contain shrink-0 drop-shadow-sm"
                 />
@@ -29,7 +32,7 @@ export default function LogoR4({
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 200 215"
                     fill="none"
-                    aria-label="Logo R4 Ensina"
+                    aria-label={textoR4("Logo R4 Ensina")}
                     className="w-11 h-11 shrink-0 drop-shadow-sm"
                 >
                     <path
@@ -76,9 +79,7 @@ export default function LogoR4({
                         className={`font-extrabold tracking-tight text-base ${
                             temaEscuro ? 'text-stone-100' : 'text-stone-900'
                         }`}
-                    >
-                        R4 ENSINA
-                    </p>
+                    >{textoR4("R4 ENSINA")}</p>
                     <p
                         className={`text-[11px] font-semibold tracking-wide ${
                             temaEscuro ? 'text-[#25A4AF]' : 'text-[#0E7C86]'

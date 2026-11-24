@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useState } from 'react';
 import { CalendarPlus, Plus, Trash2 } from 'lucide-react';
@@ -13,6 +15,7 @@ export default function AbaDatas({
     classes: TemaClasses;
     onRecarregarDadosAction: () => Promise<void>;
 }) {
+    const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
     const [novaData, setNovaData] = useState('');
@@ -61,9 +64,7 @@ export default function AbaDatas({
                 <h3
                     className={`text-sm font-bold flex items-center gap-2 ${clsTitulo}`}
                 >
-                    <CalendarPlus className="w-4 h-4 text-[#1496A1]" />
-                    Nova Regra de Data
-                </h3>
+                    <CalendarPlus className="w-4 h-4 text-[#1496A1]" />{textoR4("Nova Regra de Data")}</h3>
 
                 <div className="grid grid-cols-2 gap-2">
                     <button
@@ -74,9 +75,7 @@ export default function AbaDatas({
                                 ? 'bg-[#BE1E23]/20 border-[#BE1E23] text-rose-400'
                                 : `${clsSubCard} ${clsSubtexto}`
                         }`}
-                    >
-                        Bloquear Dia
-                    </button>
+                    >{textoR4("Bloquear Dia")}</button>
                     <button
                         type="button"
                         onClick={() => setNovoTipoData('liberar')}
@@ -85,15 +84,11 @@ export default function AbaDatas({
                                 ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
                                 : `${clsSubCard} ${clsSubtexto}`
                         }`}
-                    >
-                        Liberar Extra
-                    </button>
+                    >{textoR4("Liberar Extra")}</button>
                 </div>
 
                 <div>
-                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                        Data *
-                    </label>
+                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Data *")}</label>
                     <input
                         type="date"
                         required
@@ -104,13 +99,11 @@ export default function AbaDatas({
                 </div>
 
                 <div>
-                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                        Motivo / Descrição *
-                    </label>
+                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Motivo / Descrição *")}</label>
                     <input
                         type="text"
                         required
-                        placeholder="Ex: Feriado Nacional ou Plantão"
+                        placeholder={textoR4("Ex: Feriado Nacional ou Plantão")}
                         value={novaDescricao}
                         onChange={(e) => setNovaDescricao(e.target.value)}
                         className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
@@ -126,19 +119,16 @@ export default function AbaDatas({
                     }`}
                 >
                     <Plus className="w-4 h-4" />
-                    {novoTipoData === 'bloquear' ? 'Salvar Bloqueio' : 'Salvar Liberação'}
+                    {novoTipoData === 'bloquear' ? textoR4("Salvar Bloqueio") : textoR4("Salvar Liberação")}
                 </button>
             </form>
 
             <div className={`lg:col-span-7 border rounded-2xl p-6 space-y-3 ${clsCard}`}>
-                <h3 className={`text-sm font-bold ${clsTitulo}`}>
-                    Exceções Cadastradas ({datasLiberadas.length})
+                <h3 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Exceções Cadastradas (")}{datasLiberadas.length})
                 </h3>
 
                 {datasLiberadas.length === 0 ? (
-                    <p className={`text-xs ${clsSubtexto}`}>
-                        Nenhuma exceção configurada no momento.
-                    </p>
+                    <p className={`text-xs ${clsSubtexto}`}>{textoR4("Nenhuma exceção configurada no momento.")}</p>
                 ) : (
                     <div className="space-y-2.5">
                         {datasLiberadas.map((d) => (
@@ -163,7 +153,7 @@ export default function AbaDatas({
                                                 : 'bg-[#BE1E23]/20 text-rose-400 border border-[#BE1E23]/40'
                                         }`}
                                     >
-                                        {d.ativo ? 'Liberado' : 'Bloqueado'}
+                                        {d.ativo ? textoR4("Liberado") : textoR4("Bloqueado")}
                                     </button>
                                     <button
                                         type="button"

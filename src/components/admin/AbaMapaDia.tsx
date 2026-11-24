@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -196,11 +198,13 @@ export default function AbaMapaDia({
     onAlternarTelaCheiaAction?: () => void;
     onRecarregarDadosAction: () => Promise<void>;
 }) {
+    const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
     const ehProfessor = roleUsuario === 'professor';
 
     const [modoVisualizacao, setModoVisualizacao] = useState<'dia' | 'semana'>('dia');
     const parametros = useSearchParams();
+    const todasUnidades = parametros.get('unidade') === 'todas';
     const unidadeId = Number(parametros.get('unidade'));
     const [hojeInicial] = useState(obterHojeISO);
     const dataPedida = parametros.get('data') || '';
@@ -255,7 +259,8 @@ export default function AbaMapaDia({
 
     const scrollGradeRef = useRef<HTMLDivElement | null>(null);
     const [rolagem, setRolagem] = useState({ anterior: false, proximo: false });
-    const unidadeIdAtiva = unidades.find((unidade) => unidade.id === unidadeId)?.id || unidades[0]?.id || 0;
+    const unidadeIdAtiva = todasUnidades ? 0 : unidades.find((unidade) => unidade.ativa && unidade.id === unidadeId)?.id || unidades.find((unidade) => unidade.ativa)?.id || 0;
+    const unidadeEndereco = todasUnidades ? 'todas' : unidadeIdAtiva;
 
     useEffect(() => {
         function voltarNoMapa() { setDatasPorProfessor({}); }
@@ -264,15 +269,15 @@ export default function AbaMapaDia({
     }, []);
 
     useEffect(() => {
-        if (!ehProfessor && !unidadeIdAtiva) return;
-        const endereco = enderecoMapa(dataGlobal, ehProfessor ? undefined : unidadeIdAtiva);
+        if (!ehProfessor && !unidadeEndereco) return;
+        const endereco = enderecoMapa(dataGlobal, ehProfessor ? undefined : unidadeEndereco);
         if (window.location.pathname === '/admin/mapa' &&
             window.location.pathname + window.location.search !== endereco) {
             window.history.replaceState(null, '', endereco);
         }
-    }, [dataGlobal, unidadeIdAtiva, ehProfessor, parametros]);
+    }, [dataGlobal, unidadeEndereco, ehProfessor, parametros]);
 
-    function atualizarEndereco(data: string, unidade: number) {
+    function atualizarEndereco(data: string, unidade: number | 'todas') {
         const endereco = enderecoMapa(data, ehProfessor ? undefined : unidade);
         if (endereco !== window.location.pathname + window.location.search) {
             window.history.pushState(null, '', endereco);
@@ -294,10 +299,10 @@ export default function AbaMapaDia({
         }
         const termo = normalizarTextoComparacao(busca);
         return professores.filter((p) => p.ativo &&
-            (!unidadeIdAtiva || p.unidade_id === unidadeIdAtiva) &&
+            (unidadeIdAtiva ? p.unidade_id === unidadeIdAtiva : unidades.some((u) => u.ativa && u.id === p.unidade_id)) &&
             (!termo || [p.nome, ...filtrarMateriasVisiveis(p.materias)]
                 .some((texto) => normalizarTextoComparacao(texto).includes(termo))));
-    }, [ehProfessor, professorTravadoId, professores, unidadeIdAtiva, busca]);
+    }, [ehProfessor, professorTravadoId, professores, unidadeIdAtiva, unidades, busca]);
 
     const professorSemana = professoresVisiveis.find((p) => p.id === professorSemanaId) ||
         professoresVisiveis[0];
@@ -323,12 +328,13 @@ export default function AbaMapaDia({
             const perfis = ehProfessor ? professoresDoProprioPerfil : [prof];
             const aulas = agendamentos.flatMap((aula) => {
                 if (aula.data !== data || !perfis.some((p) => correspondeProfessor(aula, p))) return [];
-                if (!ehProfessor && unidadeIdAtiva && aula.unidade_id && aula.unidade_id !== unidadeIdAtiva) return [];
+                if (!ehProfessor && aula.unidade_id && aula.unidade_id !== prof.unidade_id) return [];
                 const intervalo = recortarIntervalo(intervaloAula(aula));
                 return intervalo ? [{ ...intervalo, aula }] : [];
             });
             const bloqueiosVisiveis = bloqueios.flatMap((bloqueio) => {
-                if (!perfis.some((p) => correspondeProfessor(bloqueio, p))) return [];
+                if (!perfis.some((p) => ehProfessor ? correspondeProfessor(bloqueio, p) :
+                    bloqueio.professor_id != null ? bloqueio.professor_id === p.id : correspondeProfessor(bloqueio, p))) return [];
                 const original = intervaloBloqueio(bloqueio, data);
                 const intervalo = original && recortarIntervalo(original);
                 return intervalo ? [{ ...intervalo, bloqueio }] : [];
@@ -344,7 +350,7 @@ export default function AbaMapaDia({
             };
         });
     }, [agendamentos, bloqueios, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
-        filtroStatus, professorSemana, professores, professoresVisiveis, semana, unidadeIdAtiva]);
+        filtroStatus, professorSemana, professores, professoresVisiveis, semana]);
 
     const resumoAulas = new Map(colunas.flatMap((coluna) =>
         coluna.aulas.map(({ aula }) => [aula.id, aula] as const)));
@@ -380,7 +386,7 @@ export default function AbaMapaDia({
 
     function alterarDataGlobal(novaData: string) {
         if (!novaData) return;
-        atualizarEndereco(novaData, unidadeIdAtiva);
+        atualizarEndereco(novaData, unidadeEndereco);
         setDatasPorProfessor({});
     }
 
@@ -670,43 +676,42 @@ export default function AbaMapaDia({
             <div className={styles.painel}>
                 <div className={styles.topo}>
                     <div className={styles.controles}>
-                        <div className={styles.segmentado} role="group" aria-label="Visualização">
-                            <button type="button" aria-pressed={!semana} onClick={() => setModoVisualizacao('dia')}>Dia</button>
-                            <button type="button" aria-pressed={semana} onClick={() => setModoVisualizacao('semana')}>Semana</button>
+                        <div className={styles.segmentado} role="group" aria-label={textoR4("Visualização")}>
+                            <button type="button" aria-pressed={!semana} onClick={() => setModoVisualizacao('dia')}>{textoR4("Dia")}</button>
+                            <button type="button" aria-pressed={semana} onClick={() => setModoVisualizacao('semana')}>{textoR4("Semana")}</button>
                         </div>
                         <div className={styles.periodo}>
-                            <button type="button" aria-label={semana ? 'Semana anterior' : 'Dia anterior'} onClick={() => alterarPeriodo(-1)}>
+                            <button type="button" aria-label={semana ? textoR4("Semana anterior") : textoR4("Dia anterior")} onClick={() => alterarPeriodo(-1)}>
                                 <ChevronLeft />
                             </button>
                             <label className={styles.data}>
                                 <Calendar />
                                 {semana ? `${formatarDataBR(primeiroDia).slice(0, 5)} – ${formatarDataBR(ultimoDia)}` : formatarDataBR(dataGlobal)}
-                                <input type="date" aria-label="Escolher data" value={dataGlobal} onChange={(e) => alterarDataGlobal(e.target.value)} />
+                                <input type="date" aria-label={textoR4("Escolher data")} value={dataGlobal} onChange={(e) => alterarDataGlobal(e.target.value)} />
                             </label>
-                            <button type="button" aria-label={semana ? 'Próxima semana' : 'Próximo dia'} onClick={() => alterarPeriodo(1)}>
+                            <button type="button" aria-label={semana ? textoR4("Próxima semana") : textoR4("Próximo dia")} onClick={() => alterarPeriodo(1)}>
                                 <ChevronRight />
                             </button>
                         </div>
-                        <button type="button" className={styles.botao} onClick={() => alterarDataGlobal(obterHojeISO())}>Hoje</button>
+                        <button type="button" className={styles.botao} onClick={() => alterarDataGlobal(obterHojeISO())}>{textoR4("Hoje")}</button>
                     </div>
                     <div className={styles.controles}>
                         {!ehProfessor && <>
-                            <Link className={styles.botao} href={enderecoMapa(dataGlobal, unidadeIdAtiva)}
-                                target="_blank" rel="noopener">Abrir em nova aba</Link>
-                            <button type="button" className={styles.botao} onClick={() => setArquivoAberto(true)}>Aulas excluídas</button>
+                            <Link className={styles.botao} href={enderecoMapa(dataGlobal, unidadeEndereco)}
+                                target="_blank" rel="noopener">{textoR4("Abrir em nova aba")}</Link>
+                            <button type="button" className={styles.botao} onClick={() => setArquivoAberto(true)}>{textoR4("Aulas excluídas")}</button>
                             <button type="button" className={styles.botao} disabled={!colunas.length} onClick={() => abrirModalCriacao('bloqueio')}>
-                                <Ban /> Bloquear
-                            </button>
+                                <Ban />{' ' + textoR4("Bloquear")}</button>
                         </>}
                         <button type="button" className={styles.primario} disabled={!colunas.length}
                             onClick={() => abrirModalCriacao(ehProfessor ? 'bloqueio' : 'aula')}>
                             {ehProfessor ? <Ban /> : <CalendarPlus />}
-                            {ehProfessor ? 'Bloquear horário' : 'Agendar aula'}
+                            {ehProfessor ? textoR4("Bloquear horário") : textoR4("Agendar aula")}
                         </button>
                     </div>
                 </div>
                 <div className={styles.filtros}>
-                    <div className={styles.dias} role="group" aria-label="Dias da semana">
+                    <div className={styles.dias} role="group" aria-label={textoR4("Dias da semana")}>
                         {faixaDiasSemana.map((data) => (
                             <button type="button" key={data} aria-pressed={data === dataGlobal}
                                 aria-label={formatarDataExtensoPT(data)} onClick={() => alterarDataGlobal(data)}>
@@ -717,35 +722,35 @@ export default function AbaMapaDia({
                     <div className={styles.controles}>
                         {!ehProfessor && (
                             <>
-                                <select aria-label="Unidade" value={unidadeIdAtiva} onChange={(e) => {
+                                <select aria-label={textoR4("Unidade")} value={unidadeEndereco || 'todas'} onChange={(e) => {
                                     setDatasPorProfessor({});
-                                    atualizarEndereco(dataGlobal, Number(e.target.value));
+                                    atualizarEndereco(dataGlobal, e.target.value === 'todas' ? 'todas' : Number(e.target.value));
                                 }}>
-                                    {unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                                    <option value="todas">{textoR4("Todas as unidades")}</option>
+                                    {unidades.filter((u) => u.ativa).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
                                 </select>
                                 <label className={styles.busca}>
                                     <Search />
-                                    <input type="search" aria-label="Buscar professor ou matéria" placeholder="Professor ou matéria" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                                    <input type="search" aria-label={textoR4("Buscar professor ou matéria")} placeholder={textoR4("Professor ou matéria")} value={busca} onChange={(e) => setBusca(e.target.value)} />
                                 </label>
                             </>
                         )}
                         {semana && !ehProfessor && professoresVisiveis.length > 0 && (
-                            <select aria-label="Professor da semana" value={professorSemana?.id ?? ''}
+                            <select aria-label={textoR4("Professor da semana")} value={professorSemana?.id ?? ''}
                                 onChange={(e) => setProfessorSemanaId(Number(e.target.value))}>
-                                {professoresVisiveis.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                                {professoresVisiveis.map((p) => <option key={p.id} value={p.id}>{p.nome}{todasUnidades && p.unidade_nome ? ' · ' + p.unidade_nome : ''}</option>)}
                             </select>
                         )}
                         <label className={styles.seletorStatus}>
                             <SlidersHorizontal />
-                            <select aria-label="Filtrar por status da aula" value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-                                <option value="todos">Todos os status</option>
-                                {LISTA_STATUS_AULA_R4.map((status) => <option key={status.valor} value={status.valor}>{status.rotulo}</option>)}
+                            <select aria-label={textoR4("Filtrar por status da aula")} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+                                <option value="todos">{textoR4("Todos os status")}</option>
+                                {LISTA_STATUS_AULA_R4.map((status) => <option key={status.valor} value={status.valor}>{textoR4(status.rotulo)}</option>)}
                             </select>
                         </label>
                         {!semana && temDatasIndividuais && (
                             <button type="button" className={styles.botao} onClick={() => setDatasPorProfessor({})}>
-                                <RotateCcw /> Sincronizar datas
-                            </button>
+                                <RotateCcw />{' ' + textoR4("Sincronizar datas")}</button>
                         )}
                     </div>
                 </div>
@@ -754,42 +759,42 @@ export default function AbaMapaDia({
             <div className={styles.agenda}>
                 <div className={styles.barraGrade}>
                     <div>
-                        <h2>{semana ? 'Visão semanal' : 'Agenda por professor'}</h2>
+                        <h2>{semana ? textoR4("Visão semanal") : textoR4("Agenda por professor")}</h2>
                         <p>{semana ? professorSemana?.nome || 'Nenhum professor' : formatarDataExtensoPT(dataGlobal)}</p>
                     </div>
-                    <div className={styles.resumo} aria-label="Resumo da agenda">
-                        <span><Calendar /> <b>{resumoAulas.size}</b> {resumoAulas.size === 1 ? 'aula' : 'aulas'}</span>
-                        <span data-cor="verde"><CheckCircle2 /> <b>{confirmadas}</b> {confirmadas === 1 ? 'confirmada' : 'confirmadas'}</span>
-                        <span data-cor="coral"><Ban /> <b>{resumoBloqueios.size}</b> {resumoBloqueios.size === 1 ? 'bloqueio' : 'bloqueios'}</span>
+                    <div className={styles.resumo} aria-label={textoR4("Resumo da agenda")}>
+                        <span><Calendar /> <b>{resumoAulas.size}</b> {resumoAulas.size === 1 ? textoR4("aula") : textoR4("aulas")}</span>
+                        <span data-cor="verde"><CheckCircle2 /> <b>{confirmadas}</b> {confirmadas === 1 ? textoR4("confirmada") : textoR4("confirmadas")}</span>
+                        <span data-cor="coral"><Ban /> <b>{resumoBloqueios.size}</b> {resumoBloqueios.size === 1 ? textoR4("bloqueio") : textoR4("bloqueios")}</span>
                     </div>
                     <div className={styles.controles}>
                         {onAlternarTelaCheiaAction && (
                             <button type="button" className={styles.botao} onClick={onAlternarTelaCheiaAction}>
-                                {modoTelaCheia ? 'Reduzir' : 'Expandir'}
+                                {modoTelaCheia ? textoR4("Reduzir") : textoR4("Expandir")}
                             </button>
                         )}
-                        <div className={styles.periodo} role="group" aria-label="Navegação horizontal na grade">
-                            <button type="button" aria-label="Rolar grade para esquerda" disabled={!rolagem.anterior} onClick={() => moverGrade(-1)}><ChevronLeft /></button>
-                            <button type="button" aria-label="Rolar grade para direita" disabled={!rolagem.proximo} onClick={() => moverGrade(1)}><ChevronRight /></button>
+                        <div className={styles.periodo} role="group" aria-label={textoR4("Navegação horizontal na grade")}>
+                            <button type="button" aria-label={textoR4("Rolar grade para esquerda")} disabled={!rolagem.anterior} onClick={() => moverGrade(-1)}><ChevronLeft /></button>
+                            <button type="button" aria-label={textoR4("Rolar grade para direita")} disabled={!rolagem.proximo} onClick={() => moverGrade(1)}><ChevronRight /></button>
                         </div>
                     </div>
                 </div>
                 {colunas.length === 0 ? (
-                    <p className={styles.vazio}>Nenhum professor encontrado com os filtros atuais.</p>
+                    <p className={styles.vazio}>{textoR4("Nenhum professor encontrado com os filtros atuais.")}</p>
                 ) : (
                     <div ref={scrollGradeRef} onScroll={() => { if (hoverCard) setHoverCard(null); }}
                         className={styles.scroll} data-expandido={modoTelaCheia} data-arrastando={Boolean(aulaArrastando)}
-                        tabIndex={0} aria-label="Grade de horários">
+                        tabIndex={0} aria-label={textoR4("Grade de horários")}>
                         <div className={styles.grade} style={{
                             gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${semana ? 148 : 188}px, 1fr))`,
                         }}>
-                            <div className={`${styles.cabecalho} ${styles.canto}`}>Horário</div>
+                            <div className={`${styles.cabecalho} ${styles.canto}`}>{textoR4("Horário")}</div>
                             {colunas.map(({ chave, prof, data }) => (
                                 <div className={styles.cabecalho} key={chave}>
                                     {semana ? (
                                         <div className={styles.professor}>
                                             <span className={styles.avatar}><Calendar /></span>
-                                            <div><strong>{formatarDiaCurtoPT(data)}</strong>{data === agora?.data && <small>Hoje</small>}</div>
+                                            <div><strong>{formatarDiaCurtoPT(data)}</strong>{data === agora?.data && <small>{textoR4("Hoje")}</small>}</div>
                                         </div>
                                     ) : (
                                         <>
@@ -797,6 +802,7 @@ export default function AbaMapaDia({
                                                 <span className={styles.avatar}>{obterIniciais(prof.nome)}</span>
                                                 <div>
                                                     <strong title={prof.nome}>{prof.nome}</strong>
+                                                    {todasUnidades && <small className={styles.unidadeProfessor}>{prof.unidade_nome}</small>}
                                                     <small title={filtrarMateriasVisiveis(prof.materias).join(' · ')}>
                                                         {filtrarMateriasVisiveis(prof.materias).join(' · ') || '—'}
                                                     </small>
@@ -875,7 +881,7 @@ export default function AbaMapaDia({
                                         return (
                                             <button type="button" key={aula.id} className={styles.aula}
                                                 data-status={meta.valor} data-arrastando={aulaArrastando?.id === aula.id}
-                                                aria-label={`${aula.nome_aluno}, ${aula.materia}, ${formatarIntervaloCard(aula)}, ${meta.rotulo}`}
+                                                aria-label={`${aula.nome_aluno}, ${aula.materia}, ${formatarIntervaloCard(aula)}, ${textoR4(meta.rotulo)}`}
                                                 style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
                                                     left: `${faixa / totalFaixas * 100}%`, width: `${100 / totalFaixas}%` }}
                                                 draggable={!ehProfessor && meta.ocupaHorario}
@@ -903,9 +909,9 @@ export default function AbaMapaDia({
                 )}
                 <div className={styles.legenda}>
                     {LISTA_STATUS_AULA_R4.map((status) => (
-                        <span key={status.valor} data-status={status.valor}><i />{status.rotulo}</span>
+                        <span key={status.valor} data-status={status.valor}><i />{textoR4(status.rotulo)}</span>
                     ))}
-                    <span data-status="bloqueio"><i />Bloqueio</span>
+                    <span data-status="bloqueio"><i />{textoR4("Bloqueio")}</span>
                 </div>
             </div>
 
@@ -975,7 +981,7 @@ export default function AbaMapaDia({
                                     className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${meta.clsBadge}`}
                                 >
                                     <span className={`w-2 h-2 rounded-full ${meta.corPonto}`} />
-                                    {meta.rotulo}
+                                    {textoR4(meta.rotulo)}
                                 </span>
                             );
                         })()}
@@ -992,29 +998,21 @@ export default function AbaMapaDia({
                         {erroTransferencia && <p role="alert" className={styles.erro}>{erroTransferencia}</p>}
                         {transferenciaPendente.materiaIncompativel ? (
                             <>
-                                <h3 className={`text-xl font-extrabold ${clsTitulo}`}>
-                                    Selecione o serviço
-                                </h3>
+                                <h3 className={`text-xl font-extrabold ${clsTitulo}`}>{textoR4("Selecione o serviço")}</h3>
 
-                                <p className={`text-sm leading-relaxed ${clsSubtexto}`}>
-                                    Transferir para{' '}
+                                <p className={`text-sm leading-relaxed ${clsSubtexto}`}>{textoR4("Transferir para")}{' '}
                                     <strong className={clsTitulo}>
                                         {transferenciaPendente.professorDestino.nome}
-                                    </strong>{' '}
-                                    em{' '}
+                                    </strong>{' '}{textoR4("em")}{' '}
                                     <strong className={clsTitulo}>
                                         {formatarDiaCurtoPT(transferenciaPendente.novaData)}
-                                    </strong>{' '}
-                                    às{' '}
+                                    </strong>{' '}{textoR4("às")}{' '}
                                     <strong className={clsTitulo}>
                                         {transferenciaPendente.novoHorario}
                                     </strong>
                                 </p>
 
-                                <p className="text-xs font-medium text-[#D97706] dark:text-amber-400 leading-relaxed">
-                                    O serviço atual não está disponível para este profissional.
-                                    Selecione um dos serviços abaixo para continuar.
-                                </p>
+                                <p className="text-xs font-medium text-[#D97706] dark:text-amber-400 leading-relaxed">{textoR4("O serviço atual não está disponível para este profissional. Selecione um dos serviços abaixo para continuar.")}</p>
 
                                 <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
                                     {transferenciaPendente.opcoesServico.map((opcao) => {
@@ -1049,7 +1047,7 @@ export default function AbaMapaDia({
                                                 : 'bg-[#0E7C86] hover:bg-[#118E99] cursor-pointer shadow-sm'
                                         }`}
                                     >
-                                        {salvandoTransferencia ? 'Transferindo...' : 'Confirmar'}
+                                        {salvandoTransferencia ? textoR4("Transferindo...") : textoR4("Confirmar")}
                                     </button>
                                     <button
                                         type="button"
@@ -1059,9 +1057,7 @@ export default function AbaMapaDia({
                                             setServicoEscolhidoId('');
                                         }}
                                         className={`py-2.5 px-4 rounded-xl border text-sm font-bold transition cursor-pointer ${clsSubCard} ${clsTitulo}`}
-                                    >
-                                        Cancelar
-                                    </button>
+                                    >{textoR4("Cancelar")}</button>
                                 </div>
                             </>
                         ) : (
@@ -1070,25 +1066,19 @@ export default function AbaMapaDia({
                                     <span className="w-9 h-9 rounded-xl bg-[#0E7C86]/15 text-[#0E7C86] flex items-center justify-center">
                                         <ArrowRightLeft className="w-4 h-4" />
                                     </span>
-                                    <h3 className={`text-lg font-bold ${clsTitulo}`}>
-                                        Confirmar transferência
-                                    </h3>
+                                    <h3 className={`text-lg font-bold ${clsTitulo}`}>{textoR4("Confirmar transferência")}</h3>
                                 </div>
 
-                                <p className={`text-sm leading-relaxed ${clsSubtexto}`}>
-                                    Transferir a aula de{' '}
+                                <p className={`text-sm leading-relaxed ${clsSubtexto}`}>{textoR4("Transferir a aula de")}{' '}
                                     <strong className={clsTitulo}>
                                         {transferenciaPendente.aula.nome_aluno}
-                                    </strong>{' '}
-                                    para{' '}
+                                    </strong>{' '}{textoR4("para")}{' '}
                                     <strong className={clsTitulo}>
                                         {transferenciaPendente.professorDestino.nome}
-                                    </strong>{' '}
-                                    em{' '}
+                                    </strong>{' '}{textoR4("em")}{' '}
                                     <strong className={clsTitulo}>
                                         {formatarDiaCurtoPT(transferenciaPendente.novaData)}
-                                    </strong>{' '}
-                                    às{' '}
+                                    </strong>{' '}{textoR4("às")}{' '}
                                     <strong className={clsTitulo}>
                                         {transferenciaPendente.novoHorario}
                                     </strong>
@@ -1102,16 +1092,14 @@ export default function AbaMapaDia({
                                         onClick={() => void confirmarTransferencia()}
                                         className="py-2.5 px-4 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-white text-sm font-bold transition cursor-pointer shadow-sm"
                                     >
-                                        {salvandoTransferencia ? 'Transferindo...' : 'Confirmar'}
+                                        {salvandoTransferencia ? textoR4("Transferindo...") : textoR4("Confirmar")}
                                     </button>
                                     <button
                                         type="button"
                                         disabled={salvandoTransferencia}
                                         onClick={() => setTransferenciaPendente(null)}
                                         className={`py-2.5 px-4 rounded-xl border text-sm font-bold transition cursor-pointer ${clsSubCard} ${clsTitulo}`}
-                                    >
-                                        Cancelar
-                                    </button>
+                                    >{textoR4("Cancelar")}</button>
                                 </div>
                             </>
                         )}
@@ -1138,9 +1126,7 @@ export default function AbaMapaDia({
                                     <Lock className="w-6 h-6" />
                                 </div>
                                 <div className="min-w-0">
-                                    <h3 className={`text-lg font-extrabold ${clsTitulo}`}>
-                                        Bloqueio
-                                    </h3>
+                                    <h3 className={`text-lg font-extrabold ${clsTitulo}`}>{textoR4("Bloqueio")}</h3>
                                     <p className="text-xs font-bold text-[#0E7C86] truncate">
                                         {bloqueioSelecionado.bloqueio.motivo}
                                     </p>
@@ -1190,7 +1176,7 @@ export default function AbaMapaDia({
                                 }`}
                             >
                                 <Trash2 className="w-4 h-4" />
-                                {salvandoBloqueio ? 'Excluindo...' : 'Excluir'}
+                                {salvandoBloqueio ? textoR4("Excluindo...") : textoR4("Excluir")}
                             </button>
 
                             <button
@@ -1203,9 +1189,7 @@ export default function AbaMapaDia({
                                         : 'border-slate-200 bg-white text-slate-800 hover:border-[#0E7C86] hover:text-[#0E7C86]'
                                 }`}
                             >
-                                <Pencil className="w-4 h-4" />
-                                Editar bloqueio
-                            </button>
+                                <Pencil className="w-4 h-4" />{textoR4("Editar bloqueio")}</button>
                         </div>
                     </div>
                 </div>
@@ -1222,9 +1206,7 @@ export default function AbaMapaDia({
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <CalendarX className="w-5 h-5 text-[#0E7C86]" />
-                                <h3 className={`text-base font-extrabold ${clsTitulo}`}>
-                                    Editar bloqueio
-                                </h3>
+                                <h3 className={`text-base font-extrabold ${clsTitulo}`}>{textoR4("Editar bloqueio")}</h3>
                             </div>
                             <button
                                 type="button"
@@ -1274,7 +1256,7 @@ export default function AbaMapaDia({
                                         motivo: e.target.value,
                                     })
                                 }
-                                placeholder="Título do bloqueio"
+                                placeholder={textoR4("Título do bloqueio")}
                                 className={`w-full px-3 py-2.5 text-xs font-semibold focus:outline-none ${
                                     escuro
                                         ? 'bg-transparent text-stone-100'
@@ -1309,7 +1291,7 @@ export default function AbaMapaDia({
                                         descricao: e.target.value,
                                     })
                                 }
-                                placeholder="Descrição do bloqueio"
+                                placeholder={textoR4("Descrição do bloqueio")}
                                 className={`w-full px-3 py-2.5 text-xs focus:outline-none resize-none ${
                                     escuro
                                         ? 'bg-transparent text-stone-100'
@@ -1327,9 +1309,7 @@ export default function AbaMapaDia({
                             }`}
                         >
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className={`text-xs font-bold w-16 ${clsSubtexto}`}>
-                                    Início *
-                                </span>
+                                <span className={`text-xs font-bold w-16 ${clsSubtexto}`}>{textoR4("Início *")}</span>
                                 <input
                                     type="date"
                                     required
@@ -1378,9 +1358,7 @@ export default function AbaMapaDia({
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className={`text-xs font-bold w-16 ${clsSubtexto}`}>
-                                    Duração *
-                                </span>
+                                <span className={`text-xs font-bold w-16 ${clsSubtexto}`}>{textoR4("Duração *")}</span>
                                 <select
                                     value={bloqueioEditando.duracaoHoras}
                                     onChange={(e) =>
@@ -1397,7 +1375,7 @@ export default function AbaMapaDia({
                                         </option>
                                     ))}
                                 </select>
-                                <span className={`text-xs ${clsSubtexto}`}>hr</span>
+                                <span className={`text-xs ${clsSubtexto}`}>{textoR4("hr")}</span>
 
                                 <select
                                     value={bloqueioEditando.duracaoMinutos}
@@ -1415,7 +1393,7 @@ export default function AbaMapaDia({
                                         </option>
                                     ))}
                                 </select>
-                                <span className={`text-xs ${clsSubtexto}`}>min</span>
+                                <span className={`text-xs ${clsSubtexto}`}>{textoR4("min")}</span>
 
                                 <span
                                     className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-extrabold ${
@@ -1434,7 +1412,7 @@ export default function AbaMapaDia({
                             disabled={salvandoBloqueio || duracaoTotalEdicaoBloqueio < 10}
                             className="w-full py-3 rounded-xl bg-[#00A8B5] hover:bg-[#00929E] text-white text-xs font-extrabold uppercase tracking-wider shadow-sm transition cursor-pointer"
                         >
-                            {salvandoBloqueio ? 'Salvando...' : 'SALVAR BLOQUEIO'}
+                            {salvandoBloqueio ? textoR4("Salvando...") : textoR4("SALVAR BLOQUEIO")}
                         </button>
                     </form>
                 </div>
@@ -1446,7 +1424,7 @@ export default function AbaMapaDia({
                 modoInicial={modalNovoModo}
                 roleUsuario={roleUsuario}
                 professorTravadoId={professorTravadoId}
-                unidadeInicialId={unidadeIdAtiva}
+                unidadeInicialId={professores.find((prof) => prof.id === modalProfInicial)?.unidade_id || unidadeIdAtiva}
                 professorInicialId={modalProfInicial}
                 dataInicial={modalDataInicial}
                 horaInicial={modalHoraInicial}

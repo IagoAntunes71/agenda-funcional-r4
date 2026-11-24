@@ -305,10 +305,10 @@ export async function GET() {
         return NextResponse.json({
             sessao,
             resumoSemana: resumoSemanaRaw[0] ?? null,
-            chaveMestra: {
+            chaveMestra: sessao.role === 'admin' ? {
                 modo: modoChaveMestra,
                 aberto: statusChaveMestra.aberto,
-            },
+            } : undefined,
             cooldownsSync: {
                 hoje: calcularProximoDisponivel(
                     CONFIG_SYNC_MODOS.hoje.chaveDb,

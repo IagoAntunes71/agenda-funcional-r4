@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useRef, useState } from 'react';
 import { History, X } from 'lucide-react';
@@ -12,6 +14,7 @@ export default function ArquivoAgendamentosR4({ escuro, onFechar, onSelecionar }
     onFechar: () => void;
     onSelecionar: (aula: AgendamentoAdmin) => void;
 }) {
+    const textoR4 = useTextoR4();
     const dialogo = useRef<HTMLDialogElement>(null);
     const [aulas, setAulas] = useState<AulaArquivada[]>([]);
     const [cursor, setCursor] = useState<number | null>(null);
@@ -51,12 +54,12 @@ export default function ArquivoAgendamentosR4({ escuro, onFechar, onSelecionar }
         <div className={css.interno}>
             <header className={css.cabecalho}>
                 <span className={css.avatar}><History /></span>
-                <h2 id="r4-arquivo-titulo">Aulas excluídas</h2>
-                <button type="button" className={css.fechar} aria-label="Fechar arquivo" onClick={onFechar}><X /></button>
+                <h2 id="r4-arquivo-titulo">{textoR4("Aulas excluídas")}</h2>
+                <button type="button" className={css.fechar} aria-label={textoR4("Fechar arquivo")} onClick={onFechar}><X /></button>
             </header>
             <div className={css.corpo}>
                 {erro && <p role="alert" className={css.erro}>{erro}</p>}
-                {!aulas.length && !erro && <p className={css.mudo}>{carregando ? 'Carregando…' : 'Nenhuma aula excluída.'}</p>}
+                {!aulas.length && !erro && <p className={css.mudo}>{carregando ? textoR4("Carregando…") : textoR4("Nenhuma aula excluída.")}</p>}
                 {!!aulas.length && <div className={css.lista}>
                     {aulas.map((aula) => <button type="button" className={css.linha} key={aula.id} onClick={() => selecionar(aula)}>
                         <span className={css.icone}><History /></span>
@@ -64,7 +67,7 @@ export default function ArquivoAgendamentosR4({ escuro, onFechar, onSelecionar }
                     </button>)}
                 </div>}
                 {mais && <button type="button" className={css.secundario} disabled={carregando}
-                    onClick={() => { setCarregando(true); setCursor(aulas.at(-1)?.id ?? null); }}>Carregar mais</button>}
+                    onClick={() => { setCarregando(true); setCursor(aulas.at(-1)?.id ?? null); }}>{textoR4("Carregar mais")}</button>}
             </div>
         </div>
     </dialog>;

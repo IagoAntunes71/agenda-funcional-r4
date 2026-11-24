@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useState } from 'react';
 import {
@@ -24,6 +26,7 @@ export default function AbaAlunos({
     classes: TemaClasses;
     onRecarregarDadosAction: () => Promise<void>;
 }) {
+    const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
     const [buscaAluno, setBuscaAluno] = useState<string>('');
@@ -309,9 +312,7 @@ export default function AbaAlunos({
             <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                     <div className="md:col-span-7">
-                        <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                            Buscar por Responsável, Número de WhatsApp, Aluno ou Colégio
-                        </label>
+                        <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Buscar por Responsável, Número de WhatsApp, Aluno ou Colégio")}</label>
                         <div className="relative">
                             <Search
                                 className={`w-4 h-4 absolute left-3.5 top-3 ${clsSubtexto}`}
@@ -320,32 +321,29 @@ export default function AbaAlunos({
                                 type="text"
                                 value={buscaAluno}
                                 onChange={(e) => setBuscaAluno(e.target.value)}
-                                placeholder="Digite nome do responsável, aluno ou telefone..."
+                                placeholder={textoR4("Digite nome do responsável, aluno ou telefone...")}
                                 className={`w-full border rounded-xl pl-10 pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                             />
                         </div>
                     </div>
 
                     <div className="md:col-span-3">
-                        <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
-                            Situação do PIN
-                        </label>
+                        <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Situação do PIN")}</label>
                         <select
                             value={filtroPinAluno}
                             onChange={(e) => setFiltroPinAluno(e.target.value)}
                             className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                         >
-                            <option value="todos">Todas as contas</option>
-                            <option value="com_pin">Com PIN ativo</option>
-                            <option value="sem_pin">Sem PIN (1º acesso)</option>
-                            <option value="conflito">Com alerta de revisão</option>
+                            <option value="todos">{textoR4("Todas as contas")}</option>
+                            <option value="com_pin">{textoR4("Com PIN ativo")}</option>
+                            <option value="sem_pin">{textoR4("Sem PIN (1º acesso)")}</option>
+                            <option value="conflito">{textoR4("Com alerta de revisão")}</option>
                         </select>
                     </div>
 
                     <div className="md:col-span-2 flex items-center justify-between md:justify-end gap-2 pb-1">
                         <span className={`text-xs font-bold ${clsTitulo}`}>
-                            {responsaveisFiltrados.length} conta(s)
-                        </span>
+                            {responsaveisFiltrados.length}{' ' + textoR4("conta(s)")}</span>
                         {(buscaAluno || filtroPinAluno !== 'todos') && (
                             <button
                                 type="button"
@@ -354,9 +352,7 @@ export default function AbaAlunos({
                                     setFiltroPinAluno('todos');
                                 }}
                                 className="text-xs text-[#1496A1] hover:underline cursor-pointer"
-                            >
-                                Limpar
-                            </button>
+                            >{textoR4("Limpar")}</button>
                         )}
                     </div>
                 </div>
@@ -384,9 +380,7 @@ export default function AbaAlunos({
             {responsaveisFiltrados.length === 0 ? (
                 <div
                     className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
-                >
-                    Nenhuma conta de responsável ou aluno encontrada para esta busca.
-                </div>
+                >{textoR4("Nenhuma conta de responsável ou aluno encontrada para esta busca.")}</div>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {responsaveisFiltrados.map((resp) => {
@@ -410,9 +404,7 @@ export default function AbaAlunos({
                                         className={`border border-[#0E7C86] rounded-xl p-3.5 space-y-3 ${clsSubCard}`}
                                     >
                                         <div className="flex items-center justify-between">
-                                            <span className="text-[11px] font-bold uppercase text-[#1496A1]">
-                                                Editando Conta do Responsável
-                                            </span>
+                                            <span className="text-[11px] font-bold uppercase text-[#1496A1]">{textoR4("Editando Conta do Responsável")}</span>
                                             <button
                                                 type="button"
                                                 onClick={() => setEditResponsavelId(null)}
@@ -426,9 +418,7 @@ export default function AbaAlunos({
                                             <div>
                                                 <label
                                                     className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                >
-                                                    Nome do Responsável *
-                                                </label>
+                                                >{textoR4("Nome do Responsável *")}</label>
                                                 <input
                                                     type="text"
                                                     required
@@ -442,9 +432,7 @@ export default function AbaAlunos({
                                             <div>
                                                 <label
                                                     className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                >
-                                                    WhatsApp Único (com DDD) *
-                                                </label>
+                                                >{textoR4("WhatsApp Único (com DDD) *")}</label>
                                                 <input
                                                     type="tel"
                                                     required
@@ -464,9 +452,7 @@ export default function AbaAlunos({
                                                 type="button"
                                                 onClick={() => setEditResponsavelId(null)}
                                                 className={`px-3 py-1.5 rounded-xl border text-xs cursor-pointer ${clsCard}`}
-                                            >
-                                                Cancelar
-                                            </button>
+                                            >{textoR4("Cancelar")}</button>
                                             <button
                                                 type="submit"
                                                 disabled={salvandoRespConta}
@@ -474,8 +460,8 @@ export default function AbaAlunos({
                                             >
                                                 <Save className="w-3.5 h-3.5" />
                                                 {salvandoRespConta
-                                                    ? 'Salvando...'
-                                                    : 'Salvar Conta'}
+                                                    ? textoR4("Salvando...")
+                                                    : textoR4("Salvar Conta")}
                                             </button>
                                         </div>
                                     </form>
@@ -488,8 +474,7 @@ export default function AbaAlunos({
                                                     {resp.nome || 'Responsável'}
                                                 </h3>
                                             </div>
-                                            <p className="text-xs text-[#1496A1] font-semibold mt-0.5">
-                                                WhatsApp:{' '}
+                                            <p className="text-xs text-[#1496A1] font-semibold mt-0.5">{textoR4("WhatsApp:")}{' '}
                                                 {formatarTelefone(
                                                     resp.telefone || resp.telefone_formatado
                                                 ) || 'Não cadastrado'}
@@ -507,15 +492,14 @@ export default function AbaAlunos({
                                                 }`}
                                             >
                                                 {resp.pin_bloqueado
-                                                    ? 'PIN Bloqueado'
+                                                    ? textoR4("PIN Bloqueado")
                                                     : resp.tem_pin
-                                                        ? 'PIN Ativo'
-                                                        : 'Sem PIN'}
+                                                        ? textoR4("PIN Ativo")
+                                                        : textoR4("Sem PIN")}
                                             </span>
                                             <span className={`text-[11px] ${clsSubtexto}`}>
-                                                {resp.filhos.length} filho(s) •{' '}
-                                                {resp.total_aulas} aula(s)
-                                            </span>
+                                                {resp.filhos.length}{' ' + textoR4("filho(s) •")}{' '}
+                                                {resp.total_aulas}{' ' + textoR4("aula(s)")}</span>
                                         </div>
                                     </div>
                                 )}
@@ -523,7 +507,7 @@ export default function AbaAlunos({
                                 {resp.conflito_migracao && (
                                     <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2">
                                         <span>
-                                            <strong>Revisão recomendada:</strong>{' '}
+                                            <strong>{textoR4("Revisão recomendada:")}</strong>{' '}
                                             {resp.conflito_detalhes ||
                                                 'Registros antigos agrupados neste número.'}
                                         </span>
@@ -533,25 +517,20 @@ export default function AbaAlunos({
                                             onClick={() => void marcarConflitoResolvido(resp)}
                                             className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] font-semibold text-amber-200 inline-flex items-center gap-1 cursor-pointer"
                                         >
-                                            <CheckCircle2 className="w-3.5 h-3.5" />
-                                            Marcar Revisado
-                                        </button>
+                                            <CheckCircle2 className="w-3.5 h-3.5" />{textoR4("Marcar Revisado")}</button>
                                     </div>
                                 )}
 
                                 <div className="space-y-2">
                                     <p
                                         className={`text-[11px] font-semibold uppercase tracking-wide ${clsSubtexto}`}
-                                    >
-                                        Filhos vinculados ({resp.filhos.length})
+                                    >{textoR4("Filhos vinculados (")}{resp.filhos.length})
                                     </p>
 
                                     {resp.filhos.length === 0 ? (
                                         <p
                                             className={`text-xs italic border rounded-xl p-3 ${clsSubCard} ${clsSubtexto}`}
-                                        >
-                                            Nenhum filho ativo vinculado a esta conta.
-                                        </p>
+                                        >{textoR4("Nenhum filho ativo vinculado a esta conta.")}</p>
                                     ) : (
                                         resp.filhos.map((al) => {
                                             const editandoEste = editAlunoId === al.id;
@@ -568,9 +547,7 @@ export default function AbaAlunos({
                                                         className={`border border-[#0E7C86] rounded-xl p-3.5 space-y-3 ${clsSubCard}`}
                                                     >
                                                         <div className="flex items-center justify-between">
-                                                            <span className="text-[11px] font-bold uppercase text-[#1496A1]">
-                                                                Editando Filho(a)
-                                                            </span>
+                                                            <span className="text-[11px] font-bold uppercase text-[#1496A1]">{textoR4("Editando Filho(a)")}</span>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setEditAlunoId(null)}
@@ -584,9 +561,7 @@ export default function AbaAlunos({
                                                             <div>
                                                                 <label
                                                                     className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                                >
-                                                                    Nome do Aluno(a) *
-                                                                </label>
+                                                                >{textoR4("Nome do Aluno(a) *")}</label>
                                                                 <input
                                                                     type="text"
                                                                     required
@@ -603,9 +578,7 @@ export default function AbaAlunos({
                                                             <div>
                                                                 <label
                                                                     className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                                >
-                                                                    Colégio
-                                                                </label>
+                                                                >{textoR4("Colégio")}</label>
                                                                 <input
                                                                     type="text"
                                                                     value={editAlunoColegio}
@@ -621,9 +594,7 @@ export default function AbaAlunos({
                                                             <div>
                                                                 <label
                                                                     className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                                                >
-                                                                    Série / Ano
-                                                                </label>
+                                                                >{textoR4("Série / Ano")}</label>
                                                                 <select
                                                                     value={editAlunoSerie}
                                                                     onChange={(e) =>
@@ -647,9 +618,7 @@ export default function AbaAlunos({
                                                                 type="button"
                                                                 onClick={() => setEditAlunoId(null)}
                                                                 className={`px-3 py-1.5 rounded-xl border text-xs cursor-pointer ${clsCard}`}
-                                                            >
-                                                                Cancelar
-                                                            </button>
+                                                            >{textoR4("Cancelar")}</button>
                                                             <button
                                                                 type="submit"
                                                                 disabled={salvandoAlunoAdmin}
@@ -657,8 +626,8 @@ export default function AbaAlunos({
                                                             >
                                                                 <Save className="w-3.5 h-3.5" />
                                                                 {salvandoAlunoAdmin
-                                                                    ? 'Salvando...'
-                                                                    : 'Salvar Filho'}
+                                                                    ? textoR4("Salvando...")
+                                                                    : textoR4("Salvar Filho")}
                                                             </button>
                                                         </div>
                                                     </form>
@@ -679,8 +648,7 @@ export default function AbaAlunos({
                                                                     .filter(Boolean)
                                                                     .join(' • ') ||
                                                                 'Colégio/Série não informados'}{' '}
-                                                            • {al.total_aulas} aula(s)
-                                                        </p>
+                                                            • {al.total_aulas}{' ' + textoR4("aula(s)")}</p>
                                                     </div>
 
                                                     <div className="flex items-center gap-1.5">
@@ -691,9 +659,7 @@ export default function AbaAlunos({
                                                             }
                                                             className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 cursor-pointer ${clsCard} ${clsTitulo} hover:border-[#0E7C86]`}
                                                         >
-                                                            <Edit3 className="w-3 h-3 text-[#1496A1]" />
-                                                            Editar
-                                                        </button>
+                                                            <Edit3 className="w-3 h-3 text-[#1496A1]" />{textoR4("Editar")}</button>
 
                                                         {pedindoExclusao ? (
                                                             <>
@@ -706,9 +672,7 @@ export default function AbaAlunos({
                                                                         )
                                                                     }
                                                                     className={`px-2 py-1.5 rounded-lg border text-xs cursor-pointer ${clsCard}`}
-                                                                >
-                                                                    Não
-                                                                </button>
+                                                                >{textoR4("Não")}</button>
                                                                 <button
                                                                     type="button"
                                                                     disabled={excluindoAlunoId === al.id}
@@ -719,7 +683,7 @@ export default function AbaAlunos({
                                                                 >
                                                                     {excluindoAlunoId === al.id
                                                                         ? '...'
-                                                                        : 'Confirmar'}
+                                                                        : textoR4("Confirmar")}
                                                                 </button>
                                                             </>
                                                         ) : (
@@ -732,9 +696,7 @@ export default function AbaAlunos({
                                                                 }
                                                                 className="px-2.5 py-1.5 rounded-lg bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-medium inline-flex items-center gap-1 cursor-pointer"
                                                             >
-                                                                <Trash2 className="w-3 h-3" />
-                                                                Remover
-                                                            </button>
+                                                                <Trash2 className="w-3 h-3" />{textoR4("Remover")}</button>
                                                         )}
                                                     </div>
                                                 </div>
@@ -752,9 +714,7 @@ export default function AbaAlunos({
                                             }
                                             className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsTitulo} hover:border-[#0E7C86]`}
                                         >
-                                            <Edit3 className="w-3.5 h-3.5 text-[#1496A1]" />
-                                            Editar Conta / Número
-                                        </button>
+                                            <Edit3 className="w-3.5 h-3.5 text-[#1496A1]" />{textoR4("Editar Conta / Número")}</button>
 
                                         <button
                                             type="button"
@@ -764,9 +724,7 @@ export default function AbaAlunos({
                                             }
                                             className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${clsSubCard} ${clsSubtexto} hover:text-[#1496A1]`}
                                         >
-                                            <KeyRound className="w-3.5 h-3.5" />
-                                            Resetar PIN
-                                        </button>
+                                            <KeyRound className="w-3.5 h-3.5" />{textoR4("Resetar PIN")}</button>
 
                                         {whatsappDigitos && (
                                             <a
@@ -775,9 +733,7 @@ export default function AbaAlunos({
                                                 rel="noopener noreferrer"
                                                 className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-500 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-emerald-500/25"
                                             >
-                                                <MessageCircle className="w-3.5 h-3.5" />
-                                                WhatsApp
-                                            </a>
+                                                <MessageCircle className="w-3.5 h-3.5" />{textoR4("WhatsApp")}</a>
                                         )}
                                     </div>
 
@@ -790,9 +746,7 @@ export default function AbaAlunos({
                                                     setConfirmandoExcluirContaId(null)
                                                 }
                                                 className={`px-2.5 py-1.5 rounded-xl border text-xs cursor-pointer ${clsSubCard}`}
-                                            >
-                                                Não
-                                            </button>
+                                            >{textoR4("Não")}</button>
                                             <button
                                                 type="button"
                                                 disabled={excluindoContaId === resp.id}
@@ -802,8 +756,8 @@ export default function AbaAlunos({
                                                 className="px-3 py-1.5 rounded-xl bg-[#BE1E23] hover:bg-rose-700 text-xs font-semibold text-white cursor-pointer"
                                             >
                                                 {excluindoContaId === resp.id
-                                                    ? 'Excluindo...'
-                                                    : 'Confirmar Exclusão'}
+                                                    ? textoR4("Excluindo...")
+                                                    : textoR4("Confirmar Exclusão")}
                                             </button>
                                         </div>
                                     ) : (
@@ -814,9 +768,7 @@ export default function AbaAlunos({
                                             }
                                             className="px-3 py-1.5 rounded-xl bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                                         >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                            Excluir Conta
-                                        </button>
+                                            <Trash2 className="w-3.5 h-3.5" />{textoR4("Excluir Conta")}</button>
                                     )}
                                 </div>
                             </div>

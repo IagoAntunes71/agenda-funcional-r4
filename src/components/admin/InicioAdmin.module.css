@@ -55,3 +55,24 @@
 .modulo:hover, .unidades a:hover { border-color: var(--teal); background: var(--fundo); }
 .inicio a:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 @media (max-width: 760px) { .visao { grid-template-columns: 1fr; } }
+
+.inicio {
+    --painel: #fffdf8;
+    --fundo: #f8ebe4;
+    --borda: #ead5cc;
+    --texto: #36231f;
+    --secundario: #6e514b;
+    --coral: #b83e2e;
+}
+.inicio[data-tema='escuro'] {
+    --painel: #312220;
+    --fundo: #472b25;
+    --borda: #624239;
+    --texto: #fbeae2;
+    --secundario: #dec3b9;
+    --coral: #ffad9b;
+}
+.perfil { border-top: 3px solid var(--coral); }
+.resumo { border-top: 3px solid var(--teal); }
+.icone, .avatar { color: var(--coral); }
+.unidades a:first-child { border-color: var(--teal); }

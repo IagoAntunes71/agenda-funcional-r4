@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useMemo, useState } from 'react';
 import {
@@ -50,6 +52,7 @@ function SeletorSeriesPorMateria({
     onChangeMapa: (novo: MapaMateriasSeries) => void;
     escuro: boolean;
 }) {
+    const textoR4 = useTextoR4();
     const listaMaterias = extrairListaMaterias(materiasTexto);
     if (listaMaterias.length === 0) return null;
 
@@ -91,17 +94,12 @@ function SeletorSeriesPorMateria({
             }`}
         >
             <div>
-                <p className="text-xs font-bold text-[#1496A1]">
-                    Séries permitidas por matéria
-                </p>
+                <p className="text-xs font-bold text-[#1496A1]">{textoR4("Séries permitidas por matéria")}</p>
                 <p
                     className={`text-[11px] ${
                         escuro ? 'text-stone-400' : 'text-stone-500'
                     }`}
-                >
-                    Deixe em <strong>Todas as séries</strong> ou clique nas séries
-                    específicas para restringir o agendamento dos pais.
-                </p>
+                >{textoR4("Deixe em") + ' '}<strong>{textoR4("Todas as séries")}</strong>{' ' + textoR4("ou clique nas séries específicas para restringir o agendamento dos pais.")}</p>
             </div>
 
             <div className="space-y-3">
@@ -142,9 +140,7 @@ function SeletorSeriesPorMateria({
                                                 ? 'bg-[#0E1217] border-[#232B35] text-stone-400'
                                                 : 'bg-stone-100 border-stone-200 text-stone-600'
                                     }`}
-                                >
-                                    Todas as séries
-                                </button>
+                                >{textoR4("Todas as séries")}</button>
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -155,9 +151,7 @@ function SeletorSeriesPorMateria({
                                             ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
                                             : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
                                     }`}
-                                >
-                                    Fund. I (1º-5º)
-                                </button>
+                                >{textoR4("Fund. I (1º-5º)")}</button>
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -168,9 +162,7 @@ function SeletorSeriesPorMateria({
                                             ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
                                             : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
                                     }`}
-                                >
-                                    Fund. II (6º-9º)
-                                </button>
+                                >{textoR4("Fund. II (6º-9º)")}</button>
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -181,9 +173,7 @@ function SeletorSeriesPorMateria({
                                             ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
                                             : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
                                     }`}
-                                >
-                                    Fundamental (1º-9º)
-                                </button>
+                                >{textoR4("Fundamental (1º-9º)")}</button>
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -194,9 +184,7 @@ function SeletorSeriesPorMateria({
                                             ? 'bg-[#0E1217] border-[#232B35] text-stone-300 hover:border-[#0E7C86]'
                                             : 'bg-stone-100 border-stone-200 text-stone-700 hover:border-[#0E7C86]'
                                     }`}
-                                >
-                                    Médio + ENEM
-                                </button>
+                                >{textoR4("Médio + ENEM")}</button>
                             </div>
 
                             <div className="flex flex-wrap gap-1">
@@ -247,6 +235,7 @@ export default function AbaProfessores({
     classes: TemaClasses;
     onRecarregarDadosAction: () => Promise<void>;
 }) {
+    const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
     const [buscaProf, setBuscaProf] = useState('');
@@ -478,19 +467,15 @@ export default function AbaProfessores({
                 <h3
                     className={`text-sm font-bold flex items-center gap-2 ${clsTitulo}`}
                 >
-                    <UserPlus className="w-4 h-4 text-[#1496A1]" />
-                    Cadastrar Professor
-                </h3>
+                    <UserPlus className="w-4 h-4 text-[#1496A1]" />{textoR4("Cadastrar Professor")}</h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-2">
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                            Nome *
-                        </label>
+                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Nome *")}</label>
                         <input
                             type="text"
                             required
-                            placeholder="Ex: Fernanda Lima"
+                            placeholder={textoR4("Ex: Fernanda Lima")}
                             value={profNome}
                             onChange={(e) => setProfNome(e.target.value)}
                             className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
@@ -498,12 +483,10 @@ export default function AbaProfessores({
                     </div>
 
                     <div>
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                            ID Clin Care
-                        </label>
+                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("ID Clin Care")}</label>
                         <input
                             type="text"
-                            placeholder="Ex: 142"
+                            placeholder={textoR4("Ex: 142")}
                             value={profClinCareId}
                             onChange={(e) => setProfClinCareId(e.target.value)}
                             className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
@@ -513,12 +496,8 @@ export default function AbaProfessores({
 
                 <div className={`border rounded-xl p-3 space-y-2 ${clsSubCard}`}>
                     <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-[#1496A1]">
-                            Unidades de Atendimento *
-                        </label>
-                        <span className={`text-[11px] ${clsSubtexto}`}>
-                            Clique para marcar 1 ou mais
-                        </span>
+                        <label className="text-xs font-bold text-[#1496A1]">{textoR4("Unidades de Atendimento *")}</label>
+                        <span className={`text-[11px] ${clsSubtexto}`}>{textoR4("Clique para marcar 1 ou mais")}</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         {unidadesAtivas.map((u) => {
@@ -543,13 +522,11 @@ export default function AbaProfessores({
                 </div>
 
                 <div>
-                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                        Matérias (separadas por vírgula) *
-                    </label>
+                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Matérias (separadas por vírgula) *")}</label>
                     <input
                         type="text"
                         required
-                        placeholder="Ex: Matemática, Geografia"
+                        placeholder={textoR4("Ex: Matemática, Geografia")}
                         value={profMaterias}
                         onChange={(e) => setProfMaterias(e.target.value)}
                         className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
@@ -570,18 +547,14 @@ export default function AbaProfessores({
                             checked={profManhaAtivo}
                             onChange={(e) => setProfManhaAtivo(e.target.checked)}
                         />
-                        <Sun className="w-4 h-4" />
-                        Liberar manhã (turnos de 100 min)
-                    </label>
+                        <Sun className="w-4 h-4" />{textoR4("Liberar manhã (turnos de 100 min)")}</label>
 
                     {profManhaAtivo && (
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label
                                     className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                >
-                                    Início Manhã
-                                </label>
+                                >{textoR4("Início Manhã")}</label>
                                 <input
                                     type="time"
                                     value={profManhaInicio}
@@ -592,9 +565,7 @@ export default function AbaProfessores({
                             <div>
                                 <label
                                     className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                >
-                                    Fim Manhã
-                                </label>
+                                >{textoR4("Fim Manhã")}</label>
                                 <input
                                     type="time"
                                     value={profManhaFim}
@@ -608,9 +579,7 @@ export default function AbaProfessores({
 
                 <div className="grid grid-cols-2 gap-3">
                     <div>
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                            Início Tarde
-                        </label>
+                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Início Tarde")}</label>
                         <input
                             type="time"
                             value={profInicio}
@@ -619,9 +588,7 @@ export default function AbaProfessores({
                         />
                     </div>
                     <div>
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                            Fim Tarde
-                        </label>
+                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Fim Tarde")}</label>
                         <input
                             type="time"
                             value={profFim}
@@ -635,8 +602,7 @@ export default function AbaProfessores({
                     <div
                         className={`text-[11px] border rounded-xl p-2.5 ${clsSubCard} ${clsSubtexto}`}
                     >
-                        <strong className="text-[#1496A1]">
-                            Turnos ({previewSlotsNovoProf.length}):
+                        <strong className="text-[#1496A1]">{textoR4("Turnos (")}{previewSlotsNovoProf.length}):
                         </strong>{' '}
                         {previewSlotsNovoProf.map((s) => s.label).join(' • ')}
                     </div>
@@ -648,7 +614,7 @@ export default function AbaProfessores({
                     className="w-full py-3 px-4 bg-[#0E7C86] hover:bg-[#118E99] disabled:opacity-50 text-white font-semibold rounded-xl text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
                 >
                     <Plus className="w-4 h-4" />
-                    {cadastrandoProf ? 'Cadastrando...' : 'Cadastrar Professor'}
+                    {cadastrandoProf ? textoR4("Cadastrando...") : textoR4("Cadastrar Professor")}
                 </button>
             </form>
 
@@ -656,8 +622,7 @@ export default function AbaProfessores({
                 className={`lg:col-span-7 border rounded-2xl p-6 space-y-4 ${clsCard}`}
             >
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className={`text-sm font-bold ${clsTitulo}`}>
-                        Professores Cadastrados ({professoresFiltrados.length})
+                    <h3 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Professores Cadastrados (")}{professoresFiltrados.length})
                     </h3>
 
                     <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
@@ -669,7 +634,7 @@ export default function AbaProfessores({
                                 type="text"
                                 value={buscaProf}
                                 onChange={(e) => setBuscaProf(e.target.value)}
-                                placeholder="Buscar professor ou matéria..."
+                                placeholder={textoR4("Buscar professor ou matéria...")}
                                 className={`w-full border rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none ${clsInput}`}
                             />
                         </div>
@@ -679,7 +644,7 @@ export default function AbaProfessores({
                             onChange={(e) => setFiltroUnidadeLista(e.target.value)}
                             className={`border rounded-xl px-3 py-1.5 text-xs focus:outline-none ${clsInput}`}
                         >
-                            <option value="todas">Todas unidades</option>
+                            <option value="todas">{textoR4("Todas unidades")}</option>
                             {unidadesAtivas.map((u) => (
                                 <option key={u.id} value={String(u.id)}>
                                     {u.nome}
@@ -703,9 +668,7 @@ export default function AbaProfessores({
                                     className={`border border-[#0E7C86] rounded-xl p-4 space-y-3 ${clsSubCard}`}
                                 >
                                     <div className="flex items-center justify-between">
-                                        <span className="text-xs font-bold uppercase text-[#1496A1]">
-                                            Editando Professor(a)
-                                        </span>
+                                        <span className="text-xs font-bold uppercase text-[#1496A1]">{textoR4("Editando Professor(a)")}</span>
                                         <button
                                             type="button"
                                             onClick={() => setEditProfId(null)}
@@ -727,12 +690,9 @@ export default function AbaProfessores({
                                         className={`border rounded-xl p-2.5 space-y-2 ${clsCard}`}
                                     >
                                         <div className="flex items-center justify-between">
-                                            <span className="text-[11px] font-bold text-[#1496A1]">
-                                                Unidades habilitadas (selecione 1 ou mais)
-                                            </span>
+                                            <span className="text-[11px] font-bold text-[#1496A1]">{textoR4("Unidades habilitadas (selecione 1 ou mais)")}</span>
                                             <span className={`text-[10px] ${clsSubtexto}`}>
-                                                {editProfUnidadesIds.length} selecionada(s)
-                                            </span>
+                                                {editProfUnidadesIds.length}{' ' + textoR4("selecionada(s)")}</span>
                                         </div>
                                         <div className="flex flex-wrap gap-1.5">
                                             {unidadesAtivas.map((u) => {
@@ -790,9 +750,7 @@ export default function AbaProfessores({
                                                     setEditProfManhaAtivo(e.target.checked)
                                                 }
                                             />
-                                            <Sun className="w-3.5 h-3.5" />
-                                            Liberar aulas pela manhã (100 min)
-                                        </label>
+                                            <Sun className="w-3.5 h-3.5" />{textoR4("Liberar aulas pela manhã (100 min)")}</label>
 
                                         {editProfManhaAtivo && (
                                             <div className="grid grid-cols-2 gap-2">
@@ -819,7 +777,7 @@ export default function AbaProfessores({
                                     <div className="grid grid-cols-3 gap-2">
                                         <input
                                             type="text"
-                                            placeholder="ID Clin Care"
+                                            placeholder={textoR4("ID Clin Care")}
                                             value={editProfClinCareId}
                                             onChange={(e) =>
                                                 setEditProfClinCareId(e.target.value)
@@ -847,16 +805,14 @@ export default function AbaProfessores({
                                             type="button"
                                             onClick={() => setEditProfId(null)}
                                             className={`px-3 py-1.5 rounded-lg border text-xs cursor-pointer ${clsCard}`}
-                                        >
-                                            Cancelar
-                                        </button>
+                                        >{textoR4("Cancelar")}</button>
                                         <button
                                             type="submit"
                                             disabled={salvandoProf}
                                             className="px-3.5 py-1.5 rounded-lg bg-[#0E7C86] text-xs font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer"
                                         >
                                             <Save className="w-3.5 h-3.5" />
-                                            {salvandoProf ? 'Salvando...' : 'Salvar'}
+                                            {salvandoProf ? textoR4("Salvando...") : textoR4("Salvar")}
                                         </button>
                                     </div>
                                 </form>
@@ -902,13 +858,10 @@ export default function AbaProfessores({
                                     </div>
                                     <p className={`text-[11px] ${clsSubtexto}`}>
                                         {p.manha_ativo && (
-                                            <span className="text-[#D96B43] font-medium">
-                                                Manhã: {p.manha_inicio} às {p.manha_fim} •{' '}
+                                            <span className="text-[#D96B43] font-medium">{textoR4("Manhã:") + ' '}{p.manha_inicio}{' ' + textoR4("às") + ' '}{p.manha_fim} •{' '}
                                             </span>
-                                        )}
-                                        Tarde/Noite: {p.hora_inicio} às {p.hora_fim} (
-                                        {slotsProf.length} turnos)
-                                    </p>
+                                        )}{textoR4("Tarde/Noite:") + ' '}{p.hora_inicio}{' ' + textoR4("às") + ' '}{p.hora_fim} (
+                                        {slotsProf.length}{' ' + textoR4("turnos)")}</p>
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -917,8 +870,7 @@ export default function AbaProfessores({
                                         onClick={() => iniciarEdicaoProfessor(p)}
                                         className={`px-3 py-1.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer ${clsCard}`}
                                     >
-                                        <Edit3 className="w-3.5 h-3.5" /> Editar
-                                    </button>
+                                        <Edit3 className="w-3.5 h-3.5" />{' ' + textoR4("Editar")}</button>
 
                                     <button
                                         type="button"
@@ -931,7 +883,7 @@ export default function AbaProfessores({
                                                 : 'bg-stone-500/20 text-stone-400'
                                         }`}
                                     >
-                                        {p.ativo ? 'Ativo' : 'Pausado'}
+                                        {p.ativo ? textoR4("Ativo") : textoR4("Pausado")}
                                     </button>
                                 </div>
                             </div>

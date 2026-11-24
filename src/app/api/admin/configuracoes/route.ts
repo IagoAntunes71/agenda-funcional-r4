@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { lerSessaoAdmin } from '@/lib/admin-auth';
 import {
     ModoChaveMestra,
     avaliarStatusChaveMestra,
@@ -63,9 +63,9 @@ export async function obterModoChaveMestra(): Promise<ModoChaveMestra> {
 }
 
 export async function GET() {
-    const autenticado = await verificarAdminAutenticado();
-    if (!autenticado) {
-        return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    const sessao = await lerSessaoAdmin();
+    if (sessao?.role !== 'admin') {
+        return NextResponse.json({ error: 'Não autorizado.' }, { status: sessao ? 403 : 401 });
     }
 
     const modo = await obterModoChaveMestra();
@@ -78,9 +78,9 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-    const autenticado = await verificarAdminAutenticado();
-    if (!autenticado) {
-        return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    const sessao = await lerSessaoAdmin();
+    if (sessao?.role !== 'admin') {
+        return NextResponse.json({ error: 'Não autorizado.' }, { status: sessao ? 403 : 401 });
     }
 
     try {

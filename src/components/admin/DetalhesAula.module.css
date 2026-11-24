@@ -115,3 +115,20 @@
 .historico time, .historico small, .mudo { color: var(--mudo); }
 .erro, .aviso { padding: 8px 10px; border-radius: 8px; background: var(--fundo); }
 .erro { color: var(--coral); }
+
+.dialogo {
+    --painel: #fffdf9;
+    --fundo: #f9eee7;
+    --linha: #ecd9d0;
+    --texto: #352522;
+    --mudo: #69504b;
+    --coral: #aa392a;
+}
+.dialogo[data-tema='escuro'] {
+    --painel: #302321;
+    --fundo: #422d28;
+    --linha: #60423a;
+    --texto: #f8ebe5;
+    --mudo: #d9c1b7;
+    --coral: #ffac97;
+}

@@ -1,3 +1,5 @@
+
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Building2, CalendarDays, ExternalLink } from 'lucide-react';
@@ -16,7 +18,7 @@ export type ResumoSemana = {
 };
 
 const perfis = { admin: 'Administrador', atendimento: 'Atendimento', professor: 'Professor' };
-const operacao = new Set(['mapa', 'agendamentos', 'alunos']);
+const operacao = new Set(['mapa', 'agendamentos', 'alunos', 'professores']);
 
 export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escuro }: {
     perfil: PerfilAdmin;
@@ -25,6 +27,7 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
     modulos: { id: PaginaAdmin; rotulo: string; subtitulo: string; icone: ReactNode }[];
     escuro: boolean;
 }) {
+    const textoR4 = useTextoR4();
     const hoje = obterAgoraBahia().dataISO;
     const unidadesAtivas = unidades.filter((unidade) => unidade.ativa);
     const grupos = [
@@ -43,28 +46,30 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
             <section className={css.perfil}>
                 <div className={css.identidade}>
                     <span className={css.avatar}>{obterIniciais(perfil.nome)}</span>
-                    <div><small>{perfis[perfil.role]}</small><h2>Olá, {perfil.nome}</h2></div>
+                    <div><small>{textoR4(perfis[perfil.role])}</small><h2>{textoR4("Olá,") + ' '}{perfil.nome}</h2></div>
                 </div>
-                <Link href={enderecoMapa(hoje)} className={css.destaque}>
-                    <CalendarDays /> {perfil.role === 'professor' ? 'Abrir minha agenda' : 'Abrir Mapa do Dia'} <ArrowRight />
+                <Link href={enderecoMapa(hoje, perfil.role === 'professor' ? undefined : 'todas')} className={css.destaque}>
+                    <CalendarDays /> {perfil.role === 'professor' ? textoR4("Abrir minha agenda") : textoR4("Abrir Mapa do Dia")} <ArrowRight />
                 </Link>
             </section>
             <section className={css.resumo} aria-labelledby="r4-resumo-semana">
-                <div className={css.cabecalho}><h2 id="r4-resumo-semana">Aulas da semana</h2>
+                <div className={css.cabecalho}><h2 id="r4-resumo-semana">{textoR4("Aulas da semana")}</h2>
                     {resumo && <small>{formatarDataBR(resumo.inicio).slice(0, 5)} a {formatarDataBR(resumo.fim).slice(0, 5)}</small>}
                 </div>
                 <dl className={css.numeros}>{numeros.map((item) => <div key={item.titulo} data-cor={item.cor}>
-                    <dt>{item.titulo}</dt><dd>{item.valor ?? '—'}</dd>
+                    <dt>{textoR4(item.titulo)}</dt><dd>{item.valor ?? '—'}</dd>
                 </div>)}</dl>
             </section>
         </div>
 
         {perfil.role !== 'professor' && unidadesAtivas.length > 0 && <section className={css.secao} aria-labelledby="r4-unidades-atalhos">
             <div className={css.cabecalho}>
-                <h2 id="r4-unidades-atalhos">Mapa por unidade</h2>
-                <small>Os atalhos abrem em novas abas</small>
+                <h2 id="r4-unidades-atalhos">{textoR4("Mapa por unidade")}</h2>
+                <small>{textoR4("Os atalhos abrem em novas abas")}</small>
             </div>
-            <div className={css.unidades}>{unidadesAtivas.map((unidade) => (
+            <div className={css.unidades}>
+                <Link href={enderecoMapa(hoje, 'todas')} target="_blank" rel="noopener"><Building2 />{' ' + textoR4("Todas as unidades") + ' '}<ExternalLink /></Link>
+                {unidadesAtivas.map((unidade) => (
                 <Link key={unidade.id} href={enderecoMapa(hoje, unidade.id)} target="_blank" rel="noopener"
                     aria-label={`Abrir mapa de ${unidade.nome} em nova aba`}>
                     <Building2 /> {unidade.nome} <ExternalLink />
@@ -73,11 +78,11 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
         </section>}
 
         {grupos.filter((grupo) => grupo.modulos.length > 0).map((grupo) => <section className={css.secao} key={grupo.titulo}>
-            <div className={css.cabecalho}><h2>{grupo.titulo}</h2></div>
+            <div className={css.cabecalho}><h2>{textoR4(grupo.titulo)}</h2></div>
             <div className={css.modulos}>{grupo.modulos.map((item) => <Link key={item.id} className={css.modulo} href={enderecoAdmin(item.id)}>
                 <span className={css.icone}>{item.icone}</span><ArrowRight className={css.seta} />
-                <strong>{item.id === 'mapa' && perfil.role === 'professor' ? 'Minha agenda' : item.rotulo}</strong>
-                <small>{item.subtitulo}</small>
+                <strong>{item.id === 'mapa' && perfil.role === 'professor' ? textoR4("Minha agenda") : textoR4(item.rotulo)}</strong>
+                <small>{textoR4(item.subtitulo)}</small>
             </Link>)}</div>
         </section>)}
     </div>;

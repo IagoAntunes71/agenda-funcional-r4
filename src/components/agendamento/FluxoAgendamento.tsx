@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -50,6 +52,7 @@ function formatarWhatsapp(valor: string): string {
 }
 
 export default function FluxoAgendamento() {
+    const textoR4 = useTextoR4();
     const [abaCliente, setAbaCliente] = useState<'agendar' | 'meus'>('agendar');
 
     const [unidades, setUnidades] = useState<Unidade[]>([]);
@@ -312,9 +315,7 @@ export default function FluxoAgendamento() {
 
     if (carregandoInicial) {
         return (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-300">
-                Carregando unidades e horários disponíveis...
-            </div>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-300">{textoR4("Carregando unidades e horários disponíveis...")}</div>
         );
     }
 
@@ -334,9 +335,7 @@ export default function FluxoAgendamento() {
                             ? 'bg-emerald-600 text-white'
                             : 'text-slate-300 hover:text-white'
                     }`}
-                >
-                    Agendar Aula
-                </button>
+                >{textoR4("Agendar Aula")}</button>
                 <button
                     type="button"
                     onClick={() => {
@@ -348,21 +347,15 @@ export default function FluxoAgendamento() {
                             ? 'bg-emerald-600 text-white'
                             : 'text-slate-300 hover:text-white'
                     }`}
-                >
-                    Meus Agendamentos
-                </button>
+                >{textoR4("Meus Agendamentos")}</button>
             </div>
 
             {/* ABA: MEUS AGENDAMENTOS (Autoatendimento para consulta e cancelamento) */}
             {abaCliente === 'meus' ? (
                 <section className="max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-5">
                     <div>
-                        <h2 className="text-base font-bold text-white">
-                            Consultar ou Cancelar Agendamentos
-                        </h2>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                            Digite o WhatsApp usado na marcação para visualizar suas aulas agendadas.
-                        </p>
+                        <h2 className="text-base font-bold text-white">{textoR4("Consultar ou Cancelar Agendamentos")}</h2>
+                        <p className="text-xs text-slate-400 mt-0.5">{textoR4("Digite o WhatsApp usado na marcação para visualizar suas aulas agendadas.")}</p>
                     </div>
 
                     <div className="flex gap-2">
@@ -378,17 +371,13 @@ export default function FluxoAgendamento() {
                             type="button"
                             onClick={() => carregarMeusAgendamentos(whatsapp)}
                             className="px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold cursor-pointer"
-                        >
-                            Consultar
-                        </button>
+                        >{textoR4("Consultar")}</button>
                     </div>
 
                     {carregandoMeus ? (
-                        <p className="text-sm text-slate-400">Buscando reservas...</p>
+                        <p className="text-sm text-slate-400">{textoR4("Buscando reservas...")}</p>
                     ) : meusAgendamentos.length === 0 ? (
-                        <p className="text-sm text-slate-400 bg-slate-950 border border-slate-800 rounded-xl p-4">
-                            Nenhum agendamento futuro encontrado para este número.
-                        </p>
+                        <p className="text-sm text-slate-400 bg-slate-950 border border-slate-800 rounded-xl p-4">{textoR4("Nenhum agendamento futuro encontrado para este número.")}</p>
                     ) : (
                         <div className="space-y-3">
                             {meusAgendamentos.map((ag) => (
@@ -407,7 +396,7 @@ export default function FluxoAgendamento() {
                                                     : 'bg-red-500/20 text-red-300'
                                             }`}
                                         >
-                      {ag.status === 'confirmado' ? 'Confirmado' : 'Cancelado'}
+                      {ag.status === 'confirmado' ? textoR4("Confirmado") : textoR4("Cancelado")}
                     </span>
                                     </div>
 
@@ -415,10 +404,10 @@ export default function FluxoAgendamento() {
                                         {ag.nome_aluno} • {ag.colegio_aluno} ({ag.serie_aluno})
                                     </p>
                                     <p className="text-xs text-slate-300">
-                                        {ag.unidade_nome} — {ag.materia} (Prof. {ag.professor_nome})
+                                        {ag.unidade_nome} — {ag.materia}{' ' + textoR4("(Prof.") + ' '}{ag.professor_nome})
                                     </p>
                                     <p className="text-xs font-semibold text-emerald-400">
-                                        {formatarDataBR(ag.data)} às {ag.horario}
+                                        {formatarDataBR(ag.data)}{' ' + textoR4("às") + ' '}{ag.horario}
                                     </p>
 
                                     {ag.status === 'confirmado' && (
@@ -428,8 +417,7 @@ export default function FluxoAgendamento() {
                                                 onClick={() => handleCancelarMeuAgendamento(ag.id)}
                                                 className="px-3 py-1.5 rounded-lg bg-red-950/70 border border-red-800 text-red-300 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-red-900 cursor-pointer"
                                             >
-                                                <XCircle className="w-3.5 h-3.5" /> Cancelar este horário
-                                            </button>
+                                                <XCircle className="w-3.5 h-3.5" />{' ' + textoR4("Cancelar este horário")}</button>
                                         </div>
                                     )}
                                 </div>
@@ -445,42 +433,37 @@ export default function FluxoAgendamento() {
                     </div>
 
                     <div className="space-y-1">
-                        <p className="text-xs uppercase tracking-wider text-emerald-400 font-semibold">
-                            Agendamento Confirmado
-                        </p>
-                        <h2 className="text-2xl font-bold text-white">
-                            Protocolo {protocoloConfirmado}
+                        <p className="text-xs uppercase tracking-wider text-emerald-400 font-semibold">{textoR4("Agendamento Confirmado")}</p>
+                        <h2 className="text-2xl font-bold text-white">{textoR4("Protocolo") + ' '}{protocoloConfirmado}
                         </h2>
-                        <p className="text-sm text-slate-400">
-                            A vaga já está reservada automaticamente na agenda da unidade.
-                        </p>
+                        <p className="text-sm text-slate-400">{textoR4("A vaga já está reservada automaticamente na agenda da unidade.")}</p>
                     </div>
 
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 text-left space-y-2 text-sm">
                         <div className="flex justify-between gap-2">
-                            <span className="text-slate-400">Aluno(a):</span>
+                            <span className="text-slate-400">{textoR4("Aluno(a):")}</span>
                             <span className="font-semibold text-white text-right">{nomeAluno}</span>
                         </div>
                         <div className="flex justify-between gap-2">
-                            <span className="text-slate-400">Colégio / Série:</span>
+                            <span className="text-slate-400">{textoR4("Colégio / Série:")}</span>
                             <span className="font-semibold text-white text-right">
                 {colegioAluno} ({serieAluno})
               </span>
                         </div>
                         <div className="flex justify-between gap-2">
-                            <span className="text-slate-400">Unidade:</span>
+                            <span className="text-slate-400">{textoR4("Unidade:")}</span>
                             <span className="font-semibold text-white">{unidadeObj?.nome}</span>
                         </div>
                         <div className="flex justify-between gap-2">
-                            <span className="text-slate-400">Matéria / Prof.:</span>
+                            <span className="text-slate-400">{textoR4("Matéria / Prof.:")}</span>
                             <span className="font-semibold text-white text-right">
                 {materiaSelecionada} — {professorObj?.nome}
               </span>
                         </div>
                         <div className="flex justify-between gap-2 pt-2 border-t border-slate-800">
-                            <span className="text-slate-400">Data e Hora:</span>
+                            <span className="text-slate-400">{textoR4("Data e Hora:")}</span>
                             <span className="font-bold text-emerald-400">
-                {formatarDataBR(dataSelecionada)} às {horarioSelecionado}
+                {formatarDataBR(dataSelecionada)}{' ' + textoR4("às") + ' '}{horarioSelecionado}
               </span>
                         </div>
                     </div>
@@ -489,9 +472,7 @@ export default function FluxoAgendamento() {
                         type="button"
                         onClick={reiniciarFluxo}
                         className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-base transition cursor-pointer"
-                    >
-                        Agendar Outra Aula
-                    </button>
+                    >{textoR4("Agendar Outra Aula")}</button>
                 </div>
             ) : (
                 /* FLUXO PRINCIPAL DE MARCAÇÃO */
@@ -503,18 +484,12 @@ export default function FluxoAgendamento() {
                         {/* 1. Identificação Rápida pelo Número + Dados do Aluno */}
                         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
                             <div>
-                                <h2 className="text-sm font-semibold text-slate-200">
-                                    1. Identificação do Responsável e Aluno
-                                </h2>
-                                <p className="text-xs text-slate-400 mt-0.5">
-                                    Informe seu WhatsApp para puxar os dados dos alunos já cadastrados.
-                                </p>
+                                <h2 className="text-sm font-semibold text-slate-200">{textoR4("1. Identificação do Responsável e Aluno")}</h2>
+                                <p className="text-xs text-slate-400 mt-0.5">{textoR4("Informe seu WhatsApp para puxar os dados dos alunos já cadastrados.")}</p>
                             </div>
 
                             <div className="space-y-1.5">
-                                <label htmlFor="whatsapp" className="block text-xs text-slate-400">
-                                    WhatsApp do Responsável *
-                                </label>
+                                <label htmlFor="whatsapp" className="block text-xs text-slate-400">{textoR4("WhatsApp do Responsável *")}</label>
                                 <div className="flex gap-2">
                                     <input
                                         id="whatsapp"
@@ -536,15 +511,13 @@ export default function FluxoAgendamento() {
                                         className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium flex items-center gap-1.5 border border-slate-700 cursor-pointer"
                                     >
                                         <Search className="w-3.5 h-3.5" />
-                                        {buscandoResponsavel ? '...' : 'Puxar Dados'}
+                                        {buscandoResponsavel ? '...' : textoR4("Puxar Dados")}
                                     </button>
                                 </div>
 
                                 {alunosEncontrados.length > 0 && (
                                     <div className="pt-2 space-y-1.5">
-                                        <p className="text-xs text-emerald-400">
-                                            Alunos vinculados a este número (toque para preencher):
-                                        </p>
+                                        <p className="text-xs text-emerald-400">{textoR4("Alunos vinculados a este número (toque para preencher):")}</p>
                                         <div className="flex flex-wrap gap-2">
                                             {alunosEncontrados.map((al) => {
                                                 const selecionado =
@@ -578,8 +551,7 @@ export default function FluxoAgendamento() {
                                                 }}
                                                 className="py-1.5 px-3 rounded-xl text-xs font-medium bg-slate-950 border border-slate-700 text-slate-300 hover:text-white inline-flex items-center gap-1 cursor-pointer"
                                             >
-                                                <Plus className="w-3.5 h-3.5" /> Outro aluno
-                                            </button>
+                                                <Plus className="w-3.5 h-3.5" />{' ' + textoR4("Outro aluno")}</button>
                                         </div>
                                     </div>
                                 )}
@@ -587,16 +559,14 @@ export default function FluxoAgendamento() {
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
-                                    <label htmlFor="responsavel" className="block text-xs text-slate-400 mb-1">
-                                        Nome do Responsável *
-                                    </label>
+                                    <label htmlFor="responsavel" className="block text-xs text-slate-400 mb-1">{textoR4("Nome do Responsável *")}</label>
                                     <input
                                         id="responsavel"
                                         name="responsavel"
                                         type="text"
                                         autoComplete="name"
                                         required
-                                        placeholder="Ex: Ana Paula Souza"
+                                        placeholder={textoR4("Ex: Ana Paula Souza")}
                                         value={nomeResponsavel}
                                         onChange={(e) => setNomeResponsavel(e.target.value)}
                                         className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
@@ -604,15 +574,13 @@ export default function FluxoAgendamento() {
                                 </div>
 
                                 <div>
-                                    <label htmlFor="aluno" className="block text-xs text-slate-400 mb-1">
-                                        Nome do Aluno(a) *
-                                    </label>
+                                    <label htmlFor="aluno" className="block text-xs text-slate-400 mb-1">{textoR4("Nome do Aluno(a) *")}</label>
                                     <input
                                         id="aluno"
                                         name="aluno"
                                         type="text"
                                         required
-                                        placeholder="Ex: Lucas Souza"
+                                        placeholder={textoR4("Ex: Lucas Souza")}
                                         value={nomeAluno}
                                         onChange={(e) => setNomeAluno(e.target.value)}
                                         className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
@@ -620,15 +588,13 @@ export default function FluxoAgendamento() {
                                 </div>
 
                                 <div>
-                                    <label htmlFor="colegio" className="block text-xs text-slate-400 mb-1">
-                                        Colégio *
-                                    </label>
+                                    <label htmlFor="colegio" className="block text-xs text-slate-400 mb-1">{textoR4("Colégio *")}</label>
                                     <input
                                         id="colegio"
                                         name="colegio"
                                         type="text"
                                         required
-                                        placeholder="Ex: Colégio Antônio Vieira"
+                                        placeholder={textoR4("Ex: Colégio Antônio Vieira")}
                                         value={colegioAluno}
                                         onChange={(e) => setColegioAluno(e.target.value)}
                                         className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
@@ -636,15 +602,13 @@ export default function FluxoAgendamento() {
                                 </div>
 
                                 <div>
-                                    <label htmlFor="serie" className="block text-xs text-slate-400 mb-1">
-                                        Série / Ano Escolar *
-                                    </label>
+                                    <label htmlFor="serie" className="block text-xs text-slate-400 mb-1">{textoR4("Série / Ano Escolar *")}</label>
                                     <input
                                         id="serie"
                                         name="serie"
                                         type="text"
                                         required
-                                        placeholder="Ex: 8º Ano - Fundamental"
+                                        placeholder={textoR4("Ex: 8º Ano - Fundamental")}
                                         value={serieAluno}
                                         onChange={(e) => setSerieAluno(e.target.value)}
                                         className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
@@ -656,9 +620,7 @@ export default function FluxoAgendamento() {
                         {/* 2. Unidade */}
                         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
                             <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                                <MapPin className="w-4 h-4 text-emerald-400" />
-                                2. Unidade
-                            </h2>
+                                <MapPin className="w-4 h-4 text-emerald-400" />{textoR4("2. Unidade")}</h2>
 
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                                 {unidades.map((u) => {
@@ -684,14 +646,10 @@ export default function FluxoAgendamento() {
                         {/* 3. Matéria */}
                         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
                             <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                                <BookOpen className="w-4 h-4 text-emerald-400" />
-                                3. Matéria
-                            </h2>
+                                <BookOpen className="w-4 h-4 text-emerald-400" />{textoR4("3. Matéria")}</h2>
 
                             {materiasDisponiveis.length === 0 ? (
-                                <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-800/60 rounded-xl p-3.5">
-                                    Nenhum professor cadastrado para esta unidade no momento.
-                                </p>
+                                <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-800/60 rounded-xl p-3.5">{textoR4("Nenhum professor cadastrado para esta unidade no momento.")}</p>
                             ) : (
                                 <div className="flex flex-wrap gap-2">
                                     {materiasDisponiveis.map((materia) => {
@@ -719,9 +677,7 @@ export default function FluxoAgendamento() {
                         {professoresFiltrados.length > 0 && (
                             <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
                                 <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                                    <User className="w-4 h-4 text-emerald-400" />
-                                    4. Professor(a)
-                                </h2>
+                                    <User className="w-4 h-4 text-emerald-400" />{textoR4("4. Professor(a)")}</h2>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     {professoresFiltrados.map((prof) => {
@@ -739,8 +695,7 @@ export default function FluxoAgendamento() {
                                             >
                                                 <div>
                                                     <p className="font-semibold text-sm">{prof.nome}</p>
-                                                    <p className="text-xs text-slate-400">
-                                                        Grade: {prof.hora_inicio} às {prof.hora_fim}
+                                                    <p className="text-xs text-slate-400">{textoR4("Grade:") + ' '}{prof.hora_inicio}{' ' + textoR4("às") + ' '}{prof.hora_fim}
                                                     </p>
                                                 </div>
                                                 <span
@@ -759,14 +714,10 @@ export default function FluxoAgendamento() {
                         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5">
                             <div className="space-y-3">
                                 <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                                    <Calendar className="w-4 h-4 text-emerald-400" />
-                                    5. Data e Horário
-                                </h2>
+                                    <Calendar className="w-4 h-4 text-emerald-400" />{textoR4("5. Data e Horário")}</h2>
 
                                 {datasLiberadas.length === 0 ? (
-                                    <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-800/60 rounded-xl p-3.5">
-                                        Nenhuma data liberada para agendamento no momento.
-                                    </p>
+                                    <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-800/60 rounded-xl p-3.5">{textoR4("Nenhuma data liberada para agendamento no momento.")}</p>
                                 ) : (
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                                         {datasLiberadas.map((d) => {
@@ -800,16 +751,12 @@ export default function FluxoAgendamento() {
                             {professorId && dataSelecionada && (
                                 <div className="space-y-2.5 pt-3 border-t border-slate-800">
                                     <p className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
-                                        <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                                        Horários disponíveis:
-                                    </p>
+                                        <Clock className="w-3.5 h-3.5 text-emerald-400" />{textoR4("Horários disponíveis:")}</p>
 
                                     {carregandoHorarios ? (
-                                        <p className="text-sm text-slate-400">Verificando horários...</p>
+                                        <p className="text-sm text-slate-400">{textoR4("Verificando horários...")}</p>
                                     ) : slots.length === 0 ? (
-                                        <p className="text-sm text-slate-400">
-                                            Sem horários disponíveis para esta data.
-                                        </p>
+                                        <p className="text-sm text-slate-400">{textoR4("Sem horários disponíveis para esta data.")}</p>
                                     ) : (
                                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
                                             {slots.map((slot) => {
@@ -853,14 +800,12 @@ export default function FluxoAgendamento() {
                             )}
 
                             <div className="pt-2">
-                                <label htmlFor="observacoes" className="block text-xs text-slate-400 mb-1">
-                                    Conteúdo / Assunto da Aula (Opcional)
-                                </label>
+                                <label htmlFor="observacoes" className="block text-xs text-slate-400 mb-1">{textoR4("Conteúdo / Assunto da Aula (Opcional)")}</label>
                                 <input
                                     id="observacoes"
                                     name="observacoes"
                                     type="text"
-                                    placeholder="Ex: Revisão para prova de equações do 2º grau"
+                                    placeholder={textoR4("Ex: Revisão para prova de equações do 2º grau")}
                                     value={observacoes}
                                     onChange={(e) => setObservacoes(e.target.value)}
                                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
@@ -871,19 +816,17 @@ export default function FluxoAgendamento() {
 
                     {/* Resumo Fixo no PC e Bloco de Confirmação no Android/iPhone */}
                     <aside className="lg:col-span-4 lg:sticky lg:top-6 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                        <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-3">
-                            Resumo da Marcação
-                        </h3>
+                        <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-3">{textoR4("Resumo da Marcação")}</h3>
 
                         <dl className="space-y-2.5 text-sm">
                             <div className="flex justify-between gap-2">
-                                <dt className="text-slate-400">Aluno:</dt>
+                                <dt className="text-slate-400">{textoR4("Aluno:")}</dt>
                                 <dd className="font-medium text-white text-right">
                                     {nomeAluno || '—'}
                                 </dd>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <dt className="text-slate-400">Colégio / Série:</dt>
+                                <dt className="text-slate-400">{textoR4("Colégio / Série:")}</dt>
                                 <dd className="font-medium text-white text-right">
                                     {colegioAluno || serieAluno
                                         ? `${colegioAluno}${serieAluno ? ` (${serieAluno})` : ''}`
@@ -891,25 +834,25 @@ export default function FluxoAgendamento() {
                                 </dd>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <dt className="text-slate-400">Unidade:</dt>
+                                <dt className="text-slate-400">{textoR4("Unidade:")}</dt>
                                 <dd className="font-medium text-white">{unidadeObj?.nome || '—'}</dd>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <dt className="text-slate-400">Matéria:</dt>
+                                <dt className="text-slate-400">{textoR4("Matéria:")}</dt>
                                 <dd className="font-medium text-white">{materiaSelecionada || '—'}</dd>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <dt className="text-slate-400">Professor:</dt>
+                                <dt className="text-slate-400">{textoR4("Professor:")}</dt>
                                 <dd className="font-medium text-white">{professorObj?.nome || '—'}</dd>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <dt className="text-slate-400">Data:</dt>
+                                <dt className="text-slate-400">{textoR4("Data:")}</dt>
                                 <dd className="font-medium text-white">
                                     {dataSelecionada ? formatarDataBR(dataSelecionada) : '—'}
                                 </dd>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <dt className="text-slate-400">Horário:</dt>
+                                <dt className="text-slate-400">{textoR4("Horário:")}</dt>
                                 <dd className="font-bold text-emerald-400">
                                     {horarioSelecionado || 'Selecione um horário'}
                                 </dd>
@@ -930,7 +873,7 @@ export default function FluxoAgendamento() {
                             disabled={enviando || !horarioSelecionado}
                             className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold rounded-xl text-base transition cursor-pointer disabled:cursor-not-allowed"
                         >
-                            {enviando ? 'Confirmando...' : 'Confirmar Agendamento'}
+                            {enviando ? textoR4("Confirmando...") : textoR4("Confirmar Agendamento")}
                         </button>
 
                         {dataObj && (

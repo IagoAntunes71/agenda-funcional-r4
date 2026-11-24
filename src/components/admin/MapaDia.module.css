@@ -228,3 +228,30 @@
     .dias button { min-width: 34px; }
     .barraGrade .resumo { order: 3; width: 100%; }
 }
+
+.mapa {
+    --surface: #fffdfa;
+    --raised: #f8eee8;
+    --line: #e8d8d0;
+    --fine: #f0e6e0;
+    --ink: #352522;
+    --muted: #69504b;
+    --wash: #dcefee;
+    --block-bg: #f8e3da;
+}
+.mapa[data-tema='escuro'] {
+    --surface: #302321;
+    --raised: #392a26;
+    --line: #533c36;
+    --fine: #42312e;
+    --ink: #f8e9e3;
+    --muted: #d5bcb3;
+    --wash: #244344;
+    --block-bg: #432b27;
+}
+.unidadeProfessor {
+    color: var(--accent) !important;
+    font-weight: 700;
+}
+.scroll[data-expandido='true'] { max-height: max(360px, calc(100dvh - 270px)); }
+.topo a.botao { font-size: 12px; font-weight: 700; border-radius: 8px; }

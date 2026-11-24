@@ -1,4 +1,6 @@
 'use client';
+import { useTextoR4 } from '@/components/TextosInterfaceR4';
+
 
 import { useEffect, useRef, useState } from 'react';
 import { formatarTelefone } from '@/lib/cliente-helpers';
@@ -68,6 +70,7 @@ function tocarCampainhaAlerta() {
 }
 
 export default function AdminWhatsApp() {
+    const textoR4 = useTextoR4();
     const [config, setConfig] = useState<ConfigWhatsApp>({
         ativo: false,
         provedor: 'evolution',
@@ -310,17 +313,12 @@ export default function AdminWhatsApp() {
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                    <h2 className="text-lg font-bold text-white">
-                        Avisos, Códigos OTP &amp; Integração WhatsApp
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                        Configure o envio automático de confirmações, validação de cadastro e recuperação de PIN.
-                    </p>
+                    <h2 className="text-lg font-bold text-white">{textoR4("Avisos, Códigos OTP & Integração WhatsApp")}</h2>
+                    <p className="text-xs text-slate-400">{textoR4("Configure o envio automático de confirmações, validação de cadastro e recuperação de PIN.")}</p>
                 </div>
                 {pendentesClinCare > 0 && (
                     <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold">
-            {pendentesClinCare} aula(s) pendente(s) de lançar no Clin Care
-          </span>
+            {pendentesClinCare}{' ' + textoR4("aula(s) pendente(s) de lançar no Clin Care")}</span>
                 )}
             </div>
 
@@ -333,9 +331,7 @@ export default function AdminWhatsApp() {
                         type="button"
                         onClick={() => setNovoAvisoVisual(null)}
                         className="text-xs text-amber-300 hover:text-white"
-                    >
-                        Dispensar
-                    </button>
+                    >{textoR4("Dispensar")}</button>
                 </div>
             )}
 
@@ -355,12 +351,8 @@ export default function AdminWhatsApp() {
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                            <h3 className="text-sm font-bold text-white">
-                                1. Envio Automático para Grupo ou Número (API WhatsApp / CRM)
-                            </h3>
-                            <p className="text-xs text-slate-400">
-                                Dispara confirmações de aula, códigos de cadastro e recuperação de PIN via Evolution API, Z-API ou Webhook (DataCrazy).
-                            </p>
+                            <h3 className="text-sm font-bold text-white">{textoR4("1. Envio Automático para Grupo ou Número (API WhatsApp / CRM)")}</h3>
+                            <p className="text-xs text-slate-400">{textoR4("Dispara confirmações de aula, códigos de cadastro e recuperação de PIN via Evolution API, Z-API ou Webhook (DataCrazy).")}</p>
                         </div>
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                             <input
@@ -380,7 +372,7 @@ export default function AdminWhatsApp() {
                                         : 'bg-slate-800 text-slate-400'
                                 }`}
                             >
-                {config.ativo ? 'ATIVADO' : 'DESATIVADO'}
+                {config.ativo ? textoR4("ATIVADO") : textoR4("DESATIVADO")}
               </span>
                         </label>
                     </div>
@@ -388,9 +380,7 @@ export default function AdminWhatsApp() {
                     {config.ativo && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800/80">
                             <div>
-                                <label className="block text-xs font-medium text-slate-300 mb-1">
-                                    Provedor de Envio
-                                </label>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">{textoR4("Provedor de Envio")}</label>
                                 <select
                                     value={config.provedor}
                                     onChange={(e) =>
@@ -401,23 +391,21 @@ export default function AdminWhatsApp() {
                                     }
                                     className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                 >
-                                    <option value="evolution">Evolution API</option>
-                                    <option value="zapi">Z-API</option>
-                                    <option value="webhook">Webhook (DataCrazy / n8n / Make)</option>
+                                    <option value="evolution">{textoR4("Evolution API")}</option>
+                                    <option value="zapi">{textoR4("Z-API")}</option>
+                                    <option value="webhook">{textoR4("Webhook (DataCrazy / n8n / Make)")}</option>
                                 </select>
                             </div>
 
                             <div>
-                                <label className="block text-xs font-medium text-slate-300 mb-1">
-                                    Destino Padrão (ID do Grupo @g.us ou Número com DDD)
-                                </label>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">{textoR4("Destino Padrão (ID do Grupo @g.us ou Número com DDD)")}</label>
                                 <input
                                     type="text"
                                     value={config.grupo_id}
                                     onChange={(e) =>
                                         setConfig((prev) => ({ ...prev, grupo_id: e.target.value }))
                                     }
-                                    placeholder="Ex: 120363123456789012@g.us ou 71999999999"
+                                    placeholder={textoR4("Ex: 120363123456789012@g.us ou 71999999999")}
                                     className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                 />
                             </div>
@@ -425,10 +413,10 @@ export default function AdminWhatsApp() {
                             <div className="md:col-span-2">
                                 <label className="block text-xs font-medium text-slate-300 mb-1">
                                     {config.provedor === 'zapi'
-                                        ? 'URL da Instância Z-API'
+                                        ? textoR4("URL da Instância Z-API")
                                         : config.provedor === 'evolution'
-                                            ? 'URL Base da Evolution API'
-                                            : 'URL do Webhook (Agendamentos)'}
+                                            ? textoR4("URL Base da Evolution API")
+                                            : textoR4("URL do Webhook (Agendamentos)")}
                                 </label>
                                 <input
                                     type="url"
@@ -444,9 +432,7 @@ export default function AdminWhatsApp() {
                             {config.provedor === 'webhook' && (
                                 <>
                                     <div className="md:col-span-2">
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
-                                            2ª URL do Webhook — Códigos OTP e Recuperação de PIN (opcional)
-                                        </label>
+                                        <label className="block text-xs font-medium text-slate-300 mb-1">{textoR4("2ª URL do Webhook — Códigos OTP e Recuperação de PIN (opcional)")}</label>
                                         <input
                                             type="url"
                                             value={config.url_webhook_otp || ''}
@@ -459,16 +445,12 @@ export default function AdminWhatsApp() {
                                             placeholder="https://api.datacrazy.io/... (se vazio, usa a URL do Webhook acima)"
                                             className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                         />
-                                        <p className="text-[11px] text-slate-400 mt-1">
-                                            Automação 2 no DataCrazy: envia códigos de 4 dígitos no WhatsApp do cliente no cadastro e na recuperação de PIN.
-                                        </p>
+                                        <p className="text-[11px] text-slate-400 mt-1">{textoR4("Automação 2 no DataCrazy: envia códigos de 4 dígitos no WhatsApp do cliente no cadastro e na recuperação de PIN.")}</p>
                                     </div>
 
                                     <div className="md:col-span-2">
                                         <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                                            <label className="block text-xs font-medium text-slate-300">
-                                                3ª URL do Webhook — Controle no Grupo (Agendamentos e Cancelamentos)
-                                            </label>
+                                            <label className="block text-xs font-medium text-slate-300">{textoR4("3ª URL do Webhook — Controle no Grupo (Agendamentos e Cancelamentos)")}</label>
                                             <button
                                                 type="button"
                                                 disabled={
@@ -479,7 +461,7 @@ export default function AdminWhatsApp() {
                                                 onClick={handleTestarGrupo}
                                                 className="px-3 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/40 disabled:opacity-40 text-[11px] font-semibold text-emerald-200 hover:text-white transition"
                                             >
-                                                {testandoGrupo ? 'Testando Grupo...' : 'Testar Webhook do Grupo'}
+                                                {testandoGrupo ? textoR4("Testando Grupo...") : textoR4("Testar Webhook do Grupo")}
                                             </button>
                                         </div>
                                         <input
@@ -494,9 +476,7 @@ export default function AdminWhatsApp() {
                                             placeholder="https://api.datacrazy.io/... (dispara para o Destino Padrão @g.us ao agendar e ao cancelar)"
                                             className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                         />
-                                        <p className="text-[11px] text-slate-400 mt-1">
-                                            Automação 3 no DataCrazy: dispara resumo com Cliente, Aluno e Telefone para o grupo (@g.us) sempre que uma aula for marcada ou cancelada.
-                                        </p>
+                                        <p className="text-[11px] text-slate-400 mt-1">{textoR4("Automação 3 no DataCrazy: dispara resumo com Cliente, Aluno e Telefone para o grupo (@g.us) sempre que uma aula for marcada ou cancelada.")}</p>
                                     </div>
                                 </>
                             )}
@@ -504,9 +484,7 @@ export default function AdminWhatsApp() {
                             {config.provedor === 'evolution' && (
                                 <>
                                     <div>
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
-                                            Nome da Instância
-                                        </label>
+                                        <label className="block text-xs font-medium text-slate-300 mb-1">{textoR4("Nome da Instância")}</label>
                                         <input
                                             type="text"
                                             value={config.instancia}
@@ -516,15 +494,13 @@ export default function AdminWhatsApp() {
                                                     instancia: e.target.value,
                                                 }))
                                             }
-                                            placeholder="Ex: r4ensina"
+                                            placeholder={textoR4("Ex: r4ensina")}
                                             className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                         />
                                     </div>
 
                                     <div>
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
-                                            Global API Key / Token
-                                        </label>
+                                        <label className="block text-xs font-medium text-slate-300 mb-1">{textoR4("Global API Key / Token")}</label>
                                         <input
                                             type="password"
                                             value={config.token_api}
@@ -534,7 +510,7 @@ export default function AdminWhatsApp() {
                                                     token_api: e.target.value,
                                                 }))
                                             }
-                                            placeholder="Sua apikey"
+                                            placeholder={textoR4("Sua apikey")}
                                             className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                         />
                                     </div>
@@ -543,9 +519,7 @@ export default function AdminWhatsApp() {
 
                             {config.provedor === 'zapi' && (
                                 <div className="md:col-span-2">
-                                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                                        Client-Token de Segurança Z-API (opcional)
-                                    </label>
+                                    <label className="block text-xs font-medium text-slate-300 mb-1">{textoR4("Client-Token de Segurança Z-API (opcional)")}</label>
                                     <input
                                         type="password"
                                         value={config.client_token}
@@ -555,7 +529,7 @@ export default function AdminWhatsApp() {
                                                 client_token: e.target.value,
                                             }))
                                         }
-                                        placeholder="Client-Token"
+                                        placeholder={textoR4("Client-Token")}
                                         className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                     />
                                 </div>
@@ -568,7 +542,7 @@ export default function AdminWhatsApp() {
                                     onClick={handleTestarApi}
                                     className="px-4 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600 border border-sky-500/50 disabled:opacity-40 text-xs font-semibold text-sky-200 hover:text-white transition"
                                 >
-                                    {testando ? 'Enviando teste...' : 'Testar Envio da API'}
+                                    {testando ? textoR4("Enviando teste...") : textoR4("Testar Envio da API")}
                                 </button>
                             </div>
                         </div>
@@ -577,12 +551,8 @@ export default function AdminWhatsApp() {
 
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h3 className="text-sm font-bold text-white">
-                            2. Validar WhatsApp com Código de 4 Dígitos no Cadastro
-                        </h3>
-                        <p className="text-xs text-slate-400">
-                            Exige que novos responsáveis confirmem um código enviado no WhatsApp antes de concluir o cadastro (requer a Opção 1 ativada).
-                        </p>
+                        <h3 className="text-sm font-bold text-white">{textoR4("2. Validar WhatsApp com Código de 4 Dígitos no Cadastro")}</h3>
+                        <p className="text-xs text-slate-400">{textoR4("Exige que novos responsáveis confirmem um código enviado no WhatsApp antes de concluir o cadastro (requer a Opção 1 ativada).")}</p>
                     </div>
 
                     <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -606,7 +576,7 @@ export default function AdminWhatsApp() {
                                     : 'bg-slate-800 text-slate-400'
                             }`}
                         >
-              {config.verificar_cadastro_whatsapp ? 'ATIVADO' : 'DESATIVADO'}
+              {config.verificar_cadastro_whatsapp ? textoR4("ATIVADO") : textoR4("DESATIVADO")}
             </span>
                     </label>
                 </div>
@@ -617,9 +587,7 @@ export default function AdminWhatsApp() {
                             <h3 className="text-sm font-bold text-white">
                                 3. Botão &ldquo;Enviar Comprovante no WhatsApp&rdquo; para o Cliente (Gratuito)
                             </h3>
-                            <p className="text-xs text-slate-400">
-                                Exibe um botão verde logo após o agendamento abrindo o WhatsApp do cliente já com a mensagem pronta para a secretaria.
-                            </p>
+                            <p className="text-xs text-slate-400">{textoR4("Exibe um botão verde logo após o agendamento abrindo o WhatsApp do cliente já com a mensagem pronta para a secretaria.")}</p>
                         </div>
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                             <input
@@ -639,16 +607,14 @@ export default function AdminWhatsApp() {
                                         : 'bg-slate-800 text-slate-400'
                                 }`}
                             >
-                {config.wame_ativo ? 'ATIVADO' : 'DESATIVADO'}
+                {config.wame_ativo ? textoR4("ATIVADO") : textoR4("DESATIVADO")}
               </span>
                         </label>
                     </div>
 
                     {config.wame_ativo && (
                         <div className="pt-2 border-t border-slate-800/80">
-                            <label className="block text-xs font-medium text-slate-300 mb-1">
-                                WhatsApp da Secretaria / Atendimento (com DDD)
-                            </label>
+                            <label className="block text-xs font-medium text-slate-300 mb-1">{textoR4("WhatsApp da Secretaria / Atendimento (com DDD)")}</label>
                             <input
                                 type="tel"
                                 value={config.wame_numero}
@@ -667,12 +633,8 @@ export default function AdminWhatsApp() {
 
                 <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h3 className="text-sm font-bold text-white">
-                            4. Alerta Sonoro Automático nesta Tela (/admin)
-                        </h3>
-                        <p className="text-xs text-slate-400">
-                            Atualiza a fila a cada 20s e toca uma campainha no computador da recepção sempre que entrar uma nova aula.
-                        </p>
+                        <h3 className="text-sm font-bold text-white">{textoR4("4. Alerta Sonoro Automático nesta Tela (/admin)")}</h3>
+                        <p className="text-xs text-slate-400">{textoR4("Atualiza a fila a cada 20s e toca uma campainha no computador da recepção sempre que entrar uma nova aula.")}</p>
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -680,9 +642,7 @@ export default function AdminWhatsApp() {
                             type="button"
                             onClick={tocarCampainhaAlerta}
                             className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200"
-                        >
-                            🔊 Testar Som
-                        </button>
+                        >{textoR4("🔊 Testar Som")}</button>
 
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                             <input
@@ -705,7 +665,7 @@ export default function AdminWhatsApp() {
                                         : 'bg-slate-800 text-slate-400'
                                 }`}
                             >
-                {config.alerta_sonoro_ativo ? 'ATIVADO' : 'DESATIVADO'}
+                {config.alerta_sonoro_ativo ? textoR4("ATIVADO") : textoR4("DESATIVADO")}
               </span>
                         </label>
                     </div>
@@ -717,22 +677,18 @@ export default function AdminWhatsApp() {
                         disabled={salvando}
                         className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-semibold text-white"
                     >
-                        {salvando ? 'Salvando...' : 'Salvar Todas as Configurações'}
+                        {salvando ? textoR4("Salvando...") : textoR4("Salvar Todas as Configurações")}
                     </button>
                 </div>
             </form>
 
             <div className="space-y-3 pt-2 border-t border-slate-800">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Últimos Agendamentos (Controle de Lançamento no Clin Care)
-                </h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">{textoR4("Últimos Agendamentos (Controle de Lançamento no Clin Care)")}</h3>
 
                 {carregando ? (
-                    <p className="text-xs text-slate-400">Carregando agendamentos...</p>
+                    <p className="text-xs text-slate-400">{textoR4("Carregando agendamentos...")}</p>
                 ) : recentes.length === 0 ? (
-                    <p className="text-xs text-slate-500">
-                        Nenhum agendamento registrado ainda.
-                    </p>
+                    <p className="text-xs text-slate-500">{textoR4("Nenhum agendamento registrado ainda.")}</p>
                 ) : (
                     <div className="space-y-2.5">
                         {recentes.map((ag) => (
@@ -753,18 +709,15 @@ export default function AdminWhatsApp() {
                       {ag.unidade_nome}
                     </span>
                                         {ag.notificado_whatsapp && (
-                                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
-                        Enviado via API
-                      </span>
+                                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300">{textoR4("Enviado via API")}</span>
                                         )}
                                     </div>
                                     <p className="text-slate-300">
-                                        <strong>{ag.data_formatada}</strong> ({ag.hora_inicio} às{' '}
-                                        {ag.hora_fim}) • <strong>Prof.:</strong> {ag.professor_nome}{' '}
-                                        • <strong>Matéria:</strong> {ag.materia}
+                                        <strong>{ag.data_formatada}</strong> ({ag.hora_inicio}{' ' + textoR4("às")}{' '}
+                                        {ag.hora_fim}) • <strong>{textoR4("Prof.:")}</strong> {ag.professor_nome}{' '}
+                                        • <strong>{textoR4("Matéria:")}</strong> {ag.materia}
                                     </p>
-                                    <p className="text-slate-400">
-                                        WhatsApp: {formatarTelefone(ag.aluno_telefone)}
+                                    <p className="text-slate-400">{textoR4("WhatsApp:") + ' '}{formatarTelefone(ag.aluno_telefone)}
                                         {ag.colegio_nome ? ` • ${ag.colegio_nome}` : ''}
                                         {ag.serie ? ` (${ag.serie})` : ''}
                                     </p>
@@ -776,9 +729,7 @@ export default function AdminWhatsApp() {
                                             type="button"
                                             onClick={() => handleReenviar(ag.id)}
                                             className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200"
-                                        >
-                                            Reenviar via API
-                                        </button>
+                                        >{textoR4("Reenviar via API")}</button>
                                     )}
 
                                     <button
@@ -793,8 +744,8 @@ export default function AdminWhatsApp() {
                                         }`}
                                     >
                                         {ag.lancado_clincare
-                                            ? '✓ Lançado no Clin Care'
-                                            : 'Marcar como lançado no Clin Care'}
+                                            ? textoR4("✓ Lançado no Clin Care")
+                                            : textoR4("Marcar como lançado no Clin Care")}
                                     </button>
                                 </div>
                             </div>
