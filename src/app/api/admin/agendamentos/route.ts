@@ -285,7 +285,7 @@ export async function GET(req: NextRequest) {
                 observacoes: aula.observacoes, feedback_professor: aula.feedback_professor,
                 excluido_em: aula.excluido_em,
             },
-            historico, anexos,
+            historico, anexos, podeEditarFeedback: sessao.role === 'professor' && !aula.excluido_em,
         });
     } catch (error) {
         console.error('Detalhes do agendamento:', error);
@@ -300,6 +300,12 @@ export async function PATCH(req: NextRequest) {
         const body = await req.json();
         const id = Number(body?.id);
         if (!body || typeof body !== 'object' || !idValido(id)) return erro('Agendamento inválido.', 400);
+        if ('feedback_professor' in body) {
+            if (sessao.role !== 'professor') return erro('Somente o professor responsável pode editar o feedback.', 403);
+            if (typeof body.feedback_professor !== 'string' || body.feedback_professor.length > 10000) {
+                return erro('O feedback deve ter até 10.000 caracteres.', 400);
+            }
+        }
         const status = body.status === 'concluido' ? 'realizado' : body.status;
         if (status !== undefined && !LISTA_STATUS_AULA_R4.some((item) => item.valor === status)) {
             return erro('Status inválido.', 400);

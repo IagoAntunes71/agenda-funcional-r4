@@ -3,7 +3,7 @@ import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Building2, Calendar, ChevronRight, Clock3, GraduationCap, History, Paperclip, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Building2, Calendar, ChevronRight, Clock3, GraduationCap, History, MessageSquare, Send, Paperclip, Pencil, Trash2, X } from 'lucide-react';
 import type { RoleSistema } from '@/lib/admin-auth';
 import { LISTA_STATUS_AULA_R4, normalizarStatusAulaR4 } from '@/lib/agenda-status-r4';
 import { filtrarMateriasVisiveis } from '@/lib/cliente-helpers';
@@ -12,7 +12,7 @@ import { horaParaMinutos } from '@/lib/horarios-reforco';
 import { formatarDataBR, obterIniciais, type AgendamentoAdmin, type AlunoAdmin, type ProfessorAdmin, type UnidadeAdmin } from './types';
 import css from './DetalhesAula.module.css';
 
-type Tela = 'detalhes' | 'editar' | 'agenda' | 'observacoes' | 'anexos' | 'historico' | 'excluir';
+type Tela = 'detalhes' | 'editar' | 'agenda' | 'observacoes' | 'anexos' | 'historico' | 'excluir' | 'feedback';
 type Anexo = { id: number; nome: string; tamanho: number };
 type Evento = { id: string; acao: string; responsavel: string; criado_em: string; campos: string[] };
 type Props = {
@@ -30,7 +30,7 @@ type Props = {
 const titulos: Record<Tela, string> = {
     detalhes: 'Detalhes do agendamento', editar: 'Editar agendamento', agenda: 'Editar agenda',
     observacoes: 'Observações', anexos: 'Anexos da aula', historico: 'Histórico do atendimento',
-    excluir: 'Excluir agendamento',
+    excluir: 'Excluir agendamento', feedback: 'Feedback da aula',
 };
 const nomesCampos: Record<string, string> = {
     professor_id: 'Professor', unidade_id: 'Unidade', aluno_id: 'Aluno', materia: 'Matéria',
@@ -75,6 +75,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const [tela, setTela] = useState<Tela>(iniciarNoHistorico ? 'historico' : 'detalhes');
     const [form, setForm] = useState(() => montarFormulario(inicial));
     const [observacoes, setObservacoes] = useState(inicial.observacoes || '');
+    const [podeEditarFeedback, setPodeEditarFeedback] = useState(false);
     const [feedback, setFeedback] = useState(inicial.feedback_professor || '');
     const [anexos, setAnexos] = useState<Anexo[]>([]);
     const [historico, setHistorico] = useState<Evento[]>([]);
@@ -105,6 +106,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                 if (!res.ok) throw new Error(dados.error);
                 if (controlador.signal.aborted) return;
                 setAula({ ...inicial, ...dados.aula });
+                setPodeEditarFeedback(dados.podeEditarFeedback === true);
                 setFeedback(dados.aula.feedback_professor || '');
                 setHistorico(dados.historico);
                 setAnexos(dados.anexos);
@@ -116,6 +118,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
 
     function abrir(destinoTela: Tela) {
         setErro('');
+        if (destinoTela === 'feedback') setFeedback(aula.feedback_professor || '');
         if (destinoTela === 'agenda') setForm(montarFormulario(aula));
         if (destinoTela === 'observacoes') setObservacoes(aula.observacoes || '');
         setTela(destinoTela);
@@ -175,7 +178,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     }
 
     const volta = tela === 'detalhes' || iniciarNoHistorico ? onFecharAction :
-        () => abrir(['agenda', 'observacoes', 'excluir'].includes(tela) || (tela === 'anexos' && podeEditar) ? 'editar' : 'detalhes');
+        () => abrir(['agenda', 'observacoes', 'excluir', 'feedback'].includes(tela) || (tela === 'anexos' && podeEditar) ? 'editar' : 'detalhes');
     const desabilitado = ocupado || carregando;
 
     return (
@@ -227,25 +230,35 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                             <Linha titulo={textoR4("Histórico do atendimento")} icone={<History />} onClick={() => abrir('historico')} />
                             {!podeEditar && anexos.length > 0 && <Linha titulo={textoR4("Anexos da aula")} icone={<Paperclip />} onClick={() => abrir('anexos')} />}
                         </div>
-                        {!aula.excluido_em && <form className={css.form} onSubmit={(e) => {
-                            e.preventDefault(); void salvar({ feedback_professor: feedback }, 'Feedback salvo.');
+                    </>}
+
+                    {tela === 'editar' && <>
+                        <div className={css.lista}>
+                            {podeEditar && <>
+                            <Linha titulo={textoR4("Editar agenda")} descricao={textoR4("Professor, unidade, aluno, matéria e horário")} icone={<Calendar />} onClick={() => abrir('agenda')} />
+                            <Linha titulo={textoR4("Observações")} descricao={textoR4("Assuntos e anotações da aula")} icone={<BookOpen />} onClick={() => abrir('observacoes')} />
+                            <Linha titulo={textoR4("Anexos")} descricao={anexos.length ? anexos.length + ' arquivo(s)' : textoR4("Materiais, arquivos e documentos")} icone={<Paperclip />} onClick={() => abrir('anexos')} />
+                            </>}
+                            <Linha titulo={textoR4("Feedback da aula")}
+                                descricao={textoR4(podeEditarFeedback ? 'Registrar o feedback' : 'Consultar o feedback do professor')}
+                                icone={<MessageSquare />} onClick={() => abrir('feedback')} />
+                        </div>
+                        {podeEditar && <div className={css.lista}>
+                            <Linha titulo={textoR4("Excluir agendamento")} descricao={textoR4("Remover a aula da grade")} icone={<Trash2 />} perigo onClick={() => abrir('excluir')} />
+                        </div>}
+                    </>}
+
+                    {tela === 'feedback' && podeEditarFeedback && <form className={css.form} onSubmit={(e) => {
+                            e.preventDefault(); void salvar({ feedback_professor: feedback }, 'Feedback salvo.', 'editar');
                         }}>
                             <label>{textoR4("Feedback da aula")}<textarea value={feedback} maxLength={10000} rows={2}
                                 onChange={(e) => setFeedback(e.target.value)} placeholder={textoR4("Conteúdo trabalhado e recomendações")} /></label>
                             <button className={css.secundario} type="submit" disabled={desabilitado || feedback === (aula.feedback_professor || '')}>{textoR4("Salvar feedback")}</button>
                         </form>}
-                    </>}
-
-                    {tela === 'editar' && <>
-                        <div className={css.lista}>
-                            <Linha titulo={textoR4("Editar agenda")} descricao={textoR4("Professor, unidade, aluno, matéria e horário")} icone={<Calendar />} onClick={() => abrir('agenda')} />
-                            <Linha titulo={textoR4("Observações")} descricao={textoR4("Assuntos e anotações da aula")} icone={<BookOpen />} onClick={() => abrir('observacoes')} />
-                            <Linha titulo={textoR4("Anexos")} descricao={anexos.length ? anexos.length + ' arquivo(s)' : textoR4("Materiais, arquivos e documentos")} icone={<Paperclip />} onClick={() => abrir('anexos')} />
-                        </div>
-                        <div className={css.lista}>
-                            <Linha titulo={textoR4("Excluir agendamento")} descricao={textoR4("Remover a aula da grade")} icone={<Trash2 />} perigo onClick={() => abrir('excluir')} />
-                        </div>
-                    </>}
+                    {tela === 'feedback' && !podeEditarFeedback && <section className={css.nota}>
+                        <strong>{textoR4("Feedback da aula")}</strong>
+                        <p>{aula.feedback_professor || textoR4("O professor ainda não registrou um feedback.")}</p>
+                    </section>}
 
                     {tela === 'agenda' && <form className={css.form} onSubmit={salvarAgenda}>
                         <label>{textoR4("Aluno")}<select value={form.aluno_id} onChange={(e) => setForm({ ...form, aluno_id: Number(e.target.value) })}>
@@ -330,9 +343,14 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                     </div>}
                 </div>
 
-                {(tela !== 'detalhes' || podeEditar) && <footer className={css.rodape}>
-                    {tela === 'detalhes' ? <button type="button" className={css.primario} disabled={desabilitado} onClick={() => abrir('editar')}>
-                        <Pencil />{' ' + textoR4("Editar agendamento")}</button> : <button type="button" className={css.secundario} disabled={ocupado}
+                {(tela !== 'detalhes' || podeEditar || podeEditarFeedback) && <footer className={css.rodape}>
+                    {tela === 'detalhes' ? <><button type="button" className={css.primario} disabled={desabilitado} onClick={() => abrir('editar')}>
+                        <Pencil />{' ' + textoR4("Editar agendamento")}</button>
+                        {podeEditar && <button type="button" className={css.secundario} disabled={ocupado}
+                            onClick={() => setAviso(textoR4("O envio de confirmação será disponibilizado após a integração com o CRM."))}>
+                            <Send /> {textoR4("Enviar confirmação")}
+                        </button>}
+                    </> : <button type="button" className={css.secundario} disabled={ocupado}
                         onClick={aula.excluido_em ? onFecharAction : volta}><ArrowLeft /> {aula.excluido_em ? textoR4("Fechar") : textoR4("Voltar")}</button>}
                 </footer>}
             </div>

@@ -145,3 +145,12 @@
 }
 .primario { background: var(--r4-botao); color: var(--r4-botao-texto); }
 .status[data-status='cancelado'] { color: var(--r4-cancelado); }
+
+.rodape {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-block: 10px;
+}
+.rodape button { flex: 1 1 155px; }
+.rodape button:only-child { flex: 0 1 auto; }

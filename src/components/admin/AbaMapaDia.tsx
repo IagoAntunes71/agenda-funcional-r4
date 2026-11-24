@@ -958,8 +958,7 @@ export default function AbaMapaDia({
                     <div className="flex items-center justify-between gap-2 text-xs">
                         <span className="inline-flex items-center gap-1.5 font-semibold">
                             <GraduationCap className="w-3.5 h-3.5 text-[#0E7C86]" />
-                            {rotuloMateriaAula(hoverCard.aula.materia, duracaoDaAula(hoverCard.aula))}{' '}
-                            {hoverCard.aula.duracao_minutos || 100}&apos;
+                            {rotuloMateriaAula(hoverCard.aula.materia, duracaoDaAula(hoverCard.aula))}
                         </span>
                         <span className="inline-flex items-center gap-1 font-bold uppercase text-[11px]">
                             <Building2 className="w-3.5 h-3.5 text-[#0E7C86]" />
