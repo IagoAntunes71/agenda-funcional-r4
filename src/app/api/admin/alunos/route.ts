@@ -1,6 +1,8 @@
+import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
+import { podeOperacao } from '@/lib/operacao-r4';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { lerSessaoAdmin } from '@/lib/admin-auth';
 import {
     garantirEstruturaContasResponsaveis,
     gerarVariantesTelefone,
@@ -9,8 +11,8 @@ import {
 import { formatarTelefone } from '@/lib/cliente-helpers';
 
 export async function PATCH(req: NextRequest) {
-    const autenticado = await verificarAdminAutenticado();
-    if (!autenticado) {
+    const sessao = await lerSessaoAdmin();
+    if (!sessao) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
@@ -19,6 +21,19 @@ export async function PATCH(req: NextRequest) {
 
         const body = await req.json();
         const acao = String(body?.acao || '');
+        const cfg = await lerOperacaoR4();
+        if (!podeOperacao(cfg, sessao.role, 'editarAlunos')) return NextResponse.json({ error: 'Seu perfil não pode editar alunos.' }, { status: 403 });
+        if (sessao.role !== 'admin' && !podeOperacao(cfg, sessao.role, 'todosAlunos')) {
+            const [aluno] = await sql`
+                SELECT al.id FROM alunos al JOIN agendamentos a ON a.aluno_id = al.id
+                JOIN professores p ON p.id = a.professor_id JOIN professores v ON v.id = ${sessao.professor_id}
+                WHERE al.id = ${Number(body?.id) || 0} AND a.status IN ('realizado','concluido')
+                    AND a.excluido_em IS NULL AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+                LIMIT 1
+            `;
+            if (!aluno || acao === 'editar_responsavel') return NextResponse.json({ error: 'Aluno fora do seu acesso.' }, { status: 403 });
+            body.atualizar_irmaos = false;
+        }
 
         // AÇÃO 1: Editar conta única do responsável (e unificar caso o novo telefone já exista)
         if (acao === 'editar_responsavel') {
@@ -260,10 +275,12 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-    const autenticado = await verificarAdminAutenticado();
-    if (!autenticado) {
+    const sessao = await lerSessaoAdmin();
+    if (!sessao) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
+
+    if (sessao.role !== 'admin') return NextResponse.json({ error: 'Apenas administradores podem excluir cadastros.' }, { status: 403 });
 
     try {
         const { searchParams } = new URL(req.url);

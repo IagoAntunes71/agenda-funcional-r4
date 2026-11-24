@@ -1,3 +1,4 @@
+import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { NextRequest, NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
@@ -361,11 +362,12 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            if (Number(ag.horas_restantes) < 2) {
+            const { antecedencia } = await lerOperacaoR4();
+            if (Number(ag.horas_restantes) < antecedencia) {
                 return NextResponse.json(
                     {
                         error:
-                            'Cancelamentos pelo site exigem no mínimo 2 horas de antecedência. Entre em contato com a secretaria pelo WhatsApp.',
+                            `Cancelamentos pelo site exigem pelo menos ${antecedencia} hora(s) de antecedência. Fale com a secretaria pelo WhatsApp.`,
                     },
                     { status: 400 }
                 );

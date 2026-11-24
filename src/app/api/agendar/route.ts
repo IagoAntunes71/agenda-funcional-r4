@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
       LEFT JOIN professores p ON p.id = a.professor_id
       WHERE LEFT(a.data::text, 10) = ${data}
         AND LEFT(COALESCE(a.hora_inicio, a.horario)::text, 5) = ${slotEscolhido.inicio}
-        AND COALESCE(a.status, 'confirmado') NOT IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca')
+        AND COALESCE(a.status, 'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
         AND (
           (${alunoId}::int IS NOT NULL AND a.aluno_id = ${alunoId})
           OR (
@@ -325,7 +325,7 @@ export async function POST(req: NextRequest) {
       WHERE LEFT(a.data::text, 10) = ${data}
         AND a.hora_inicio IS NOT NULL
         AND a.hora_fim IS NOT NULL
-        AND COALESCE(a.status, 'confirmado') NOT IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca')
+        AND COALESCE(a.status, 'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
         AND (
           a.professor_id = ${prof.id}
           OR (${prof.clin_care_id}::text IS NOT NULL AND p.clin_care_id = ${prof.clin_care_id})

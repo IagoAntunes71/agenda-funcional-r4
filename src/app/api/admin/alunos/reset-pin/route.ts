@@ -1,6 +1,8 @@
+import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
+import { podeOperacao } from '@/lib/operacao-r4';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { lerSessaoAdmin } from '@/lib/admin-auth';
 import {
     garantirEstruturaContasResponsaveis,
     gerarVariantesTelefone,
@@ -8,12 +10,15 @@ import {
 } from '@/lib/cliente-auth';
 
 export async function POST(req: NextRequest) {
-    const autenticado = await verificarAdminAutenticado();
-    if (!autenticado) {
+    const sessao = await lerSessaoAdmin();
+    if (!sessao) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
     try {
+        const cfg = await lerOperacaoR4();
+        if (sessao.role === 'professor' || !podeOperacao(cfg, sessao.role, 'editarAlunos') ||
+            !podeOperacao(cfg, sessao.role, 'todosAlunos')) return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
         await garantirEstruturaContasResponsaveis();
 
         const body = await req.json();

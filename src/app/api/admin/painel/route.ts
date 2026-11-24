@@ -1,3 +1,5 @@
+import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
+import { podeOperacao } from '@/lib/operacao-r4';
 import { NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
@@ -16,6 +18,9 @@ export async function GET() {
 
     try {
         await garantirHistoricoAgendamento();
+        const cfg = await lerOperacaoR4();
+        const outrasAgendas = podeOperacao(cfg, sessao.role, 'outrasAgendas');
+        const todosAlunos = podeOperacao(cfg, sessao.role, 'todosAlunos');
         const modoChaveMestra = await obterModoChaveMestra();
         const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
 
@@ -77,6 +82,12 @@ export async function GET() {
           COALESCE(r.conflito_migracao, false) AS conflito_migracao,
           r.conflito_detalhes
         FROM responsaveis r
+        WHERE ${todosAlunos} OR EXISTS (
+            SELECT 1 FROM alunos alvo JOIN agendamentos a ON a.aluno_id = alvo.id
+            JOIN professores p ON p.id = a.professor_id JOIN professores v ON v.id = ${sessao.professor_id}
+            WHERE alvo.responsavel_id = r.id AND a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
+              AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+        )
         ORDER BY r.nome ASC, r.id ASC
       `,
             sql`
@@ -105,7 +116,12 @@ export async function GET() {
           ) AS total_aulas
         FROM alunos al
         LEFT JOIN responsaveis r ON r.id = al.responsavel_id
-        WHERE COALESCE(al.ativo, true) = true
+        WHERE COALESCE(al.ativo, true) = true AND (${todosAlunos} OR EXISTS (
+            SELECT 1 FROM agendamentos a JOIN professores p ON p.id = a.professor_id
+            JOIN professores v ON v.id = ${sessao.professor_id}
+            WHERE a.aluno_id = al.id AND a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
+              AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+        ))
         ORDER BY COALESCE(NULLIF(trim(r.nome), ''), NULLIF(trim(al.responsavel_nome), ''), al.nome_aluno) ASC, al.nome_aluno ASC
       `,
             sql`
@@ -191,7 +207,7 @@ export async function GET() {
         LEFT JOIN alunos al ON al.id = a.aluno_id
         LEFT JOIN responsaveis r ON r.id = al.responsavel_id
         WHERE a.excluido_em IS NULL
-          AND (${sessao.role !== 'professor'} OR EXISTS (
+          AND (${outrasAgendas} OR EXISTS (
             SELECT 1 FROM professores vinculado WHERE vinculado.id = ${sessao.professor_id}
               AND (vinculado.id = p.id OR vinculado.clin_care_id = p.clin_care_id)
           ))

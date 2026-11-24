@@ -273,3 +273,5 @@
 }
 .topo .primario { background: var(--r4-botao); color: var(--r4-botao-texto); border-color: var(--r4-botao); }
 .topo .primario:hover:not(:disabled) { background: var(--r4-botao); filter: brightness(.92); }
+
+.hora { grid-template-rows: 1fr; }

@@ -1,4 +1,6 @@
 'use client';
+import { useOperacaoR4 } from './OperacaoPainelR4';
+import { podeOperacao } from '@/lib/operacao-r4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -76,6 +78,8 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const [form, setForm] = useState(() => montarFormulario(inicial));
     const [observacoes, setObservacoes] = useState(inicial.observacoes || '');
     const [podeEditarFeedback, setPodeEditarFeedback] = useState(false);
+    const [acessoAgenda, setAcessoAgenda] = useState(false);
+    const [acessoAnexo, setAcessoAnexo] = useState(false);
     const [feedback, setFeedback] = useState(inicial.feedback_professor || '');
     const [anexos, setAnexos] = useState<Anexo[]>([]);
     const [historico, setHistorico] = useState<Evento[]>([]);
@@ -85,8 +89,10 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const [carregando, setCarregando] = useState(true);
     const dialogo = useRef<HTMLDialogElement>(null);
     const url = '/api/admin/agendamentos?id=' + inicial.id;
+    const { cfg } = useOperacaoR4();
     const professor = roleUsuario === 'professor';
-    const podeEditar = !professor && !aula.excluido_em;
+    const podeEditar = !aula.excluido_em && podeOperacao(cfg, roleUsuario, 'agenda') && (!professor || acessoAgenda);
+    const podeAnexar = !aula.excluido_em && podeOperacao(cfg, roleUsuario, 'anexos') && (!professor || acessoAnexo);
     const status = normalizarStatusAulaR4(aula.status);
     const destino = professores.find((p) => p.id === form.professor_id);
     const materias = materiasBase([...(destino ? filtrarMateriasVisiveis(destino.materias) : []), form.materia]);
@@ -107,6 +113,8 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                 if (controlador.signal.aborted) return;
                 setAula({ ...inicial, ...dados.aula });
                 setPodeEditarFeedback(dados.podeEditarFeedback === true);
+                setAcessoAgenda(dados.podeEditarAgenda === true);
+                setAcessoAnexo(dados.podeAnexar === true);
                 setFeedback(dados.aula.feedback_professor || '');
                 setHistorico(dados.historico);
                 setAnexos(dados.anexos);
@@ -208,7 +216,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                                     <span className={css.ponto} />
                                     <select aria-label={textoR4("Status da aula")} value={status} disabled={desabilitado || Boolean(aula.excluido_em)}
                                         onChange={(e) => void salvar({ status: e.target.value }, 'Status atualizado.')}>
-                                        {LISTA_STATUS_AULA_R4.filter((item) => !professor || item.valor === 'realizado' || item.valor === status)
+                                        {LISTA_STATUS_AULA_R4.filter((item) => item.valor === status || (cfg.status[item.valor]?.ativo && (!professor || item.valor === 'realizado')))
                                             .map((item) => <option key={item.valor} value={item.valor}
                                                 disabled={professor && item.valor !== 'realizado'}>{textoR4(item.rotulo)}</option>)}
                                     </select>
@@ -228,7 +236,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         {aula.observacoes && <section className={css.nota}><strong>{textoR4("Assuntos e observações")}</strong><p>{aula.observacoes}</p></section>}
                         <div className={css.lista}>
                             <Linha titulo={textoR4("Histórico do atendimento")} icone={<History />} onClick={() => abrir('historico')} />
-                            {!podeEditar && anexos.length > 0 && <Linha titulo={textoR4("Anexos da aula")} icone={<Paperclip />} onClick={() => abrir('anexos')} />}
+                            {!podeEditar && (anexos.length > 0 || podeAnexar) && <Linha titulo={textoR4("Anexos da aula")} icone={<Paperclip />} onClick={() => abrir('anexos')} />}
                         </div>
                     </>}
 
@@ -243,7 +251,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                                 descricao={textoR4(podeEditarFeedback ? 'Registrar o feedback' : 'Consultar o feedback do professor')}
                                 icone={<MessageSquare />} onClick={() => abrir('feedback')} />
                         </div>
-                        {podeEditar && <div className={css.lista}>
+                        {podeEditar && !professor && <div className={css.lista}>
                             <Linha titulo={textoR4("Excluir agendamento")} descricao={textoR4("Remover a aula da grade")} icone={<Trash2 />} perigo onClick={() => abrir('excluir')} />
                         </div>}
                     </>}
@@ -301,7 +309,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                     </form>}
 
                     {tela === 'anexos' && <>
-                        {podeEditar && <label className={css.upload}>
+                        {podeAnexar && <label className={css.upload}>
                             <Paperclip />{' ' + textoR4("Adicionar arquivo") + ' '}<small>{textoR4("Até 2 MB por arquivo")}</small>
                             <input type="file" disabled={desabilitado} aria-label={textoR4("Adicionar arquivo")}
                                 onChange={(e) => { adicionarArquivo(e.target.files?.[0]); e.target.value = ''; }} />
@@ -310,7 +318,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         {anexos.map((anexo) => <div className={css.arquivo} key={anexo.id}>
                             <a href={url + '&anexo=' + anexo.id}>{anexo.nome}</a>
                             <small>{Math.max(1, Math.round(anexo.tamanho / 1024))}{' ' + textoR4("KB")}</small>
-                            {podeEditar && <button type="button" aria-label={'Remover ' + anexo.nome} disabled={desabilitado}
+                            {podeAnexar && <button type="button" aria-label={'Remover ' + anexo.nome} disabled={desabilitado}
                                 onClick={() => {
                                     if (window.confirm('Remover este anexo da aula?')) {
                                         void alterar({ method: 'DELETE' }, 'Anexo removido.', undefined, url + '&anexo=' + anexo.id);
@@ -346,7 +354,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                 {(tela !== 'detalhes' || podeEditar || podeEditarFeedback) && <footer className={css.rodape}>
                     {tela === 'detalhes' ? <><button type="button" className={css.primario} disabled={desabilitado} onClick={() => abrir('editar')}>
                         <Pencil />{' ' + textoR4("Editar agendamento")}</button>
-                        {podeEditar && <button type="button" className={css.secundario} disabled={ocupado}
+                        {podeEditar && !professor && <button type="button" className={css.secundario} disabled={ocupado}
                             onClick={() => setAviso(textoR4("O envio de confirmação será disponibilizado após a integração com o CRM."))}>
                             <Send /> {textoR4("Enviar confirmação")}
                         </button>}

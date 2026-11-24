@@ -3,6 +3,8 @@ import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
 import { materiaBase, materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
+import { useOperacaoR4 } from './OperacaoPainelR4';
+import { CORES_STATUS_R4, podeOperacao } from '@/lib/operacao-r4';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { enderecoMapa } from '@/lib/admin-navegacao';
@@ -32,7 +34,6 @@ import {
 } from 'lucide-react';
 import { RoleSistema } from '@/lib/admin-auth';
 import {
-    HORAS_GRADE_R4,
     LISTA_STATUS_AULA_R4,
     normalizarStatusAulaR4,
     obterMetaStatusR4,
@@ -41,11 +42,8 @@ import { filtrarMateriasVisiveis } from '@/lib/cliente-helpers';
 import { adicionarDiasISO, horaParaMinutos, minutosParaHora } from '@/lib/horarios-reforco';
 import {
     distribuirSobreposicoes,
-    FIM_MAPA,
-    INICIO_MAPA,
     intervaloAula,
     intervaloBloqueio,
-    recortarIntervalo,
     relogioBahia,
 } from './mapa-dia-horarios';
 import styles from './MapaDia.module.css';
@@ -63,21 +61,13 @@ import {
     obterIniciais,
 } from './types';
 
-const ALTURA_HORA = 72;
-const ALTURA_GRADE = (FIM_MAPA - INICIO_MAPA) / 60 * ALTURA_HORA;
 const HORAS_BLOQUEIO = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 const MINUTOS_INICIO = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
-const HORARIOS_GRADE = Array.from({ length: (FIM_MAPA - INICIO_MAPA) / 30 }, (_, i) =>
-    INICIO_MAPA + i * 30
-);
-
 function obterHojeISO() {
     return relogioBahia().data;
 }
 
-function posicao(minuto: number) {
-    return (minuto - INICIO_MAPA) / 60 * ALTURA_HORA;
-}
+
 
 function correspondeProfessor(
     item: { professor_id: number | null; professor_clin_care_id?: string | null },
@@ -206,6 +196,15 @@ export default function AbaMapaDia({
 }) {
     const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
+    const { cfg } = useOperacaoR4();
+    const inicioMapa = cfg.primeiraHora * 60;
+    const fimMapa = (cfg.ultimaHora + 1) * 60;
+    const alturaSlot = 36;
+    const horariosGrade = Array.from({ length: (fimMapa - inicioMapa) / cfg.intervalo }, (_, i) => inicioMapa + i * cfg.intervalo);
+    const alturaGrade = horariosGrade.length * alturaSlot;
+    const posicao = (minuto: number) => (minuto - inicioMapa) * alturaSlot / cfg.intervalo;
+    const podeAgendar = podeOperacao(cfg, roleUsuario, 'agenda');
+    const podeVerOutrasAgendas = podeOperacao(cfg, roleUsuario, 'outrasAgendas');
     const ehProfessor = roleUsuario === 'professor';
 
     const [modoVisualizacao, setModoVisualizacao] = useState<'dia' | 'semana'>('dia');
@@ -276,15 +275,15 @@ export default function AbaMapaDia({
 
     useEffect(() => {
         if (!ehProfessor && !unidadeEndereco) return;
-        const endereco = enderecoMapa(dataGlobal, ehProfessor ? undefined : unidadeEndereco);
+        const endereco = enderecoMapa(dataGlobal, ehProfessor && !podeVerOutrasAgendas ? undefined : unidadeEndereco);
         if (window.location.pathname === '/admin/mapa' &&
             window.location.pathname + window.location.search !== endereco) {
             window.history.replaceState(null, '', endereco);
         }
-    }, [dataGlobal, unidadeEndereco, ehProfessor, parametros]);
+    }, [dataGlobal, unidadeEndereco, ehProfessor, podeVerOutrasAgendas, parametros]);
 
     function atualizarEndereco(data: string, unidade: number | 'todas') {
-        const endereco = enderecoMapa(data, ehProfessor ? undefined : unidade);
+        const endereco = enderecoMapa(data, ehProfessor && !podeVerOutrasAgendas ? undefined : unidade);
         if (endereco !== window.location.pathname + window.location.search) {
             window.history.pushState(null, '', endereco);
         }
@@ -299,7 +298,7 @@ export default function AbaMapaDia({
     }, []);
 
     const professoresVisiveis = useMemo(() => {
-        if (ehProfessor) {
+        if (ehProfessor && !podeVerOutrasAgendas) {
             const principal = professores.find((p) => p.id === professorTravadoId);
             return principal ? [principal] : [];
         }
@@ -308,7 +307,7 @@ export default function AbaMapaDia({
             (unidadeIdAtiva ? p.unidade_id === unidadeIdAtiva : unidades.some((u) => u.ativa && u.id === p.unidade_id)) &&
             (!termo || [p.nome, ...filtrarMateriasVisiveis(p.materias)]
                 .some((texto) => normalizarTextoComparacao(texto).includes(termo))));
-    }, [ehProfessor, professorTravadoId, professores, unidadeIdAtiva, unidades, busca]);
+    }, [ehProfessor, podeVerOutrasAgendas, professorTravadoId, professores, unidadeIdAtiva, unidades, busca]);
 
     const professorSemana = professoresVisiveis.find((p) => p.id === professorSemanaId) ||
         professoresVisiveis[0];
@@ -331,7 +330,12 @@ export default function AbaMapaDia({
             : professoresVisiveis.map((prof) => ({ prof, data: datasPorProfessor[prof.id] || dataGlobal }));
 
         return dias.map(({ prof, data }) => {
-            const perfis = ehProfessor ? professoresDoProprioPerfil : [prof];
+            const perfis = ehProfessor && !podeVerOutrasAgendas ? professoresDoProprioPerfil : [prof];
+            const recortarIntervalo = (intervalo: { inicio: number; fim: number }) => {
+                const inicio = Math.max(inicioMapa, intervalo.inicio);
+                const fim = Math.min(fimMapa, intervalo.fim);
+                return fim > inicio ? { inicio, fim } : null;
+            };
             const aulas = agendamentos.flatMap((aula) => {
                 if (aula.data !== data || !perfis.some((p) => correspondeProfessor(aula, p))) return [];
                 if (!ehProfessor && aula.unidade_id && aula.unidade_id !== prof.unidade_id) return [];
@@ -356,7 +360,7 @@ export default function AbaMapaDia({
             };
         });
     }, [agendamentos, bloqueios, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
-        filtroStatus, professorSemana, professores, professoresVisiveis, semana]);
+        filtroStatus, professorSemana, professores, professoresVisiveis, semana, podeVerOutrasAgendas, inicioMapa, fimMapa]);
 
     const resumoAulas = new Map(colunas.flatMap((coluna) =>
         coluna.aulas.map(({ aula }) => [aula.id, aula] as const)));
@@ -416,8 +420,8 @@ export default function AbaMapaDia({
         horaSlot?: string,
         dataSlot?: string
     ) {
-        const pId = profId || (semana ? professorSemana?.id : professoresVisiveis[0]?.id) || 0;
-        setModalNovoModo(ehProfessor ? 'bloqueio' : modo);
+        const pId = (ehProfessor && modo === 'bloqueio' ? professorTravadoId : profId) || (semana ? professorSemana?.id : professoresVisiveis[0]?.id) || 0;
+        setModalNovoModo(modo === 'aula' && !podeAgendar ? 'bloqueio' : modo);
         setModalProfInicial(pId);
         setModalDataInicial(dataSlot || (semana ? dataGlobal : obterDataDoProfessor(pId)));
         setModalHoraInicial(horaSlot || '08:00');
@@ -539,12 +543,12 @@ export default function AbaMapaDia({
     ) {
         e.preventDefault();
         setAlvoDrop(null);
-        if (!aulaArrastando || ehProfessor) return;
+        if (!aulaArrastando || ehProfessor || !podeAgendar) return;
 
         const horaOriginal = aulaArrastando.hora_inicio || (aulaArrastando.horario || '').slice(0, 5);
         const minutoOriginal = horaParaMinutos(horaOriginal);
         const inicioSlot = horaParaMinutos(horaFaixa);
-        const novoHorario = minutoOriginal >= inicioSlot && minutoOriginal < inicioSlot + 30
+        const novoHorario = minutoOriginal >= inicioSlot && minutoOriginal < inicioSlot + cfg.intervalo
             ? horaOriginal : horaFaixa;
 
         const mudouProf = aulaArrastando.professor_id !== profDestino.id;
@@ -709,10 +713,10 @@ export default function AbaMapaDia({
                             <button type="button" className={styles.botao} disabled={!colunas.length} onClick={() => abrirModalCriacao('bloqueio')}>
                                 <Ban />{' ' + textoR4("Bloquear")}</button>
                         </>}
-                        <button type="button" className={styles.primario} disabled={!colunas.length}
-                            onClick={() => abrirModalCriacao(ehProfessor ? 'bloqueio' : 'aula')}>
-                            {ehProfessor ? <Ban /> : <CalendarPlus />}
-                            {ehProfessor ? textoR4("Bloquear horário") : textoR4("Agendar aula")}
+                        <button type="button" className={styles.primario} disabled={!colunas.length || (!ehProfessor && !podeAgendar)}
+                            onClick={() => abrirModalCriacao(ehProfessor && !podeAgendar ? 'bloqueio' : 'aula')}>
+                            {ehProfessor && !podeAgendar ? <Ban /> : <CalendarPlus />}
+                            {ehProfessor && !podeAgendar ? textoR4("Bloquear horário") : textoR4("Agendar aula")}
                         </button>
                     </div>
                 </div>
@@ -726,7 +730,7 @@ export default function AbaMapaDia({
                         ))}
                     </div>
                     <div className={styles.controles}>
-                        {!ehProfessor && (
+                        {(!ehProfessor || podeVerOutrasAgendas) && (
                             <>
                                 <select aria-label={textoR4("Unidade")} value={unidadeEndereco || 'todas'} onChange={(e) => {
                                     setDatasPorProfessor({});
@@ -741,7 +745,7 @@ export default function AbaMapaDia({
                                 </label>
                             </>
                         )}
-                        {semana && !ehProfessor && professoresVisiveis.length > 0 && (
+                        {semana && (!ehProfessor || podeVerOutrasAgendas) && professoresVisiveis.length > 0 && (
                             <select aria-label={textoR4("Professor da semana")} value={professorSemana?.id ?? ''}
                                 onChange={(e) => setProfessorSemanaId(Number(e.target.value))}>
                                 {professoresVisiveis.map((p) => <option key={p.id} value={p.id}>{p.nome}{todasUnidades && p.unidade_nome ? ' · ' + p.unidade_nome : ''}</option>)}
@@ -829,29 +833,29 @@ export default function AbaMapaDia({
                                     )}
                                 </div>
                             ))}
-                            <div className={styles.horas} style={{ height: ALTURA_GRADE }}>
-                                {HORAS_GRADE_R4.map((hora) => (
-                                    <div key={hora} className={styles.hora} style={{ height: ALTURA_HORA }}>
-                                        <b>{hora}</b><small>{hora.slice(0, 2)}:30</small>
+                            <div className={styles.horas} style={{ height: alturaGrade }}>
+                                {horariosGrade.map((minuto) => (
+                                    <div key={minuto} className={styles.hora} style={{ height: alturaSlot }}>
+                                        <b>{minutosParaHora(minuto)}</b>
                                     </div>
                                 ))}
-                                {agora && colunas.some((c) => c.data === agora.data) && agora.minuto >= INICIO_MAPA && agora.minuto < FIM_MAPA && (
+                                {agora && colunas.some((c) => c.data === agora.data) && agora.minuto >= inicioMapa && agora.minuto < fimMapa && (
                                     <span className={styles.relogio} style={{ top: posicao(agora.minuto) }}>{minutosParaHora(agora.minuto)}</span>
                                 )}
                             </div>
                             {colunas.map(({ chave, prof, data, aulas, bloqueios, aulasExibidas }) => (
-                                <div className={styles.coluna} key={chave} style={{ height: ALTURA_GRADE }}>
-                                    {HORARIOS_GRADE.map((minuto) => {
+                                <div className={styles.coluna} key={chave} style={{ height: alturaGrade }}>
+                                    {horariosGrade.map((minuto) => {
                                         const hora = minutosParaHora(minuto);
                                         const chaveSlot = chave + '-' + hora;
-                                        const ocupado = bloqueios.some((b) => minuto < b.fim && minuto + 30 > b.inicio) ||
+                                        const ocupado = bloqueios.some((b) => minuto < b.fim && minuto + cfg.intervalo > b.inicio) ||
                                             aulas.some(({ aula, inicio, fim }) =>
-                                                obterMetaStatusR4(aula.status).ocupaHorario && minuto < fim && minuto + 30 > inicio);
+                                                obterMetaStatusR4(aula.status).ocupaHorario && minuto < fim && minuto + cfg.intervalo > inicio);
                                         return (
                                             <div key={hora} className={styles.slot} data-cheio={ocupado}
-                                                data-drop={alvoDrop === chaveSlot} style={{ height: ALTURA_HORA / 2 }}
+                                                data-drop={alvoDrop === chaveSlot} style={{ height: alturaSlot }}
                                                 onDragOver={(e) => {
-                                                    if (!aulaArrastando || ehProfessor) return;
+                                                    if (!aulaArrastando || ehProfessor || !podeAgendar) return;
                                                     e.preventDefault();
                                                     setAlvoDrop(chaveSlot);
                                                 }}
@@ -860,10 +864,10 @@ export default function AbaMapaDia({
                                                         setAlvoDrop((atual) => atual === chaveSlot ? null : atual);
                                                 }}
                                                 onDrop={(e) => soltarAulaNaCelula(e, prof, data, hora)}>
-                                                {!ocupado && (
+                                                {!ocupado && (podeAgendar || ehProfessor) && (
                                                     <button type="button"
                                                         aria-label={`${ehProfessor ? 'Bloquear' : 'Agendar'} ${hora}, ${prof.nome}, ${formatarDiaCurtoPT(data)}`}
-                                                        onClick={() => abrirModalCriacao(ehProfessor ? 'bloqueio' : 'aula', prof.id, hora, data)}>
+                                                        onClick={() => abrirModalCriacao(ehProfessor && !podeAgendar ? 'bloqueio' : 'aula', prof.id, hora, data)}>
                                                         <Plus /><span>{hora}</span>
                                                     </button>
                                                 )}
@@ -889,8 +893,10 @@ export default function AbaMapaDia({
                                                 data-status={meta.valor} data-arrastando={aulaArrastando?.id === aula.id}
                                                 aria-label={`${aula.nome_aluno}, ${aula.materia}, ${formatarIntervaloCard(aula)}, ${textoR4(meta.rotulo)}`}
                                                 style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
+                                                    ...(cfg.status[meta.valor]?.cor || !['agendado', 'confirmado', 'realizado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca', 'cancelado'].includes(meta.valor)
+                                                        ? { '--event': cfg.status[meta.valor]?.cor || CORES_STATUS_R4[meta.valor] } : {}),
                                                     left: `${faixa / totalFaixas * 100}%`, width: `${100 / totalFaixas}%` }}
-                                                draggable={!ehProfessor && meta.ocupaHorario}
+                                                draggable={!ehProfessor && podeAgendar && meta.ocupaHorario}
                                                 onDragStart={(e) => iniciarArrasteAula(e, aula)}
                                                 onDragEnd={() => { setAulaArrastando(null); setAlvoDrop(null); }}
                                                 onMouseEnter={(e) => abrirHoverCard(e, aula)}
@@ -905,7 +911,7 @@ export default function AbaMapaDia({
                                             </button>
                                         );
                                     })}
-                                    {agora && data === agora.data && agora.minuto >= INICIO_MAPA && agora.minuto < FIM_MAPA && (
+                                    {agora && data === agora.data && agora.minuto >= inicioMapa && agora.minuto < fimMapa && (
                                         <span className={styles.linhaAgora} style={{ top: posicao(agora.minuto) }} aria-hidden="true" />
                                     )}
                                 </div>
@@ -915,7 +921,8 @@ export default function AbaMapaDia({
                 )}
                 <div className={styles.legenda}>
                     {LISTA_STATUS_AULA_R4.map((status) => (
-                        <span key={status.valor} data-status={status.valor}><i />{textoR4(status.rotulo)}</span>
+                        <span key={status.valor} data-status={status.valor}
+                            style={{ '--event': cfg.status[status.valor]?.cor || (LISTA_STATUS_AULA_R4.slice(0, 6).some((item) => item.valor === status.valor) ? undefined : CORES_STATUS_R4[status.valor]) } as React.CSSProperties}><i />{textoR4(status.rotulo)}</span>
                     ))}
                     <span data-status="bloqueio"><i />{textoR4("Bloqueio")}</span>
                 </div>

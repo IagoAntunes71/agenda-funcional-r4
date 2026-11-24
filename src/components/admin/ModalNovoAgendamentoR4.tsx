@@ -1,4 +1,6 @@
 'use client';
+import { useOperacaoR4 } from './OperacaoPainelR4';
+import { podeOperacao } from '@/lib/operacao-r4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -53,9 +55,12 @@ export default function ModalNovoAgendamentoR4({
     const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
     const ehProfessor = roleUsuario === 'professor';
+    const { cfg } = useOperacaoR4();
+    const podeAgendar = podeOperacao(cfg, roleUsuario, 'agenda');
+    const [acompanhamento, setAcompanhamento] = useState(false);
 
     const [modo, setModo] = useState<'aula' | 'bloqueio'>(
-        ehProfessor ? 'bloqueio' : modoInicial
+        podeAgendar ? modoInicial : 'bloqueio'
     );
     const [unidadeId, setUnidadeId] = useState<number>(unidadeInicialId);
     const [professorId, setProfessorId] = useState<number>(
@@ -69,7 +74,7 @@ export default function ModalNovoAgendamentoR4({
     const [duracaoHoras, setDuracaoHoras] = useState<number>(1);
     const [duracaoMinutos, setDuracaoMinutos] = useState<number>(40);
     const [recorrencia, setRecorrencia] = useState<number>(1);
-    const [statusInicial, setStatusInicial] = useState<'agendado' | 'confirmado'>('confirmado');
+    const [statusInicial, setStatusInicial] = useState<'agendado' | 'confirmado'>('agendado');
     const [observacoes, setObservacoes] = useState<string>('');
 
     const [buscaAluno, setBuscaAluno] = useState<string>('');
@@ -89,7 +94,7 @@ export default function ModalNovoAgendamentoR4({
 
     useEffect(() => {
         if (!aberto) return;
-        const modoAlvo = ehProfessor ? 'bloqueio' : modoInicial;
+        const modoAlvo = podeAgendar ? modoInicial : 'bloqueio';
         setModo(modoAlvo);
         setUnidadeId(unidadeInicialId || unidades[0]?.id || 0);
         const profAlvo =
@@ -114,10 +119,12 @@ export default function ModalNovoAgendamentoR4({
             setDuracaoMinutos(40);
         }
         setRecorrencia(1);
+        setAcompanhamento(false);
         setErro(null);
     }, [
         aberto,
         ehProfessor,
+        podeAgendar,
         modoInicial,
         professorTravadoId,
         unidadeInicialId,
@@ -206,6 +213,7 @@ export default function ModalNovoAgendamentoR4({
                         duracao_minutos: totalMinutos,
                         observacoes,
                         status: statusInicial,
+                        acompanhamento,
                         recorrencia_semanas: recorrencia,
                     }),
                 });
@@ -261,7 +269,7 @@ export default function ModalNovoAgendamentoR4({
                     </button>
                 </div>
 
-                {!ehProfessor && (
+                {podeAgendar && (
                     <div className={`grid grid-cols-2 gap-1.5 p-1 rounded-xl border ${clsSubCard}`}>
                         <button
                             type="button"
@@ -336,7 +344,7 @@ export default function ModalNovoAgendamentoR4({
                                 }}
                                 className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                             >
-                                {(ehProfessor ? professores : profsDaUnidade).map((p) => (
+                                {(ehProfessor ? professores.filter((p) => p.id === professorTravadoId) : profsDaUnidade).map((p) => (
                                     <option key={p.id} value={p.id}>
                                         {p.nome}
                                     </option>
@@ -454,6 +462,9 @@ export default function ModalNovoAgendamentoR4({
                                 </div>
 
                                 <div>
+                                    {cfg.acompanhamento && <label className="flex items-center gap-2 text-xs mb-2">
+                                        <input type="checkbox" checked={acompanhamento} onChange={(e) => setAcompanhamento(e.target.checked)} /> Acompanhamento sem cobrança
+                                    </label>}
                                     <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Status Inicial")}</label>
                                     <select
                                         value={statusInicial}

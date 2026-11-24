@@ -1,3 +1,6 @@
+import { lerOperacaoR4, professorDaAula } from '@/lib/operacao-r4-db';
+import { podeOperacao } from '@/lib/operacao-r4';
+import { obterAgoraBahia, adicionarDiasISO } from '@/lib/horarios-reforco';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import { lerSessaoAdmin, type SessaoAdmin } from '@/lib/admin-auth';
@@ -28,13 +31,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
-    if (sessao.role === 'professor') return erro('Este perfil não pode criar aulas.', 403);
 
     try {
         await garantirColunasExtrasAgendamento();
+        const cfg = await lerOperacaoR4();
+        if (!podeOperacao(cfg, sessao.role, 'agenda')) return erro('Seu perfil não pode criar aulas.', 403);
         const body = await req.json();
+        const acompanhamento = body?.acompanhamento === true;
+        if (acompanhamento && !cfg.acompanhamento) return erro('Aulas de acompanhamento estão desativadas.', 403);
 
-        const unidadeId = Number(body?.unidade_id || 0);
+        let unidadeId = Number(body?.unidade_id || 0);
         const professorId = Number(body?.professor_id || 0);
         const materia = materiaBase(String(body?.materia || ''));
         const data = String(body?.data || '').trim();
@@ -42,9 +48,15 @@ export async function POST(req: NextRequest) {
         const duracaoMinutos = Number(body?.duracao_minutos || 100);
         const observacoes = String(body?.observacoes || '').trim() || null;
         const status = String(body?.status || 'confirmado').trim();
-        const recorrencia = Math.min(Math.max(Number(body?.recorrencia_semanas || 1), 1), 12);
+        const recorrencia = Math.min(Math.max(Math.floor(Number(body?.recorrencia_semanas) || 1), 1), 12);
 
-        if (!LISTA_STATUS_AULA_R4.some((item) => item.valor === status)) return erro('Status inválido.', 400);
+        if (!cfg.status[status]?.ativo || (sessao.role === 'professor' && !['agendado', 'confirmado'].includes(status))) return erro('Status indisponível.', 400);
+        if (!dataISOValida(data)) return erro('Data inválida.', 400);
+        if (sessao.role !== 'admin' && cfg.bloquearRetroativo && data < obterAgoraBahia().dataISO) return erro('Agendamento retroativo bloqueado.', 403);
+        if (!unidadeId && !cfg.unidadeObrigatoria) {
+            const [prof] = await sql`SELECT unidade_id FROM professores WHERE id = ${professorId}`;
+            unidadeId = prof?.unidade_id || 0;
+        }
 
         if (!unidadeId || !professorId || !materia || !data || !horaInicio) {
             return NextResponse.json(
@@ -57,11 +69,26 @@ export async function POST(req: NextRequest) {
             !/^([01]\d|2[0-3]):[0-5]\d$/.test(horaInicio) || horaParaMinutos(horaInicio) + duracaoMinutos >= 1440) {
             return erro('Horário ou duração inválidos.', 400);
         }
-        const [destino] = await sql`SELECT materias FROM professores
+        const [destino] = await sql`SELECT id, clin_care_id, materias FROM professores
             WHERE id = ${professorId} AND unidade_id = ${unidadeId} AND ativo`;
         if (!destino || !materiasBase(destino.materias).includes(materia)) {
             return erro('Selecione uma matéria cadastrada para o professor.', 400);
         }
+
+        if (sessao.role === 'professor' && !professorDaAula(await professorVinculado(sessao), { id: destino.id, clin_care_id: destino.clin_care_id })) {
+            return erro('Você só pode agendar na sua própria agenda.', 403);
+        }
+        if (!podeOperacao(cfg, sessao.role, 'simultaneos')) {
+            const datas = Array.from({ length: recorrencia }, (_, i) => adicionarDiasISO(data, i * 7));
+            for (const dia of datas) {
+                if (await existeSobreposicao(professorId, dia, horaInicio, minutosParaHora(horaParaMinutos(horaInicio) + duracaoMinutos))) {
+                    return erro('Já existe uma aula nesse horário.', 409);
+                }
+            }
+        }
+
+        if (Number(body?.aluno_id) > 0 && !podeOperacao(cfg, sessao.role, 'todosAlunos') &&
+            !await alunoAtendidoPor(sessao, Number(body.aluno_id))) return erro('Aluno fora do seu acesso.', 403);
 
         let alunoId = Number(body?.aluno_id || 0);
         let nomeAluno = '';
@@ -71,6 +98,9 @@ export async function POST(req: NextRequest) {
         let serieAluno = '';
 
         if (body?.novo_aluno && body.novo_aluno.nome_aluno) {
+            if (!podeOperacao(cfg, sessao.role, 'editarAlunos') || (sessao.role === 'atendimento' && !cfg.recepcaoCadastra)) {
+                return erro('Seu perfil não pode cadastrar alunos.', 403);
+            }
             nomeAluno = String(body.novo_aluno.nome_aluno).trim();
             nomeResponsavel = String(body.novo_aluno.responsavel_nome || '').trim();
             telefoneAluno = String(body.novo_aluno.telefone || '').trim();
@@ -146,7 +176,7 @@ export async function POST(req: NextRequest) {
                     duracao_minutos,
                     observacoes,
                     status,
-                    criado_por_nome
+                    criado_por_nome, acompanhamento
                 )
                 VALUES (
                     ${unidadeId},
@@ -164,7 +194,7 @@ export async function POST(req: NextRequest) {
                     ${duracaoMinutos},
                     ${observacoes},
                     ${status},
-                    ${sessao.nome}
+                    ${sessao.nome}, ${acompanhamento}
                 )
             `;
         }
@@ -189,20 +219,59 @@ function idValido(id: number) {
     return Number.isSafeInteger(id) && id > 0;
 }
 
-async function buscarAula(id: number, sessao: SessaoAdmin) {
+function dataISOValida(data: string) {
+    const dia = new Date(data + 'T12:00:00Z');
+    return /^\d{4}-\d{2}-\d{2}$/.test(data) && Number.isFinite(dia.getTime()) && dia.toISOString().slice(0, 10) === data;
+}
+
+async function professorVinculado(sessao: SessaoAdmin) {
+    const [prof] = await sql`SELECT id, clin_care_id FROM professores WHERE id = ${sessao.professor_id}`;
+    return prof as { id: number; clin_care_id?: string | null } | undefined;
+}
+
+async function alunoAtendidoPor(sessao: SessaoAdmin, aluno: number) {
+    const [vinculo] = await sql`SELECT a.id FROM agendamentos a
+        JOIN professores p ON p.id = a.professor_id JOIN professores v ON v.id = ${sessao.professor_id}
+        WHERE a.aluno_id = ${aluno} AND a.excluido_em IS NULL AND a.status IN ('realizado', 'concluido')
+            AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+        LIMIT 1`;
+    return Boolean(vinculo);
+}
+
+async function feedbackPermitido(sessao: SessaoAdmin, aula: Record<string, unknown>, prazo: number | null) {
+    return sessao.role === 'professor' && !aula.excluido_em &&
+        professorDaAula(await professorVinculado(sessao), { id: Number(aula.professor_id), clin_care_id: String(aula.professor_clin_care_id || '') }) &&
+        (prazo === null || obterAgoraBahia().dataISO <= adicionarDiasISO(String(aula.data_iso), prazo));
+}
+
+async function existeSobreposicao(professor: number, data: string, inicio: string, fim: string, ignorar = 0) {
+    const [choque] = await sql`
+        SELECT a.id FROM agendamentos a JOIN professores p ON p.id = a.professor_id
+        JOIN professores alvo ON alvo.id = ${professor}
+        WHERE (p.id = alvo.id OR nullif(p.clin_care_id,'') = nullif(alvo.clin_care_id,''))
+          AND a.id <> ${ignorar} AND a.excluido_em IS NULL AND a.data = ${data}::date
+          AND coalesce(a.status,'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
+          AND coalesce(a.hora_inicio,a.horario) < ${fim}::time
+          AND coalesce(a.hora_fim, coalesce(a.hora_inicio,a.horario) + make_interval(mins => coalesce(a.duracao_minutos,100))) > ${inicio}::time
+        LIMIT 1
+    `;
+    return Boolean(choque);
+}
+
+async function buscarAula(id: number, sessao: SessaoAdmin, outras = false) {
     const [aula] = await sql`
         SELECT a.*, to_char(a.data, 'YYYY-MM-DD') AS data_iso,
             to_char(coalesce(a.hora_inicio, a.horario), 'HH24:MI') AS inicio,
             to_char(a.hora_fim, 'HH24:MI') AS fim,
-            p.nome AS professor_nome, u.nome AS unidade_nome
+            p.nome AS professor_nome, p.clin_care_id AS professor_clin_care_id, u.nome AS unidade_nome
         FROM agendamentos a
         LEFT JOIN professores p ON p.id = a.professor_id
         LEFT JOIN unidades u ON u.id = a.unidade_id
         WHERE a.id = ${id}
-          AND (${sessao.role !== 'professor'} OR EXISTS (
+          AND (${sessao.role !== 'professor' || outras} OR EXISTS (
             SELECT 1 FROM professores vinculado
             WHERE vinculado.id = ${sessao.professor_id}
-              AND (vinculado.id = p.id OR vinculado.clin_care_id = p.clin_care_id)
+              AND (vinculado.id = p.id OR nullif(vinculado.clin_care_id, '') = nullif(p.clin_care_id, ''))
           ))
     `;
     return aula;
@@ -238,7 +307,8 @@ export async function GET(req: NextRequest) {
 
     try {
         await garantirColunasExtrasAgendamento();
-        const aula = await buscarAula(id, sessao);
+        const cfg = await lerOperacaoR4();
+        const aula = await buscarAula(id, sessao, podeOperacao(cfg, sessao.role, 'outrasAgendas'));
         if (!aula || (aula.excluido_em && sessao.role === 'professor')) return erro('Aula não encontrada.', 404);
         if (req.nextUrl.searchParams.has('anexo') && !idValido(anexoId)) return erro('Anexo inválido.', 400);
         if (idValido(anexoId)) {
@@ -285,7 +355,11 @@ export async function GET(req: NextRequest) {
                 observacoes: aula.observacoes, feedback_professor: aula.feedback_professor,
                 excluido_em: aula.excluido_em,
             },
-            historico, anexos, podeEditarFeedback: sessao.role === 'professor' && !aula.excluido_em,
+            historico, anexos, podeEditarFeedback: await feedbackPermitido(sessao, aula, cfg.prazoFeedback),
+            podeEditarAgenda: podeOperacao(cfg, sessao.role, 'agenda') && !aula.excluido_em &&
+                (sessao.role !== 'professor' || professorDaAula(await professorVinculado(sessao), { id: aula.professor_id, clin_care_id: aula.professor_clin_care_id })),
+            podeAnexar: podeOperacao(cfg, sessao.role, 'anexos') && !aula.excluido_em &&
+                (sessao.role !== 'professor' || professorDaAula(await professorVinculado(sessao), { id: aula.professor_id, clin_care_id: aula.professor_clin_care_id })),
         });
     } catch (error) {
         console.error('Detalhes do agendamento:', error);
@@ -306,18 +380,28 @@ export async function PATCH(req: NextRequest) {
                 return erro('O feedback deve ter até 10.000 caracteres.', 400);
             }
         }
-        const status = body.status === 'concluido' ? 'realizado' : body.status;
+        const cfg = await lerOperacaoR4();
+        let status = body.status === 'concluido' ? 'realizado' : body.status;
         if (status !== undefined && !LISTA_STATUS_AULA_R4.some((item) => item.valor === status)) {
             return erro('Status inválido.', 400);
         }
         const camposAgenda = ['professor_id', 'unidade_id', 'aluno_id', 'data', 'hora_inicio', 'materia', 'duracao_minutos', 'observacoes'];
         const edicao = camposAgenda.some((campo) => campo in body);
-        if (sessao.role === 'professor' && (edicao || body.reenviar_robo || 'lancado_clincare' in body ||
+        if (sessao.role === 'professor' && (body.reenviar_robo || 'lancado_clincare' in body ||
             (status !== undefined && status !== 'realizado'))) return erro('Seu perfil não permite essa alteração.', 403);
 
+        if ((edicao || body.reenviar_robo || 'lancado_clincare' in body) && !podeOperacao(cfg, sessao.role, 'agenda')) {
+            return erro('Seu perfil não pode gerenciar a agenda.', 403);
+        }
+        if (status && !cfg.status[status]?.ativo) return erro('Este status está desativado.', 400);
         await garantirColunasExtrasAgendamento();
         const aula = await buscarAula(id, sessao);
         if (!aula || (aula.excluido_em && !body.reenviar_robo)) return erro('Aula não encontrada.', 404);
+        if ('feedback_professor' in body) {
+            if (!(await feedbackPermitido(sessao, aula, cfg.prazoFeedback))) return erro('O prazo para editar este feedback terminou.', 403);
+            if (cfg.permissoes.professor.feedbackRealiza && body.feedback_professor.trim() &&
+                ['confirmado', 'agendado', 'reservado', 'pendente'].includes(aula.status)) status = 'realizado';
+        }
         if (body.reenviar_robo === true) {
             const [, linhas] = await sql.transaction([ator(sessao), sql`
                 UPDATE agendamentos SET clincare_reserva_status =
@@ -350,16 +434,25 @@ export async function PATCH(req: NextRequest) {
                 return erro('Confira aluno, unidade, professor, matéria, data e duração.', 400);
             }
             const [destino] = await sql`
-                SELECT p.id, p.materias FROM professores p JOIN unidades u ON u.id = p.unidade_id
+                SELECT p.id, p.clin_care_id, p.materias FROM professores p JOIN unidades u ON u.id = p.unidade_id
                 WHERE p.id = ${professor} AND u.id = ${unidade}
                 AND ((p.ativo AND u.ativa) OR (p.id = ${aula.professor_id} AND u.id = ${aula.unidade_id}))
             `;
             if (!destino) return erro('Escolha um professor vinculado à unidade selecionada.', 400);
+            if (sessao.role === 'professor' && !professorDaAula(await professorVinculado(sessao), { id: destino.id, clin_care_id: destino.clin_care_id })) return erro('Você só pode editar sua própria agenda.', 403);
+            if (sessao.role !== 'admin' && cfg.bloquearRetroativo && data !== aula.data_iso && data < obterAgoraBahia().dataISO) {
+                return erro('Agendamento retroativo bloqueado.', 403);
+            }
+            if ((professor !== aula.professor_id || data !== aula.data_iso || inicio !== aula.inicio ||
+                duracao !== duracaoOriginal) && !podeOperacao(cfg, sessao.role, 'simultaneos') &&
+                await existeSobreposicao(professor, data, inicio, minutosParaHora(fimMinutos), id)) return erro('Já existe uma aula nesse horário.', 409);
             if ((professor !== aula.professor_id || materia !== materiaBase(aula.materia)) &&
                 !materiasBase(destino.materias).includes(materia)) {
                 return erro('Selecione uma matéria cadastrada para o professor de destino.', 400);
             }
         }
+        if (alunoId !== null && !podeOperacao(cfg, sessao.role, 'todosAlunos') &&
+            !await alunoAtendidoPor(sessao, alunoId)) return erro('Aluno fora do seu acesso.', 403);
         const aluno = alunoId === null ? null : (await sql`
             SELECT al.id, al.nome_aluno, al.serie, al.colegio_nome,
                 coalesce(nullif(r.nome, ''), al.responsavel_nome, '') AS responsavel,
@@ -430,11 +523,16 @@ export async function PATCH(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
     const sessao = await lerSessaoAdmin();
-    if (!sessao || sessao.role === 'professor') return erro('Não autorizado.', sessao ? 403 : 401);
+    if (!sessao) return erro('Não autorizado.', 401);
     const id = Number(req.nextUrl.searchParams.get('id'));
     if (!idValido(id)) return erro('Agendamento inválido.', 400);
     if (Number(req.headers.get('content-length')) > MAX_ANEXO + 16384) return erro('Limite de 2 MB por anexo.', 413);
     try {
+        const cfg = await lerOperacaoR4();
+        if (!podeOperacao(cfg, sessao.role, 'anexos')) return erro('Seu perfil não pode anexar arquivos.', 403);
+        await garantirColunasExtrasAgendamento();
+        const aula = await buscarAula(id, sessao);
+        if (!aula || aula.excluido_em) return erro('Aula não encontrada.', 404);
         const arquivo = (await req.formData()).get('arquivo');
         if (!(arquivo instanceof File) || !arquivo.size || arquivo.size > MAX_ANEXO) {
             return erro('Selecione um arquivo de até 2 MB.', 400);
@@ -463,13 +561,18 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
     const sessao = await lerSessaoAdmin();
-    if (!sessao || sessao.role === 'professor') return erro('Não autorizado.', sessao ? 403 : 401);
+    if (!sessao) return erro('Não autorizado.', 401);
     const id = Number(req.nextUrl.searchParams.get('id'));
     const anexo = Number(req.nextUrl.searchParams.get('anexo'));
     if (!idValido(id)) return erro('Agendamento inválido.', 400);
     if (req.nextUrl.searchParams.has('anexo') && !idValido(anexo)) return erro('Anexo inválido.', 400);
     try {
         await garantirColunasExtrasAgendamento();
+        const cfg = await lerOperacaoR4();
+        if (idValido(anexo) ? !podeOperacao(cfg, sessao.role, 'anexos') :
+            sessao.role === 'professor' || !podeOperacao(cfg, sessao.role, 'agenda')) return erro('Não autorizado.', 403);
+        const aula = await buscarAula(id, sessao);
+        if (!aula || aula.excluido_em) return erro('Aula não encontrada.', 404);
         if (idValido(anexo)) {
             const linhas = await sql`WITH removido AS (
                 DELETE FROM r4_agendamento_anexos WHERE id = ${anexo} AND agendamento_id = ${id}

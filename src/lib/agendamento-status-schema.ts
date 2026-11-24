@@ -16,7 +16,7 @@ export function garantirStatusAgendamentoR4() {
                 WHERE c.conrelid = 'agendamentos'::regclass AND c.contype = 'c'
                     AND c.conkey = ARRAY[a.attnum]
             LOOP
-                IF position('desmarcado_sem_cobranca' IN restricao.expressao) = 0
+                IF position('atestado' IN restricao.expressao) = 0
                     AND restricao.expressao ~ '^[(]*status[)]*(::text)?[[:space:]]*=[[:space:]]*ANY[[:space:]]*[(].*ARRAY'
                     AND restricao.expressao !~* '[[:space:]](AND|OR)[[:space:]]'
                 THEN
@@ -24,7 +24,8 @@ export function garantirStatusAgendamentoR4() {
                     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'agendamentos'::regclass AND conname = 'r4_agendamentos_status_check') THEN
                         ALTER TABLE agendamentos ADD CONSTRAINT r4_agendamentos_status_check
                             CHECK (status::text IN ('agendado', 'confirmado', 'realizado', 'concluido',
-                                'desmarcado_com_cobranca', 'desmarcado_sem_cobranca', 'cancelado')) NOT VALID;
+                                'desmarcado_com_cobranca', 'desmarcado_sem_cobranca', 'cancelado',
+                                'reservado', 'remanejado', 'falta', 'ferias', 'atestado', 'pendente')) NOT VALID;
                     END IF;
                 END IF;
             END LOOP;

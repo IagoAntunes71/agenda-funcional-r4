@@ -55,6 +55,7 @@ import AbaDatas from './AbaDatas';
 import AbaMapaDia from './AbaMapaDia';
 import DiretorioProfessoresR4 from './DiretorioProfessoresR4';
 import AbaProfessores from './AbaProfessores';
+import { ConfiguracoesOperacaoR4, RelatorioOperacaoR4, useOperacaoR4 } from './OperacaoPainelR4';
 import EditorCoresInterface from './EditorCoresInterface';
 import { useCoresR4, variaveisCoresR4 } from '@/components/CoresInterfaceR4';
 import EditorTextosInterface from './EditorTextosInterface';
@@ -107,6 +108,7 @@ export default function PainelAdmin({
 }) {
     const textoR4 = useTextoR4();
     const { paleta } = useCoresR4();
+    const { cfg: operacao } = useOperacaoR4();
     const router = useRouter();
     const [autenticado, setAutenticado] = useState(Boolean(sessaoInicial));
     const [modoLogin, setModoLogin] = useState<'perfil' | 'master'>('perfil');
@@ -698,6 +700,10 @@ export default function PainelAdmin({
         icone: React.ReactNode;
     }[] = [
         { id: 'inicio', rotulo: 'Início', subtitulo: 'Visão geral e atalhos', icone: <LayoutGrid className="w-4 h-4" /> },
+        { id: 'configuracoes', rotulo: 'Configurações', subtitulo: 'Agenda, permissões e automação', icone: <LayoutGrid className="w-4 h-4" /> },
+        { id: 'controle-alunos', rotulo: 'Controle dos Alunos', subtitulo: 'Consulte os feedbacks das aulas', icone: <Users className="w-4 h-4" /> },
+        { id: 'recepcao', rotulo: perfilAtual.role === 'professor' ? 'Meus repasses' : 'Recepção', subtitulo: 'Aulas e agenda financeira', icone: <CalendarDays className="w-4 h-4" /> },
+        { id: 'metas', rotulo: 'Metas de feedback', subtitulo: 'Acompanhe registros e pendências', icone: <ClipboardCheck className="w-4 h-4" /> },
         {
             id: 'agendamentos',
             rotulo: 'Agendamentos',
@@ -755,6 +761,10 @@ export default function PainelAdmin({
     const itensVisiveis = itensMenuLateral.filter((item) => podeAcessarModulo(perfilAtual.role, item.id));
 
     const metaAbaAtual: Record<AbaAdmin, { titulo: string }> = {
+        configuracoes: { titulo: 'Configurações' },
+        'controle-alunos': { titulo: 'Controle dos Alunos' },
+        recepcao: { titulo: perfilAtual.role === 'professor' ? 'Meus repasses' : 'Recepção' },
+        metas: { titulo: 'Metas de feedback' },
         inicio: { titulo: 'Visão geral' },
         agendamentos: { titulo: 'Agendamentos & Operação' },
         mapa: { titulo: 'Mapa do Dia' },
@@ -1303,9 +1313,19 @@ export default function PainelAdmin({
                     } w-full mx-auto transition-all`}
                 >
                     {aba === 'inicio' && (
+                        <div className="space-y-5">
                         <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
                             modulos={itensVisiveis.filter((item) => item.id !== 'inicio')} escuro={escuro} />
+                        {perfilAtual.role !== 'atendimento' && <section className="space-y-2">
+                            <h2 className="text-base font-bold">Metas de feedback</h2>
+                            <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} compacto />
+                        </section>}
+                        </div>
                     )}
+                    {aba === 'configuracoes' && admin && <ConfiguracoesOperacaoR4 />}
+                    {aba === 'controle-alunos' && <RelatorioOperacaoR4 painel="alunos" perfil={perfilAtual.role} unidades={unidades} />}
+                    {aba === 'recepcao' && <RelatorioOperacaoR4 painel="recepcao" perfil={perfilAtual.role} unidades={unidades} />}
+                    {aba === 'metas' && <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} />}
                     {aba === 'agendamentos' && retornoStatus && (
                         <p className={`mb-3 rounded-lg border p-3 text-sm ${clsCard}`} role={retornoStatus.erro ? 'alert' : 'status'}>
                             {retornoStatus.texto}
@@ -1508,7 +1528,7 @@ export default function PainelAdmin({
                                                                 disabled={salvandoStatusId !== null}
                                                                 value={normalizarStatusAulaR4(ag.status)}
                                                                 onChange={(e) => void alterarStatusAgendamento(ag.id, e.target.value as StatusAulaR4)}>
-                                                                {LISTA_STATUS_AULA_R4.map((item) => <option key={item.valor} value={item.valor}>
+                                                                {LISTA_STATUS_AULA_R4.filter((item) => operacao.status[item.valor]?.ativo || item.valor === normalizarStatusAulaR4(ag.status)).map((item) => <option key={item.valor} value={item.valor}>
                                                                     {textoR4(item.rotulo)}
                                                                 </option>)}
                                                             </select>

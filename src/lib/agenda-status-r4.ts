@@ -11,7 +11,13 @@ export type StatusAulaR4 =
     | 'realizado'
     | 'desmarcado_com_cobranca'
     | 'desmarcado_sem_cobranca'
-    | 'cancelado';
+    | 'cancelado'
+    | 'reservado'
+    | 'remanejado'
+    | 'falta'
+    | 'ferias'
+    | 'atestado'
+    | 'pendente';
 
 export interface MetaStatusAula {
     valor: StatusAulaR4;
@@ -71,6 +77,12 @@ export const LISTA_STATUS_AULA_R4: MetaStatusAula[] = [
         clsCardAgenda: 'bg-stone-500/10 border-stone-500/30 opacity-75',
         ocupaHorario: false,
     },
+    { valor: 'reservado', rotulo: 'Reservado', corPonto: 'bg-slate-400', clsBadge: 'border-slate-400', clsCardAgenda: '', ocupaHorario: true },
+    { valor: 'remanejado', rotulo: 'Remanejado', corPonto: 'bg-slate-400', clsBadge: 'border-slate-400', clsCardAgenda: '', ocupaHorario: false },
+    { valor: 'falta', rotulo: 'Falta', corPonto: 'bg-slate-400', clsBadge: 'border-slate-400', clsCardAgenda: '', ocupaHorario: false },
+    { valor: 'ferias', rotulo: 'Férias', corPonto: 'bg-slate-400', clsBadge: 'border-slate-400', clsCardAgenda: '', ocupaHorario: false },
+    { valor: 'atestado', rotulo: 'Atestado', corPonto: 'bg-slate-400', clsBadge: 'border-slate-400', clsCardAgenda: '', ocupaHorario: false },
+    { valor: 'pendente', rotulo: 'Pendente', corPonto: 'bg-slate-400', clsBadge: 'border-slate-400', clsCardAgenda: '', ocupaHorario: true },
 ];
 
 export function normalizarStatusAulaR4(statusBruto: string | null | undefined): StatusAulaR4 {
