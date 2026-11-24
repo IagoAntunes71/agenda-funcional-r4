@@ -239,13 +239,13 @@ export default function AbaProfessores({
                                            professores,
                                            escuro,
                                            classes,
-                                           onRecarregarDados,
+                                           onRecarregarDadosAction,
                                        }: {
     unidades: UnidadeAdmin[];
     professores: ProfessorAdmin[];
     escuro: boolean;
     classes: TemaClasses;
-    onRecarregarDados: () => Promise<void>;
+    onRecarregarDadosAction: () => Promise<void>;
 }) {
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
@@ -393,7 +393,7 @@ export default function AbaProfessores({
             setProfMaterias('');
             setProfMateriasSeries({});
             setProfManhaAtivo(false);
-            await onRecarregarDados();
+            await onRecarregarDadosAction();
         } finally {
             setCadastrandoProf(false);
         }
@@ -446,7 +446,7 @@ export default function AbaProfessores({
                 }),
             });
             setEditProfId(null);
-            await onRecarregarDados();
+            await onRecarregarDadosAction();
         } finally {
             setSalvandoProf(false);
         }
@@ -458,7 +458,7 @@ export default function AbaProfessores({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, ativo }),
         });
-        await onRecarregarDados();
+        await onRecarregarDadosAction();
     }
 
     const previewSlotsNovoProf = gerarTodosSlotsProfessor({

@@ -7,11 +7,11 @@ import { DataAdmin, TemaClasses, formatarDataBR } from './types';
 export default function AbaDatas({
                                      datasLiberadas,
                                      classes,
-                                     onRecarregarDados,
+                                     onRecarregarDadosAction,
                                  }: {
     datasLiberadas: DataAdmin[];
     classes: TemaClasses;
-    onRecarregarDados: () => Promise<void>;
+    onRecarregarDadosAction: () => Promise<void>;
 }) {
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
@@ -35,7 +35,7 @@ export default function AbaDatas({
         });
         setNovaData('');
         setNovaDescricao('');
-        await onRecarregarDados();
+        await onRecarregarDadosAction();
     }
 
     async function alternarData(id: number, ativo: boolean) {
@@ -44,12 +44,12 @@ export default function AbaDatas({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, ativo }),
         });
-        await onRecarregarDados();
+        await onRecarregarDadosAction();
     }
 
     async function excluirData(id: number) {
         await fetch(`/api/admin/datas?id=${id}`, { method: 'DELETE' });
-        await onRecarregarDados();
+        await onRecarregarDadosAction();
     }
 
     return (

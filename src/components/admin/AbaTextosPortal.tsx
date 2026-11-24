@@ -7,11 +7,11 @@ import { TemaClasses } from './types';
 
 export default function AbaTextosPortal({
                                             textosIniciais,
-                                            onTextosAtualizados,
+                                            onTextosAtualizadosAction,
                                             classes,
                                         }: {
     textosIniciais: TextosPortal;
-    onTextosAtualizados: (novos: TextosPortal) => void;
+    onTextosAtualizadosAction: (novos: TextosPortal) => void;
     classes: TemaClasses;
 }) {
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
@@ -48,7 +48,7 @@ export default function AbaTextosPortal({
             }
             if (json.textos) {
                 setTextosPortal(json.textos);
-                onTextosAtualizados(json.textos);
+                onTextosAtualizadosAction(json.textos);
             }
             setFeedbackTextos({
                 tipo: 'sucesso',

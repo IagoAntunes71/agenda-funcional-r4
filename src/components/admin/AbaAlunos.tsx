@@ -18,11 +18,11 @@ import { AlunoAdmin, ResponsavelContaAdmin, TemaClasses } from './types';
 export default function AbaAlunos({
                                       responsaveis,
                                       classes,
-                                      onRecarregarDados,
+                                      onRecarregarDadosAction,
                                   }: {
     responsaveis: ResponsavelContaAdmin[];
     classes: TemaClasses;
-    onRecarregarDados: () => Promise<void>;
+    onRecarregarDadosAction: () => Promise<void>;
 }) {
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
@@ -76,7 +76,7 @@ export default function AbaAlunos({
                     tipo: 'sucesso',
                     texto: json.mensagem || 'PIN resetado com sucesso.',
                 });
-                await onRecarregarDados();
+                await onRecarregarDadosAction();
             } else {
                 setFeedbackAluno({
                     tipo: 'erro',
@@ -131,7 +131,7 @@ export default function AbaAlunos({
                 tipo: 'sucesso',
                 texto: json.mensagem || 'Conta do responsável atualizada.',
             });
-            await onRecarregarDados();
+            await onRecarregarDadosAction();
         } finally {
             setSalvandoRespConta(false);
         }
@@ -158,7 +158,7 @@ export default function AbaAlunos({
                     tipo: 'sucesso',
                     texto: 'Alerta de conflito marcado como revisado.',
                 });
-                await onRecarregarDados();
+                await onRecarregarDadosAction();
             } else {
                 setFeedbackAluno({
                     tipo: 'erro',
@@ -191,7 +191,7 @@ export default function AbaAlunos({
                 tipo: 'sucesso',
                 texto: json.mensagem || 'Conta excluída com sucesso.',
             });
-            await onRecarregarDados();
+            await onRecarregarDadosAction();
         } finally {
             setExcluindoContaId(null);
         }
@@ -244,7 +244,7 @@ export default function AbaAlunos({
                 tipo: 'sucesso',
                 texto: json.mensagem || 'Dados atualizados com sucesso.',
             });
-            await onRecarregarDados();
+            await onRecarregarDadosAction();
         } finally {
             setSalvandoAlunoAdmin(false);
         }
@@ -270,7 +270,7 @@ export default function AbaAlunos({
                 tipo: 'sucesso',
                 texto: json.mensagem || 'Aluno excluído com sucesso.',
             });
-            await onRecarregarDados();
+            await onRecarregarDadosAction();
         } finally {
             setExcluindoAlunoId(null);
         }

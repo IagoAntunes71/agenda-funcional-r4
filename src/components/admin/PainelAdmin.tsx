@@ -92,17 +92,17 @@ export default function PainelAdmin({
     const [tema, setTema] = useState<'escuro' | 'claro'>('escuro');
     const [menuMobileAberto, setMenuMobileAberto] = useState(false);
 
-    const [aba, setAba] = useState<AbaAdmin>('agendamentos');
+    const [aba, setAba] = useState<AbaAdmin>('mapa');
     const [carregandoDados, setCarregandoDados] = useState(false);
-    const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(
-        null
-    );
+    const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
 
     const [perfilAtual, setPerfilAtual] = useState<PerfilAdmin>({
         id: 0,
         nome: 'Administrador R4',
         email: '',
         foto_url: null,
+        role: 'admin',
+        professor_id: null,
     });
     const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
     const [modalPerfilAberto, setModalPerfilAberto] = useState(false);
@@ -224,6 +224,29 @@ export default function PainelAdmin({
                 return;
             }
             const json = await res.json();
+
+            // >>> COLE AQUI <<<
+            if (json.sessao) {
+                setPerfilAtual((prev) => ({
+                    ...prev,
+                    id: json.sessao.id,
+                    nome: json.sessao.nome,
+                    email: json.sessao.email,
+                    role: json.sessao.role || 'admin',
+                    professor_id: json.sessao.professor_id ?? null,
+                }));
+
+                if (json.sessao.role === 'professor') {
+                    setAba('mapa');
+                } else if (json.sessao.role === 'atendimento') {
+                    setAba((abaAtual) =>
+                        ['mapa', 'agendamentos', 'alunos'].includes(abaAtual)
+                            ? abaAtual
+                            : 'mapa'
+                    );
+                }
+            }
+            // >>> FIM DO TRECHO <<<
 
             if (json.chaveMestra) {
                 setModoChaveMestra(json.chaveMestra.modo || 'auto');
@@ -396,6 +419,8 @@ export default function PainelAdmin({
                     nome: json.perfil.nome,
                     email: json.perfil.email,
                     foto_url: null,
+                    role: json.perfil.role || 'admin',
+                    professor_id: json.perfil.professor_id ?? null,
                 });
             }
             setAutenticado(true);
@@ -710,6 +735,14 @@ export default function PainelAdmin({
         },
     ];
 
+    const itensVisiveis = itensMenuLateral.filter((item) => {
+        if (perfilAtual.role === 'professor') return item.id === 'mapa';
+        if (perfilAtual.role === 'atendimento') {
+            return ['mapa', 'agendamentos', 'alunos'].includes(item.id);
+        }
+        return true; // 'admin' vê todas as abas
+    });
+
     const metaAbaAtual: Record<AbaAdmin, { titulo: string }> = {
         agendamentos: { titulo: 'Agendamentos & Operação' },
         mapa: { titulo: 'Mapa do Dia' },
@@ -884,7 +917,7 @@ export default function PainelAdmin({
                             Módulos
                         </p>
 
-                        {itensMenuLateral.map((item) => {
+                        {itensVisiveis.map((item) => {
                             const ativo = aba === item.id;
                             return (
                                 <button
@@ -1811,12 +1844,16 @@ export default function PainelAdmin({
 
                     {aba === 'mapa' && (
                         <AbaMapaDia
+                            roleUsuario={perfilAtual.role}
+                            professorTravadoId={perfilAtual.professor_id ?? null}
                             unidades={unidades}
                             professores={professores}
+                            alunos={alunos}
                             agendamentos={agendamentos}
                             bloqueios={bloqueios}
                             escuro={escuro}
                             classes={classesCompartilhadas}
+                            onRecarregarDadosAction={carregarDados}
                         />
                     )}
 
@@ -1824,14 +1861,14 @@ export default function PainelAdmin({
                         <AbaAlunos
                             responsaveis={responsaveis}
                             classes={classesCompartilhadas}
-                            onRecarregarDados={carregarDados}
+                            onRecarregarDadosAction={carregarDados}
                         />
                     )}
 
                     {aba === 'textos' && (
                         <AbaTextosPortal
                             textosIniciais={textosPortal}
-                            onTextosAtualizados={setTextosPortal}
+                            onTextosAtualizadosAction={setTextosPortal}
                             classes={classesCompartilhadas}
                         />
                     )}
@@ -1840,7 +1877,7 @@ export default function PainelAdmin({
                         <AbaDatas
                             datasLiberadas={datasLiberadas}
                             classes={classesCompartilhadas}
-                            onRecarregarDados={carregarDados}
+                            onRecarregarDadosAction={carregarDados}
                         />
                     )}
 
@@ -1850,7 +1887,7 @@ export default function PainelAdmin({
                             professores={professores}
                             escuro={escuro}
                             classes={classesCompartilhadas}
-                            onRecarregarDados={carregarDados}
+                            onRecarregarDadosAction={carregarDados}
                         />
                     )}
 
@@ -1858,7 +1895,7 @@ export default function PainelAdmin({
                         <AbaUnidades
                             unidades={unidades}
                             classes={classesCompartilhadas}
-                            onRecarregarDados={carregarDados}
+                            onRecarregarDadosAction={carregarDados}
                         />
                     )}
 
@@ -1868,13 +1905,14 @@ export default function PainelAdmin({
 
             <ModalPerfilAdmin
                 aberto={modalPerfilAberto}
-                onFechar={() => setModalPerfilAberto(false)}
+                onFecharAction={() => setModalPerfilAberto(false)}
                 abaInicial={abaModalPerfil}
                 perfilAtual={perfilAtual}
                 perfisAdmin={perfisAdmin}
+                professores={professores}
                 feedbackInicial={feedbackModalPerfil}
-                onPerfilAtualizado={setPerfilAtual}
-                onRecarregarPerfis={carregarPerfisETextos}
+                onPerfilAtualizadoAction={setPerfilAtual}
+                onRecarregarPerfisAction={carregarPerfisETextos}
                 classes={classesCompartilhadas}
             />
         </div>

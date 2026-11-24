@@ -1,3 +1,11 @@
+/**
+ * ARQUIVO: src/components/admin/types.ts
+ * FUNÇÃO: Define todas as interfaces TypeScript compartilhadas entre o PainelAdmin,
+ * Mapa da Agenda, Modais de Marcação/Detalhes e Gestão de Perfis, além de helpers de data e avatar.
+ */
+
+import { RoleSistema } from '@/lib/admin-auth';
+import { StatusAulaR4 } from '@/lib/agenda-status-r4';
 import { MapaMateriasSeries } from '@/lib/cliente-helpers';
 
 export interface UnidadeAdmin {
@@ -66,6 +74,8 @@ export interface AgendamentoAdmin {
     materia: string;
     data: string;
     hora_inicio: string;
+    hora_fim?: string;
+    duracao_minutos?: number;
     horario: string;
     nome_responsavel: string;
     whatsapp_responsavel: string;
@@ -73,7 +83,10 @@ export interface AgendamentoAdmin {
     colegio_aluno: string;
     serie_aluno: string;
     observacoes: string | null;
-    status: 'confirmado' | 'cancelado' | 'concluido';
+    feedback_professor?: string | null;
+    criado_por_nome?: string | null;
+    origem?: string;
+    status: StatusAulaR4 | 'concluido';
     sincronizado_clincare: boolean;
     criado_em_formatado: string;
     clincare_reserva_status?: string;
@@ -83,11 +96,15 @@ export interface AgendamentoAdmin {
 export interface BloqueioAdmin {
     id: number;
     professor_id: number | null;
+    unidade_id?: number | null;
     professor_clin_care_id: string | null;
     data: string;
     hora_inicio: string;
     hora_fim: string;
     motivo: string;
+    descricao?: string | null;
+    origem?: string;
+    criado_por_nome?: string | null;
 }
 
 export interface CooldownsSync {
@@ -101,13 +118,16 @@ export interface PerfilAdmin {
     nome: string;
     email: string;
     foto_url: string | null;
+    role: RoleSistema;
+    professor_id?: number | null;
+    professor_nome?: string | null;
     ativo?: boolean;
     criado_em?: string;
 }
 
 export type AbaAdmin =
-    | 'agendamentos'
     | 'mapa'
+    | 'agendamentos'
     | 'alunos'
     | 'textos'
     | 'datas'

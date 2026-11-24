@@ -1,13 +1,24 @@
+/**
+ * ARQUIVO: src/lib/admin-auth.ts
+ * FUNÇÃO: Gerencia a sessão autenticada (cookie HMAC), hash de senhas e estrutura
+ * da tabela `admins_sistema` com suporte aos 3 perfis de acesso:
+ * 'admin' (acesso total), 'atendimento' (recepção/agenda) e 'professor' (agenda própria).
+ */
+
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db';
 
 export const NOME_COOKIE_ADMIN = 'r4_admin_session';
 
+export type RoleSistema = 'admin' | 'atendimento' | 'professor';
+
 export interface SessaoAdmin {
     id: number;
     nome: string;
     email: string;
+    role: RoleSistema;
+    professor_id: number | null;
 }
 
 function obterSegredoAssinatura(): string {
@@ -18,6 +29,12 @@ function obterSegredoAssinatura(): string {
     );
 }
 
+export function normalizarRoleSistema(valor: unknown): RoleSistema {
+    const v = String(valor || '').trim().toLowerCase();
+    if (v === 'atendimento' || v === 'professor') return v;
+    return 'admin';
+}
+
 export async function garantirTabelaAdmins(): Promise<void> {
     await sql`
     CREATE TABLE IF NOT EXISTS admins_sistema (
@@ -26,10 +43,16 @@ export async function garantirTabelaAdmins(): Promise<void> {
       email TEXT NOT NULL UNIQUE,
       senha_hash TEXT NOT NULL,
       foto_url TEXT,
+      role TEXT NOT NULL DEFAULT 'admin',
+      professor_id INT,
       ativo BOOLEAN DEFAULT true,
       criado_em TIMESTAMPTZ DEFAULT now()
     )
   `;
+    await Promise.all([
+        sql`ALTER TABLE admins_sistema ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'`,
+        sql`ALTER TABLE admins_sistema ADD COLUMN IF NOT EXISTS professor_id INT`,
+    ]);
 }
 
 export function hashSenhaAdmin(senha: string): string {
@@ -56,6 +79,8 @@ export function criarTokenSessaoAdmin(sessao: SessaoAdmin): string {
             id: sessao.id,
             nome: sessao.nome,
             email: sessao.email,
+            role: normalizarRoleSistema(sessao.role),
+            professor_id: sessao.professor_id ?? null,
             iat: Date.now(),
         })
     ).toString('base64url');
@@ -79,6 +104,8 @@ export async function lerSessaoAdmin(): Promise<SessaoAdmin | null> {
                 id: 0,
                 nome: 'Administrador R4',
                 email: '',
+                role: 'admin',
+                professor_id: null,
             };
         }
 
@@ -94,13 +121,16 @@ export async function lerSessaoAdmin(): Promise<SessaoAdmin | null> {
 
         const dados = JSON.parse(
             Buffer.from(payloadBase64, 'base64url').toString('utf8')
-        ) as SessaoAdmin;
+        ) as Partial<SessaoAdmin>;
 
         if (typeof dados.id !== 'number' || !dados.nome) return null;
         return {
             id: dados.id,
             nome: dados.nome,
             email: dados.email || '',
+            role: normalizarRoleSistema(dados.role),
+            professor_id:
+                typeof dados.professor_id === 'number' ? dados.professor_id : null,
         };
     } catch {
         return null;

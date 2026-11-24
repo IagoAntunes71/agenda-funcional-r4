@@ -31,10 +31,10 @@ interface ProfessorAgrupado {
 
 export default function MatrizProfessoresUnidades({
                                                       classes,
-                                                      onAlterado,
+                                                      onAlteradoAction,
                                                   }: {
     classes: TemaClasses;
-    onAlterado?: () => Promise<void>;
+    onAlteradoAction?: () => Promise<void>;
 }) {
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
@@ -117,7 +117,7 @@ export default function MatrizProfessoresUnidades({
 
             setUnidades(json.unidades || unidades);
             setProfessores(json.professores || []);
-            if (onAlterado) await onAlterado();
+            if (onAlteradoAction) await onAlteradoAction();
         } catch {
             setFeedback({
                 tipo: 'erro',
@@ -144,7 +144,7 @@ export default function MatrizProfessoresUnidades({
                     tipo: 'sucesso',
                     texto: 'Cadastros duplicados do mesmo professor foram unificados.',
                 });
-                if (onAlterado) await onAlterado();
+                if (onAlteradoAction) await onAlteradoAction();
             }
         } finally {
             setMesclando(false);

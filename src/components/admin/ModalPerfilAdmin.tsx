@@ -2,32 +2,51 @@
 
 import { useEffect, useState } from 'react';
 import { Camera, Eye, EyeOff, Plus, Save, Trash2, UserPlus, X } from 'lucide-react';
+import { RoleSistema } from '@/lib/admin-auth';
 import {
     PerfilAdmin,
+    ProfessorAdmin,
     TemaClasses,
     comprimirImagemAvatar,
     obterIniciais,
 } from './types';
 
+const ROTULO_CARGO: Record<RoleSistema, { nome: string; cls: string }> = {
+    admin: {
+        nome: 'Administrador',
+        cls: 'bg-[#0E7C86]/20 text-[#25A4AF] border-[#0E7C86]/40',
+    },
+    atendimento: {
+        nome: 'Atendimento',
+        cls: 'bg-amber-500/15 text-amber-400 border-amber-500/35',
+    },
+    professor: {
+        nome: 'Professor(a)',
+        cls: 'bg-[#C24124]/20 text-[#E07A5F] border-[#C24124]/40',
+    },
+};
+
 export default function ModalPerfilAdmin({
                                              aberto,
-                                             onFechar,
+                                             onFecharAction,
                                              abaInicial,
                                              perfilAtual,
                                              perfisAdmin,
+                                             professores,
                                              feedbackInicial,
-                                             onPerfilAtualizado,
-                                             onRecarregarPerfis,
+                                             onPerfilAtualizadoAction,
+                                             onRecarregarPerfisAction,
                                              classes,
                                          }: {
     aberto: boolean;
-    onFechar: () => void;
+    onFecharAction: () => void;
     abaInicial: 'meu' | 'equipe';
     perfilAtual: PerfilAdmin;
     perfisAdmin: PerfilAdmin[];
+    professores: ProfessorAdmin[];
     feedbackInicial: { tipo: 'sucesso' | 'erro'; texto: string } | null;
-    onPerfilAtualizado: (novo: PerfilAdmin) => void;
-    onRecarregarPerfis: () => Promise<void>;
+    onPerfilAtualizadoAction: (novo: PerfilAdmin) => void;
+    onRecarregarPerfisAction: () => Promise<void>;
     classes: TemaClasses;
 }) {
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
@@ -42,12 +61,15 @@ export default function ModalPerfilAdmin({
     );
     const [salvandoMeuPerfil, setSalvandoMeuPerfil] = useState(false);
 
-    const [novoAdminNome, setNovoAdminNome] = useState('');
-    const [novoAdminEmail, setNovoAdminEmail] = useState('');
-    const [novoAdminSenha, setNovoAdminSenha] = useState('');
-    const [mostrarNovoAdminSenha, setMostrarNovoAdminSenha] = useState(false);
-    const [novoAdminFoto, setNovoAdminFoto] = useState<string | null>(null);
-    const [criandoNovoAdmin, setCriandoNovoAdmin] = useState(false);
+    const [novoNome, setNovoNome] = useState('');
+    const [novoEmail, setNovoEmail] = useState('');
+    const [novoSenha, setNovoSenha] = useState('');
+    const [novoRole, setNovoRole] = useState<RoleSistema>('atendimento');
+    const [novoProfessorId, setNovoProfessorId] = useState<number>(0);
+    const [mostrarNovoSenha, setMostrarNovoSenha] = useState(false);
+    const [novoFoto, setNovoFoto] = useState<string | null>(null);
+    const [criandoNovo, setCriandoNovo] = useState(false);
+
     const [redefinirSenhaId, setRedefinirSenhaId] = useState<number | null>(null);
     const [novaSenhaEquipe, setNovaSenhaEquipe] = useState('');
     const [feedbackPerfil, setFeedbackPerfil] = useState<{
@@ -57,7 +79,7 @@ export default function ModalPerfilAdmin({
 
     useEffect(() => {
         if (aberto) {
-            setAbaModalPerfil(abaInicial);
+            setAbaModalPerfil(perfilAtual.role === 'admin' ? abaInicial : 'meu');
             setEditMeuNome(perfilAtual.nome || '');
             setEditMeuEmail(perfilAtual.email || '');
             setEditMinhaFoto(perfilAtual.foto_url || null);
@@ -68,11 +90,18 @@ export default function ModalPerfilAdmin({
 
     if (!aberto) return null;
 
+    const professoresUnicos = Array.from(
+        new Map(
+            professores
+                .filter((p) => p.ativo)
+                .map((p) => [p.nome.trim().toLowerCase(), p])
+        ).values()
+    ).sort((a, b) => a.nome.localeCompare(b.nome));
+
     async function handleSalvarMeuPerfil(e: React.FormEvent) {
         e.preventDefault();
         setSalvandoMeuPerfil(true);
         setFeedbackPerfil(null);
-
         try {
             const res = await fetch('/api/admin/perfis', {
                 method: 'PATCH',
@@ -87,112 +116,73 @@ export default function ModalPerfilAdmin({
             });
             const json = await res.json();
             if (!res.ok) {
-                setFeedbackPerfil({
-                    tipo: 'erro',
-                    texto: json.error || 'Erro ao salvar perfil.',
-                });
+                setFeedbackPerfil({ tipo: 'erro', texto: json.error || 'Erro ao salvar.' });
                 return;
             }
-
-            if (json.perfilAtual) {
-                onPerfilAtualizado(json.perfilAtual);
-            }
+            if (json.perfilAtual) onPerfilAtualizadoAction(json.perfilAtual);
             setEditMinhaNovaSenha('');
             setFeedbackPerfil({
                 tipo: 'sucesso',
-                texto: json.mensagem || 'Perfil atualizado com sucesso!',
+                texto: json.mensagem || 'Perfil atualizado!',
             });
-            await onRecarregarPerfis();
+            await onRecarregarPerfisAction();
         } finally {
             setSalvandoMeuPerfil(false);
         }
     }
 
-    async function handleCriarNovoAdmin(e: React.FormEvent) {
+    async function handleCriarNovoPerfil(e: React.FormEvent) {
         e.preventDefault();
-        setCriandoNovoAdmin(true);
+        setCriandoNovo(true);
         setFeedbackPerfil(null);
-
         try {
             const res = await fetch('/api/admin/perfis', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    nome: novoAdminNome,
-                    email: novoAdminEmail,
-                    senha: novoAdminSenha,
-                    foto_url: novoAdminFoto,
+                    nome: novoNome,
+                    email: novoEmail,
+                    senha: novoSenha,
+                    role: novoRole,
+                    professor_id: novoRole === 'professor' ? novoProfessorId : null,
+                    foto_url: novoFoto,
                 }),
             });
             const json = await res.json();
             if (!res.ok) {
-                setFeedbackPerfil({
-                    tipo: 'erro',
-                    texto: json.error || 'Erro ao criar administrador.',
-                });
+                setFeedbackPerfil({ tipo: 'erro', texto: json.error || 'Erro ao criar perfil.' });
                 return;
             }
-
-            setNovoAdminNome('');
-            setNovoAdminEmail('');
-            setNovoAdminSenha('');
-            setNovoAdminFoto(null);
+            setNovoNome('');
+            setNovoEmail('');
+            setNovoSenha('');
+            setNovoProfessorId(0);
+            setNovoFoto(null);
             setFeedbackPerfil({
                 tipo: 'sucesso',
-                texto: json.mensagem || 'Novo administrador cadastrado!',
+                texto: json.mensagem || 'Perfil criado com sucesso!',
             });
-            await onRecarregarPerfis();
+            await onRecarregarPerfisAction();
         } finally {
-            setCriandoNovoAdmin(false);
+            setCriandoNovo(false);
         }
     }
 
     async function handleRedefinirSenhaEquipe(id: number) {
         if (novaSenhaEquipe.trim().length < 6) {
-            setFeedbackPerfil({
-                tipo: 'erro',
-                texto: 'A nova senha deve ter no mínimo 6 caracteres.',
-            });
+            setFeedbackPerfil({ tipo: 'erro', texto: 'Mínimo de 6 caracteres.' });
             return;
         }
-
         const res = await fetch('/api/admin/perfis', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                id,
-                nova_senha: novaSenhaEquipe.trim(),
-            }),
+            body: JSON.stringify({ id, nova_senha: novaSenhaEquipe.trim() }),
         });
-        const json = await res.json();
-        if (!res.ok) {
-            setFeedbackPerfil({
-                tipo: 'erro',
-                texto: json.error || 'Falha ao redefinir senha.',
-            });
-            return;
+        if (res.ok) {
+            setRedefinirSenhaId(null);
+            setNovaSenhaEquipe('');
+            setFeedbackPerfil({ tipo: 'sucesso', texto: 'Senha redefinida!' });
         }
-
-        setRedefinirSenhaId(null);
-        setNovaSenhaEquipe('');
-        setFeedbackPerfil({
-            tipo: 'sucesso',
-            texto: 'Senha do perfil redefinida com sucesso!',
-        });
-    }
-
-    async function alternarStatusAdmin(id: number, ativo: boolean) {
-        await fetch('/api/admin/perfis', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, ativo }),
-        });
-        await onRecarregarPerfis();
-    }
-
-    async function excluirPerfilAdmin(id: number) {
-        await fetch(`/api/admin/perfis?id=${id}`, { method: 'DELETE' });
-        await onRecarregarPerfis();
     }
 
     return (
@@ -203,51 +193,53 @@ export default function ModalPerfilAdmin({
                 <div className="flex items-center justify-between">
                     <div>
                         <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">
-                            Conta & Administradores R4
+                            Conta & Controle de Acesso R4
                         </span>
                         <h2 className={`text-lg font-bold ${clsTitulo}`}>
-                            Perfil e Controle de Acesso
+                            Perfil e Equipe do Sistema
                         </h2>
                     </div>
                     <button
                         type="button"
-                        onClick={onFechar}
+                        onClick={onFecharAction}
                         className={`p-1.5 rounded-lg cursor-pointer ${clsSubtexto}`}
                     >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
 
-                <div className="flex gap-2 border-b pb-3 border-[#232B35]">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setAbaModalPerfil('meu');
-                            setFeedbackPerfil(null);
-                        }}
-                        className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
-                            abaModalPerfil === 'meu'
-                                ? 'bg-[#0E7C86] text-white'
-                                : `${clsSubCard} ${clsSubtexto}`
-                        }`}
-                    >
-                        Meu Perfil & Foto
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setAbaModalPerfil('equipe');
-                            setFeedbackPerfil(null);
-                        }}
-                        className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
-                            abaModalPerfil === 'equipe'
-                                ? 'bg-[#0E7C86] text-white'
-                                : `${clsSubCard} ${clsSubtexto}`
-                        }`}
-                    >
-                        Criar / Gerenciar Perfis ({perfisAdmin.length})
-                    </button>
-                </div>
+                {perfilAtual.role === 'admin' && (
+                    <div className="flex gap-2 border-b pb-3 border-[#232B35]">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setAbaModalPerfil('meu');
+                                setFeedbackPerfil(null);
+                            }}
+                            className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
+                                abaModalPerfil === 'meu'
+                                    ? 'bg-[#0E7C86] text-white'
+                                    : `${clsSubCard} ${clsSubtexto}`
+                            }`}
+                        >
+                            Meu Perfil & Foto
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setAbaModalPerfil('equipe');
+                                setFeedbackPerfil(null);
+                            }}
+                            className={`px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer ${
+                                abaModalPerfil === 'equipe'
+                                    ? 'bg-[#0E7C86] text-white'
+                                    : `${clsSubCard} ${clsSubtexto}`
+                            }`}
+                        >
+                            Criar / Gerenciar Perfis ({perfisAdmin.length})
+                        </button>
+                    </div>
+                )}
 
                 {feedbackPerfil && (
                     <div
@@ -262,12 +254,9 @@ export default function ModalPerfilAdmin({
                 )}
 
                 {abaModalPerfil === 'meu' ? (
-                    <form
-                        onSubmit={(e) => void handleSalvarMeuPerfil(e)}
-                        className="space-y-4"
-                    >
+                    <form onSubmit={(e) => void handleSalvarMeuPerfil(e)} className="space-y-4">
                         <div className="flex items-center gap-4">
-                            <label className="relative w-20 h-20 rounded-full overflow-hidden border-2 border-[#0E7C86] cursor-pointer group bg-[#0E7C86]/20 flex items-center justify-center shrink-0">
+                            <label className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-[#0E7C86] cursor-pointer group bg-[#0E7C86]/20 flex items-center justify-center shrink-0">
                                 {editMinhaFoto ? (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img
@@ -276,73 +265,49 @@ export default function ModalPerfilAdmin({
                                         className="w-full h-full object-cover"
                                     />
                                 ) : (
-                                    <span className="text-lg font-bold text-[#1496A1]">
+                                    <span className="text-base font-bold text-[#1496A1]">
                                         {obterIniciais(editMeuNome || perfilAtual.nome)}
                                     </span>
                                 )}
                                 <span className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                                    <Camera className="w-5 h-5" />
+                                    <Camera className="w-4 h-4" />
                                 </span>
                                 <input
                                     type="file"
                                     accept="image/*"
                                     onChange={async (e) => {
                                         const f = e.target.files?.[0];
-                                        if (f) {
-                                            const b64 = await comprimirImagemAvatar(f);
-                                            setEditMinhaFoto(b64);
-                                        }
+                                        if (f) setEditMinhaFoto(await comprimirImagemAvatar(f));
                                     }}
                                     className="hidden"
                                 />
                             </label>
-
-                            <div className="space-y-1">
-                                <p className={`text-sm font-bold ${clsTitulo}`}>
-                                    Foto de Perfil
-                                </p>
+                            <div>
+                                <p className={`text-sm font-bold ${clsTitulo}`}>Foto de Perfil</p>
                                 <p className={`text-xs ${clsSubtexto}`}>
-                                    Clique no círculo ao lado para escolher uma foto do seu
-                                    computador ou celular.
+                                    Clique no círculo para alterar sua foto de exibição.
                                 </p>
-                                {editMinhaFoto && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditMinhaFoto(null)}
-                                        className="text-xs text-rose-400 hover:underline cursor-pointer"
-                                    >
-                                        Remover foto
-                                    </button>
-                                )}
                             </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                                    Seu Nome Completo *
-                                </label>
+                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>Nome *</label>
                                 <input
                                     type="text"
                                     required
                                     value={editMeuNome}
                                     onChange={(e) => setEditMeuNome(e.target.value)}
-                                    placeholder="Ex: Coordenação R4"
                                     className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
                                 />
                             </div>
-
                             <div>
-                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                                    Seu E-mail de Login *
-                                </label>
+                                <label className={`block text-xs mb-1 ${clsSubtexto}`}>E-mail *</label>
                                 <input
                                     type="email"
                                     required
-                                    autoComplete="off"
                                     value={editMeuEmail}
                                     onChange={(e) => setEditMeuEmail(e.target.value)}
-                                    placeholder="nome@r4ensina.com.br"
                                     className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
                                 />
                             </div>
@@ -350,18 +315,14 @@ export default function ModalPerfilAdmin({
 
                         <div>
                             <label className={`block text-xs mb-1 ${clsSubtexto}`}>
-                                {perfilAtual.id === 0
-                                    ? 'Defina sua Senha Pessoal (mín. 6 caracteres) *'
-                                    : 'Nova Senha (deixe em branco para manter a atual)'}
+                                Nova Senha (opcional)
                             </label>
                             <div className="relative">
                                 <input
                                     type={mostrarMinhaNovaSenha ? 'text' : 'password'}
-                                    autoComplete="new-password"
-                                    required={perfilAtual.id === 0}
                                     value={editMinhaNovaSenha}
                                     onChange={(e) => setEditMinhaNovaSenha(e.target.value)}
-                                    placeholder="Digite a senha desejada"
+                                    placeholder="Deixe em branco para manter a atual"
                                     className={`w-full border rounded-xl pl-3.5 pr-10 py-2.5 text-sm ${clsInput}`}
                                 />
                                 <button
@@ -381,38 +342,86 @@ export default function ModalPerfilAdmin({
                         <div className="flex justify-end gap-2 pt-2">
                             <button
                                 type="button"
-                                onClick={onFechar}
-                                className={`px-4 py-2.5 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard}`}
+                                onClick={onFecharAction}
+                                className={`px-4 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${clsSubCard}`}
                             >
                                 Fechar
                             </button>
                             <button
                                 type="submit"
                                 disabled={salvandoMeuPerfil}
-                                className="px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
+                                className="px-5 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
                             >
                                 <Save className="w-3.5 h-3.5" />
-                                {salvandoMeuPerfil ? 'Salvando...' : 'Salvar Meu Perfil'}
+                                {salvandoMeuPerfil ? 'Salvando...' : 'Salvar Perfil'}
                             </button>
                         </div>
                     </form>
                 ) : (
                     <div className="space-y-5">
                         <form
-                            onSubmit={(e) => void handleCriarNovoAdmin(e)}
+                            onSubmit={(e) => void handleCriarNovoPerfil(e)}
                             className={`border rounded-xl p-4 space-y-3 ${clsSubCard}`}
                         >
                             <p className="text-xs font-bold text-[#1496A1] flex items-center gap-1.5">
-                                <UserPlus className="w-4 h-4" /> Cadastrar Novo Perfil
-                                Administrativo
+                                <UserPlus className="w-4 h-4" /> Cadastrar Novo Perfil de Acesso
                             </p>
+
+                            <div className="grid grid-cols-3 gap-2">
+                                {(
+                                    [
+                                        { id: 'atendimento', label: 'Atendimento' },
+                                        { id: 'professor', label: 'Professor(a)' },
+                                        { id: 'admin', label: 'Administrador' },
+                                    ] as { id: RoleSistema; label: string }[]
+                                ).map((cargo) => (
+                                    <button
+                                        key={cargo.id}
+                                        type="button"
+                                        onClick={() => setNovoRole(cargo.id)}
+                                        className={`py-2 px-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                                            novoRole === cargo.id
+                                                ? 'bg-[#0E7C86] border-[#0E7C86] text-white'
+                                                : `${clsCard} ${clsSubtexto} hover:border-[#0E7C86]/60`
+                                        }`}
+                                    >
+                                        {cargo.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {novoRole === 'professor' && (
+                                <div>
+                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>
+                                        Vincular ao Professor Cadastrado *
+                                    </label>
+                                    <select
+                                        required
+                                        value={novoProfessorId}
+                                        onChange={(e) => {
+                                            const pid = Number(e.target.value);
+                                            setNovoProfessorId(pid);
+                                            const prof = professoresUnicos.find((p) => p.id === pid);
+                                            if (prof && !novoNome) setNovoNome(prof.nome);
+                                        }}
+                                        className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
+                                    >
+                                        <option value={0}>Selecione o professor(a)...</option>
+                                        {professoresUnicos.map((p) => (
+                                            <option key={p.id} value={p.id}>
+                                                {p.nome} ({p.materias.join(', ')})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                 <input
                                     type="text"
                                     required
-                                    value={novoAdminNome}
-                                    onChange={(e) => setNovoAdminNome(e.target.value)}
+                                    value={novoNome}
+                                    onChange={(e) => setNovoNome(e.target.value)}
                                     placeholder="Nome completo *"
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                 />
@@ -420,27 +429,27 @@ export default function ModalPerfilAdmin({
                                     type="email"
                                     required
                                     autoComplete="off"
-                                    value={novoAdminEmail}
-                                    onChange={(e) => setNovoAdminEmail(e.target.value)}
+                                    value={novoEmail}
+                                    onChange={(e) => setNovoEmail(e.target.value)}
                                     placeholder="E-mail de acesso *"
                                     className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                 />
                                 <div className="relative">
                                     <input
-                                        type={mostrarNovoAdminSenha ? 'text' : 'password'}
+                                        type={mostrarNovoSenha ? 'text' : 'password'}
                                         required
                                         autoComplete="new-password"
-                                        value={novoAdminSenha}
-                                        onChange={(e) => setNovoAdminSenha(e.target.value)}
+                                        value={novoSenha}
+                                        onChange={(e) => setNovoSenha(e.target.value)}
                                         placeholder="Senha (mín. 6) *"
                                         className={`w-full border rounded-xl pl-3 pr-8 py-2 text-xs ${clsInput}`}
                                     />
                                     <button
                                         type="button"
-                                        onClick={() => setMostrarNovoAdminSenha((v) => !v)}
+                                        onClick={() => setMostrarNovoSenha((v) => !v)}
                                         className={`absolute right-2.5 top-2 cursor-pointer ${clsSubtexto}`}
                                     >
-                                        {mostrarNovoAdminSenha ? (
+                                        {mostrarNovoSenha ? (
                                             <EyeOff className="w-3.5 h-3.5" />
                                         ) : (
                                             <Eye className="w-3.5 h-3.5" />
@@ -454,20 +463,13 @@ export default function ModalPerfilAdmin({
                                     className={`text-xs inline-flex items-center gap-2 cursor-pointer ${clsSubtexto} hover:text-[#1496A1]`}
                                 >
                                     <Camera className="w-4 h-4 text-[#1496A1]" />
-                                    <span>
-                                        {novoAdminFoto
-                                            ? 'Foto selecionada ✓'
-                                            : 'Adicionar foto opcional'}
-                                    </span>
+                                    <span>{novoFoto ? 'Foto selecionada ✓' : 'Foto opcional'}</span>
                                     <input
                                         type="file"
                                         accept="image/*"
                                         onChange={async (e) => {
                                             const f = e.target.files?.[0];
-                                            if (f) {
-                                                const b64 = await comprimirImagemAvatar(f);
-                                                setNovoAdminFoto(b64);
-                                            }
+                                            if (f) setNovoFoto(await comprimirImagemAvatar(f));
                                         }}
                                         className="hidden"
                                     />
@@ -475,11 +477,11 @@ export default function ModalPerfilAdmin({
 
                                 <button
                                     type="submit"
-                                    disabled={criandoNovoAdmin}
+                                    disabled={criandoNovo}
                                     className="px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#118E99] text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
                                 >
                                     <Plus className="w-3.5 h-3.5" />
-                                    {criandoNovoAdmin ? 'Criando...' : 'Criar Perfil'}
+                                    {criandoNovo ? 'Criando...' : 'Criar Perfil'}
                                 </button>
                             </div>
                         </form>
@@ -488,15 +490,12 @@ export default function ModalPerfilAdmin({
                             <p className={`text-xs font-bold ${clsTitulo}`}>
                                 Perfis Cadastrados ({perfisAdmin.length})
                             </p>
-                            {perfisAdmin.length === 0 ? (
-                                <p className={`text-xs ${clsSubtexto}`}>
-                                    Nenhum perfil individual cadastrado ainda.
-                                </p>
-                            ) : (
-                                perfisAdmin.map((p) => (
+                            {perfisAdmin.map((p) => {
+                                const metaCargo = ROTULO_CARGO[p.role || 'admin'];
+                                return (
                                     <div
                                         key={p.id}
-                                        className={`border rounded-xl p-3 space-y-2.5 ${clsSubCard}`}
+                                        className={`border rounded-xl p-3 space-y-2 ${clsSubCard}`}
                                     >
                                         <div className="flex flex-wrap items-center justify-between gap-3">
                                             <div className="flex items-center gap-3 min-w-0">
@@ -513,18 +512,21 @@ export default function ModalPerfilAdmin({
                                                     )}
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <p
-                                                        className={`text-xs font-bold truncate ${clsTitulo}`}
-                                                    >
-                                                        {p.nome}{' '}
-                                                        {p.id === perfilAtual.id && (
-                                                            <span className="text-[10px] text-[#1496A1]">
-                                                                (Você)
-                                                            </span>
-                                                        )}
-                                                    </p>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <p className={`text-xs font-bold truncate ${clsTitulo}`}>
+                                                            {p.nome}
+                                                        </p>
+                                                        <span
+                                                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${metaCargo.cls}`}
+                                                        >
+                                                            {metaCargo.nome}
+                                                        </span>
+                                                    </div>
                                                     <p className={`text-[11px] truncate ${clsSubtexto}`}>
                                                         {p.email}
+                                                        {p.professor_nome
+                                                            ? ` • Agenda: ${p.professor_nome}`
+                                                            : ''}
                                                     </p>
                                                 </div>
                                             </div>
@@ -538,39 +540,23 @@ export default function ModalPerfilAdmin({
                                                         );
                                                         setNovaSenhaEquipe('');
                                                     }}
-                                                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer ${clsCard} ${clsSubtexto} hover:text-[#1496A1]`}
+                                                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer ${clsCard} ${clsSubtexto}`}
                                                 >
                                                     Redefinir Senha
                                                 </button>
-
                                                 {p.id !== perfilAtual.id && (
-                                                    <>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                void alternarStatusAdmin(
-                                                                    p.id,
-                                                                    !p.ativo
-                                                                )
-                                                            }
-                                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
-                                                                p.ativo
-                                                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
-                                                                    : 'bg-stone-500/20 text-stone-400'
-                                                            }`}
-                                                        >
-                                                            {p.ativo ? 'Ativo' : 'Desativado'}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                void excluirPerfilAdmin(p.id)
-                                                            }
-                                                            className="p-1.5 rounded-lg text-rose-400 hover:bg-[#BE1E23]/15 cursor-pointer"
-                                                        >
-                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                        </button>
-                                                    </>
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            await fetch(`/api/admin/perfis?id=${p.id}`, {
+                                                                method: 'DELETE',
+                                                            });
+                                                            await onRecarregarPerfisAction();
+                                                        }}
+                                                        className="p-1.5 rounded-lg text-rose-400 hover:bg-[#BE1E23]/15 cursor-pointer"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>
@@ -579,28 +565,23 @@ export default function ModalPerfilAdmin({
                                             <div className="flex items-center gap-2 pt-1">
                                                 <input
                                                     type="text"
-                                                    autoComplete="new-password"
                                                     value={novaSenhaEquipe}
-                                                    onChange={(e) =>
-                                                        setNovaSenhaEquipe(e.target.value)
-                                                    }
+                                                    onChange={(e) => setNovaSenhaEquipe(e.target.value)}
                                                     placeholder="Nova senha (mín. 6 caracteres)"
                                                     className={`flex-1 border rounded-lg px-3 py-1.5 text-xs ${clsInput}`}
                                                 />
                                                 <button
                                                     type="button"
-                                                    onClick={() =>
-                                                        void handleRedefinirSenhaEquipe(p.id)
-                                                    }
+                                                    onClick={() => void handleRedefinirSenhaEquipe(p.id)}
                                                     className="px-3 py-1.5 rounded-lg bg-[#0E7C86] text-xs font-semibold text-white cursor-pointer"
                                                 >
-                                                    Salvar Senha
+                                                    Salvar
                                                 </button>
                                             </div>
                                         )}
                                     </div>
-                                ))
-                            )}
+                                );
+                            })}
                         </div>
                     </div>
                 )}

@@ -8,11 +8,11 @@ import { TemaClasses, UnidadeAdmin } from './types';
 export default function AbaUnidades({
                                         unidades,
                                         classes,
-                                        onRecarregarDados,
+                                        onRecarregarDadosAction,
                                     }: {
     unidades: UnidadeAdmin[];
     classes: TemaClasses;
-    onRecarregarDados: () => Promise<void>;
+    onRecarregarDadosAction: () => Promise<void>;
 }) {
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
@@ -39,7 +39,7 @@ export default function AbaUnidades({
                     ativa: u.ativa,
                 }),
             });
-            await onRecarregarDados();
+            await onRecarregarDadosAction();
         } finally {
             setSalvandoId(null);
         }
@@ -102,7 +102,7 @@ export default function AbaUnidades({
 
             <MatrizProfessoresUnidades
                 classes={classes}
-                onAlterado={onRecarregarDados}
+                onAlteradoAction={onRecarregarDadosAction}
             />
         </div>
     );
