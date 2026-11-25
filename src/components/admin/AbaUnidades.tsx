@@ -1,4 +1,5 @@
 'use client';
+import { useLayoutR4 } from './EditorLayoutR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -16,6 +17,7 @@ export default function AbaUnidades({
     classes: TemaClasses;
     onRecarregarDadosAction: () => Promise<void>;
 }) {
+    const layout = useLayoutR4();
     const textoR4 = useTextoR4();
     const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
 
@@ -50,7 +52,7 @@ export default function AbaUnidades({
 
     return (
         <div className="space-y-6">
-            <section className={`border rounded-2xl p-6 space-y-4 max-w-4xl ${clsCard}`}>
+            <section {...layout?.item("unidades_vinculo", "unidades", "Vínculo com Clin Care")} className={`border rounded-2xl p-6 space-y-4 max-w-4xl ${clsCard}`}>
                 <h3
                     className={`text-sm font-bold flex items-center gap-2 ${clsTitulo}`}
                 >

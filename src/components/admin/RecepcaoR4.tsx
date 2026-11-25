@@ -1,4 +1,6 @@
 'use client';
+import { TextoLayoutR4 } from './ConteudoLayoutR4';
+import { useLayoutR4 } from './EditorLayoutR4';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Calendar, ChevronDown, Download, Plus, SlidersHorizontal } from 'lucide-react';
@@ -179,8 +181,22 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
         </select></label>;
     }
 
-    return <div className={css.recepcao} data-visao={visao} data-tema={escuro ? 'escuro' : 'claro'}>
-        <aside className={css.filtros}>
+    const layout = useLayoutR4();
+    const camposAula = [
+        { id: 'hora', titulo: 'Horário', largura: 'minmax(94px,.7fr)' },
+        { id: 'aluno', titulo: 'Aluno', largura: 'minmax(0,1.45fr)' },
+        { id: 'professor', titulo: 'Professor e matéria', largura: 'minmax(0,1.15fr)' },
+        { id: 'unidade', titulo: 'Unidade e status', largura: 'minmax(112px,1fr)' },
+    ].sort((a, b) => (layout?.layout['campo_' + a.id]?.order ?? 1000) - (layout?.layout['campo_' + b.id]?.order ?? 1000));
+    const camposVisiveis = camposAula.filter((campo) => !layout?.layout['campo_' + campo.id]?.oculto);
+    const posicaoCampo = (id: string) => {
+        const indice = camposVisiveis.findIndex((campo) => campo.id === id);
+        return { estilo: { '--r4-coluna-aula': indice + 2 } as CSSProperties, oculto: indice < 0 || undefined };
+    };
+    const larguraCampos = '16px ' + camposVisiveis.map((campo) => campo.largura).join(' ');
+
+    return <div className={css.recepcao} data-visao={visao} data-r4-layout-grid="recepcao" data-colunas-ordenadas={['filtros', 'agenda', 'resumo'].some((id) => layout?.layout[id]?.order !== undefined) || undefined} data-tema={escuro ? 'escuro' : 'claro'}>
+        <aside className={css.filtros} {...layout?.item("filtros", "colunas", "Filtros", 0)}>
             <div className={css.topoFiltros}><h2><SlidersHorizontal size={16} /> Filtros</h2><button type="button" onClick={() => { setFiltros(filtrosPadrao()); setOffset(0); limparSelecao(); }}>Limpar</button></div>
             <div className={css.atalhosData} role="group" aria-label="Período rápido">
                 {atalhosData.map(([dias, rotulo]) => <button type="button" key={dias}
@@ -219,15 +235,15 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             </details>
         </aside>
 
-        <section className={css.centro} aria-label="Agenda da recepção">
+        <section className={css.centro} {...layout?.item("agenda", "colunas", "Agenda da recepção", 0)} aria-label="Agenda da recepção">
             <div className={css.cabecalhoLista}>
                 <h2>{visao === 'aulas' ? 'Lista de aulas' : 'Agenda financeira'}</h2>
                 {dados && !dados.erro && <span>{dados.total} {dados.total === 1 ? 'aula' : 'aulas'}</span>}
             </div>
             <div className={css.barraPrincipal}>
                 <div className={css.visoes} role="group" aria-label="Exibição">
-                    <button type="button" aria-pressed={visao === 'aulas'} onClick={() => setVisao('aulas')}>Aulas</button>
-                    <button type="button" aria-pressed={visao === 'financeiro'} onClick={() => setVisao('financeiro')}>Financeiro</button>
+                    <button type="button" {...layout?.item("aba_aulas", "abas_recepcao", "Aulas")} aria-pressed={visao === 'aulas'} onClick={() => setVisao('aulas')}><TextoLayoutR4 id="aba_aulas" campo="titulo" texto="Aulas" /></button>
+                    <button type="button" {...layout?.item("aba_financeiro", "abas_recepcao", "Financeiro")} aria-pressed={visao === 'financeiro'} onClick={() => setVisao('financeiro')}><TextoLayoutR4 id="aba_financeiro" campo="titulo" texto="Financeiro" /></button>
                 </div>
                 <div className={css.acoesPrincipais}>
                 <button type="button" disabled={ocupado} onClick={() => void exportar()}><Download size={15} /> Exportar</button>
@@ -258,9 +274,15 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             {!dados && <p role="status" className={css.mensagem}>Carregando aulas…</p>}
             {dados?.erro && <p role="alert" className={css.mensagem}>{dados.erro} <button type="button" onClick={() => setRevisao((v) => v + 1)}>Tentar novamente</button></p>}
             {dados && !dados.erro && !aulas.length && <p className={css.mensagem}>Nenhuma aula com esses filtros.</p>}
-            {aulas.length > 0 && <div className={css.lista}>
-                <div className={css.colunas} aria-hidden="true">
-                    <span /><span>Horário</span><span>Aluno</span><span>Professor e matéria</span><span>Unidade e status</span>
+            {aulas.length > 0 && <div className={css.lista} style={{ "--colunas": larguraCampos } as CSSProperties}>
+                <div className={css.colunas} aria-hidden={layout?.ativo ? undefined : true}>
+                    <span />
+                    {camposVisiveis.map(({ id, titulo }) => {
+                        const props = layout?.item('campo_' + id, 'campos_aula', titulo);
+                        return <span key={id} {...props} style={{ ...props?.style, order: undefined }}>
+                            <TextoLayoutR4 id={'campo_' + id} campo="titulo" texto={titulo} />
+                        </span>;
+                    })}
                 </div>
                 <label className={css.selecionarPagina} title="Selecionar aulas da página">
                     <input type="checkbox" aria-label="Selecionar aulas da página" checked={selecionadasPagina === aulas.length}
@@ -275,18 +297,18 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
                     const selecionada = selecionadas.includes(aula.id);
                     return <article key={aula.id} className={css.aula} data-selecionada={selecionada} style={{ '--cor-aula': cor } as CSSProperties}>
                         <input type="checkbox" aria-label={`Selecionar aula de ${aula.aluno}`} checked={selecionada} onChange={() => selecionar(aula.id)} />
-                        <div className={css.dataAula}><strong>{aula.inicio}{aula.fim ? '–' + aula.fim : ''}</strong>
+                        <div className={css.dataAula} data-campo-oculto={posicaoCampo("hora").oculto} style={posicaoCampo("hora").estilo}><strong>{aula.inicio}{aula.fim ? '–' + aula.fim : ''}</strong>
                             <small><Calendar size={12} />{formatarDataBR(aula.data)}</small>
                         </div>
-                        <button type="button" className={css.aluno} onClick={() => editar(aula)}>
+                        <button type="button" className={css.aluno} data-campo-oculto={posicaoCampo("aluno").oculto} style={posicaoCampo("aluno").estilo} onClick={() => editar(aula)}>
                             <span className={css.avatar} aria-hidden="true">{obterIniciais(aula.aluno)}</span>
                             <span><strong>{aula.aluno}</strong><small>{[aula.serie, aula.colegio].filter(Boolean).join(' · ')}</small></span>
                         </button>
-                        <div className={css.professor}><strong>{aula.professor || 'Sem professor'}</strong><small>{aula.materia}</small>
+                        <div className={css.professor} data-campo-oculto={posicaoCampo("professor").oculto} style={posicaoCampo("professor").estilo}><strong>{aula.professor || 'Sem professor'}</strong><small>{aula.materia}</small>
                             {(aula.acompanhamento || aula.categoria || aula.convenio || aula.evento) &&
                                 <small>{[aula.acompanhamento && 'Acompanhamento', aula.categoria, aula.convenio, aula.evento].filter(Boolean).join(' · ')}</small>}
                         </div>
-                        <div className={css.unidade}>
+                        <div className={css.unidade} data-campo-oculto={posicaoCampo("unidade").oculto} style={posicaoCampo("unidade").estilo}>
                             <span>{aula.unidade || '—'}</span>
                             <div className={css.status} data-editavel={podeEditar}>
                                 <span className={css.ponto} aria-hidden="true" />
@@ -316,7 +338,7 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             </div>}
         </section>
 
-        <aside className={css.resumo}>
+        <aside className={css.resumo} {...layout?.item("resumo", "colunas", "Resumo", 0)}>
             <h2>Resumo do período</h2>
             <p className={css.periodoResumo}>{filtros.de && filtros.ate ? `${formatarDataBR(filtros.de)} a ${formatarDataBR(filtros.ate)}` : 'Conforme os filtros aplicados'}</p>
             <dl className={css.valores}>

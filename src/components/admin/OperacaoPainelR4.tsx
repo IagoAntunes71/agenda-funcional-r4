@@ -1,10 +1,11 @@
 'use client';
 
+import { useLayoutR4 } from './EditorLayoutR4';
+import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { CardsLayoutR4 } from './ConteudoLayoutR4';
 import MetaFeedbackR4 from './MetaFeedbackR4';
 import DetalhesFeedbackR4 from './MetaFeedbackDashboardR4';
-import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import feedbackCss from './MetaFeedbackDashboardR4.module.css';
 import Link from 'next/link';
 import { CORES_STATUS_R4, OPERACAO_PADRAO, PERMISSOES_R4, podeOperacao, type OperacaoR4, type PermissaoR4, type PerfilOperacao } from '@/lib/operacao-r4';
@@ -33,8 +34,11 @@ export function useOperacaoR4() {
     return { cfg, setCfg, carregado, erro };
 }
 
-function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
-    return <section className={caixa}><h2 className="font-bold mb-3">{titulo}</h2>{children}</section>;
+function Secao({ id, titulo, children }: { id: string; titulo: string; children: ReactNode }) {
+    const layout = useLayoutR4();
+    return <section className={caixa} {...layout?.item(id, 'configuracoes', titulo)}>
+        <h2 className="font-bold mb-3"><TextoLayoutR4 id={id} campo="titulo" texto={titulo} /></h2>{children}
+    </section>;
 }
 
 function Opcao({ texto, valor, mudar }: { texto: string; valor: boolean; mudar: (v: boolean) => void }) {
@@ -64,9 +68,9 @@ export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePort
         finally { setSalvando(false); }
     }
     if (!carregado) return <p role="status">{erro || 'Carregando configurações…'}</p>;
-    return <form onSubmit={salvar} className="space-y-4">
+    return <form onSubmit={salvar} className="flex flex-col gap-4">
         {!somentePortal && <>
-        <Secao titulo="Mapa e agendamento">
+        <Secao id="mapa" titulo="Mapa e agendamento">
             <div className="flex gap-3 flex-wrap">
                 {(['primeiraHora', 'ultimaHora'] as const).map((chave) => <label key={chave} className="grid gap-1 text-sm">
                     {chave === 'primeiraHora' ? 'Primeiro horário' : 'Último horário'}
@@ -84,7 +88,7 @@ export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePort
             <Opcao texto="Bloquear agendamento retroativo para atendentes e professores" valor={cfg.bloquearRetroativo} mudar={(v) => alterar('bloquearRetroativo', v)} />
             <Opcao texto="Unidade é um campo obrigatório" valor={cfg.unidadeObrigatoria} mudar={(v) => alterar('unidadeObrigatoria', v)} />
         </Secao>
-        <Secao titulo="Status de agendamento">
+        <Secao id="status" titulo="Status de agendamento">
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {LISTA_STATUS_AULA_R4.map(({ valor, rotulo }) => {
                     const atual = cfg.status[valor];
@@ -98,7 +102,7 @@ export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePort
                 })}
             </div>
         </Secao>
-        <Secao titulo="Permissões">
+        <Secao id="permissoes" titulo="Permissões">
             <div className="grid gap-4 sm:grid-cols-2">
                 {(['atendimento', 'professor'] as const).map((perfil) => <fieldset key={perfil} className="r4-painel-secundario rounded-lg border p-3">
                     <legend className="font-bold px-1">{perfil === 'atendimento' ? 'Atendentes' : 'Professores'}</legend>
@@ -109,7 +113,7 @@ export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePort
                 </fieldset>)}
             </div>
         </Secao>
-        <Secao titulo="Controle dos Alunos">
+        <Secao id="controle" titulo="Controle dos Alunos">
             <Opcao texto="Exigir plano de trabalho antes de cadastrar orientações" valor={cfg.exigirPlano} mudar={(v) => alterar('exigirPlano', v)} />
             <Opcao texto="Exibir início e fim da aula no histórico do aluno" valor={cfg.exibirHorario} mudar={(v) => alterar('exibirHorario', v)} />
             <label className="grid gap-1 text-sm max-w-sm">Prazo para registrar feedback (dias)
@@ -117,13 +121,13 @@ export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePort
                     onChange={(e) => alterar('prazoFeedback', e.target.value === '' ? null : Number(e.target.value))} />
             </label>
         </Secao>
-        <Secao titulo="Dados financeiros e recepção">
+        <Secao id="financeiro" titulo="Dados financeiros e recepção">
             <Opcao texto="Exibir o repasse mensal para cada professor" valor={cfg.exibirRepasses} mudar={(v) => alterar('exibirRepasses', v)} />
             <Opcao texto="Desmarcado com cobrança não gera repasse ao professor" valor={cfg.desmarcadoSemRepasse} mudar={(v) => alterar('desmarcadoSemRepasse', v)} />
             <Opcao texto="Permitir que atendentes cadastrem alunos" valor={cfg.recepcaoCadastra} mudar={(v) => alterar('recepcaoCadastra', v)} />
         </Secao>
         </>}
-        {somentePortal && <Secao titulo="Central de automação">
+        {somentePortal && <Secao id="automacao" titulo="Central de automação">
             <p className="text-sm">A confirmação por WhatsApp aguarda a conexão de um número exclusivo de automação. A antecedência já é usada no portal do aluno e será usada também nas respostas recebidas pelo WhatsApp.</p>
             <label className="flex gap-2 items-center py-2 text-sm">
                 <input type="checkbox" disabled /> Envio automático de mensagens · aguardando integração
@@ -133,7 +137,7 @@ export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePort
             </label>
             <Link className="inline-block underline mt-2 text-sm" href="/admin/whatsapp">Abrir configuração do WhatsApp</Link>
         </Secao>}
-        <button className={acao} type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar configurações'}</button>
+        <button className={acao + " order-last self-start"} type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar configurações'}</button>
         {aviso && <p role="status">{aviso}</p>}
     </form>;
 }
@@ -145,6 +149,7 @@ type Linha = { id: number; aluno_id?: number; plano?: string; orientacoes?: stri
 export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = false }: {
     painel: 'recepcao' | 'alunos' | 'metas'; perfil: PerfilOperacao; unidades?: UnidadeAdmin[]; compacto?: boolean;
 }) {
+    const editorLayout = useLayoutR4();
     const { cfg } = useOperacaoR4();
     const [mes, setMes] = useState(() => obterAgoraBahia().dataISO.slice(0, 7));
     const [busca, setBusca] = useState('');
@@ -197,8 +202,8 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
             <CardsLayoutR4 grupo="metas" perfil={perfil} />
         </div>;
     }
-    return <div className="space-y-3">
-        <div className={`${painel === 'metas' ? 'pb-1' : caixa} flex gap-2 flex-wrap items-end`}>
+    return <div className="flex flex-col gap-3">
+        <div {...editorLayout?.item("relatorio_filtros", "relatorio", "Filtros")} className={`${painel === 'metas' ? 'pb-1' : caixa} flex gap-2 flex-wrap items-end`}>
             <label className="grid gap-1 text-sm">Mês<input type="month" className={campo} value={mes} onChange={(e) => { setMes(e.target.value); setOffset(0); }} /></label>
             {painel !== 'metas' && perfil !== 'professor' && <>
                 <label className="grid gap-1 text-sm">Buscar<input className={campo} value={busca} onChange={(e) => { setBusca(e.target.value); setOffset(0); }}
@@ -218,7 +223,7 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
         {!atual && <p role="status">Carregando…</p>}
         {atual?.erro && <p role="alert">{atual.erro} <button type="button" className="underline" onClick={() => setAtualizar((v) => v + 1)}>Tentar novamente</button></p>}
         {atual?.metas?.length === 0 && <p>Nenhuma aula realizada neste mês.</p>}
-        {atual?.metas && <div className="grid gap-4">
+        {atual?.metas && <div className="grid gap-4" {...editorLayout?.item("relatorio_metas", "relatorio", "Metas por professor")}>
             {atual.metas.map((meta) => <MetaFeedbackR4 key={meta.chave + ':' + mes} professor={meta.professor}
                 feitos={meta.feitos} total={meta.total} vencidos={meta.vencidos} compacto={compacto}>
                 {perfil === 'admin' && <DetalhesFeedbackR4 chave={meta.chave} mes={mes} feitos={meta.feitos} total={meta.total} />}

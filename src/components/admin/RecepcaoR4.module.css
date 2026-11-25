@@ -137,3 +137,18 @@
     .unidade, .financeiroAula { grid-column: 2/-1; }
     .unidade { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 }
+
+@media (max-width: 1080px) {
+    .recepcao[data-colunas-ordenadas] > :is(.filtros,.resumo,.centro) { grid-area: auto; }
+    .recepcao[data-colunas-ordenadas] { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 800px) {
+    .recepcao:not([data-colunas-ordenadas]) > .filtros { order: -2 !important; }
+    .recepcao:not([data-colunas-ordenadas]) > .resumo { order: -1 !important; }
+}
+
+@media (min-width: 801px) {
+    .aula > :is(.dataAula,.aluno,.professor,.unidade) { grid-column: var(--r4-coluna-aula); grid-row: 1; }
+    .aula > [data-campo-oculto] { display: none; }
+    .aula > .financeiroAula { grid-row: 2; grid-column: 2 / -1; }
+}

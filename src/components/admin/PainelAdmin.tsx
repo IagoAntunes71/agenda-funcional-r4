@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import type { SessaoAdmin } from '@/lib/admin-auth';
 import { enderecoAdmin, MODULOS_GESTAO, MODULOS_PORTAL, podeAcessarModulo } from '@/lib/admin-navegacao';
 import { BarraLayoutR4, BotoesLayoutR4, LayoutR4Context, useEditorLayoutR4 } from './EditorLayoutR4';
+import { CardsLayoutR4, TextosLivresR4, TextoLayoutR4 } from './ConteudoLayoutR4';
 import InicioAdminR4, { type ResumoSemana } from './InicioAdminR4';
 import {
     ArrowLeft,
@@ -146,7 +147,9 @@ export default function PainelAdmin({
     const inicio = aba === 'inicio';
     const mapa = aba === 'mapa';
     const admin = perfilAtual.role === 'admin';
-    const editorLayout = useEditorLayoutR4(autenticado && inicio && perfilAtual.role !== 'professor', admin, tema);
+    const editorLayout = useEditorLayoutR4(autenticado && perfilAtual.role !== 'professor', admin, tema, inicio ? undefined : aba);
+    const [painelLayout, setPainelLayout] = useState<HTMLDivElement | null>(null);
+
     const professor = perfilAtual.role === 'professor';
     const mesConsulta = professor ? mesProfessor : '';
     const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
@@ -905,7 +908,8 @@ export default function PainelAdmin({
     function renderItemMenu(item: (typeof itensVisiveis)[number], recolhida: boolean) {
         return <Link key={item.id} href={enderecoAdmin(item.id)} aria-current={aba === item.id ? 'page' : undefined}
             title={recolhida ? textoR4(item.rotulo) : undefined} onClick={() => setMenuMobileAberto(false)}
-            className="r4-sidebar-item" data-recolhido={recolhida}>
+            className="r4-sidebar-item" data-recolhido={recolhida}
+            {...editorLayout.item("menu_" + item.id, "menu", item.rotulo)} >
             <span className="r4-sidebar-icone">{item.icone}</span>
             {!recolhida && <>
                 <span className="r4-sidebar-rotulo"><strong>{textoR4(item.rotulo)}</strong><small>{textoR4(item.subtitulo)}</small></span>
@@ -1016,7 +1020,7 @@ export default function PainelAdmin({
                         </div>
                     )}
 
-                    <nav className="space-y-1.5 w-full">
+                    <nav className="flex flex-col gap-1.5 w-full">
                         {!recolhida && (
                             <p
                                 className={`px-2 text-[10px] font-bold uppercase tracking-widest mb-2 ${clsSubtexto}`}
@@ -1025,9 +1029,9 @@ export default function PainelAdmin({
 
                         {itensPrincipais.map((item) => renderItemMenu(item, recolhida))}
                         {itensGestao.length > 0 && (recolhida ? itensGestao.map((item) => renderItemMenu(item, true)) :
-                            <details className="border-t mt-3 pt-2">
+                            <details className="border-t mt-3 pt-2 order-last">
                                 <summary className="cursor-pointer rounded-lg px-2 py-2 text-xs font-bold">Gestão da agenda</summary>
-                                <div className="space-y-1">{itensGestao.map((item) => renderItemMenu(item, false))}</div>
+                                <div className="flex flex-col gap-1">{itensGestao.map((item) => renderItemMenu(item, false))}</div>
                             </details>)}
                     </nav>
                 </div>
@@ -1281,12 +1285,14 @@ export default function PainelAdmin({
                                     </>
                                 )}
                             </button>
-                            {inicio && admin && <BotoesLayoutR4 editor={editorLayout} />}
+                            {admin && <BotoesLayoutR4 editor={editorLayout} />}
                         </div>
                     </div>
                 </header>
 
-                <div
+                <LayoutR4Context.Provider value={editorLayout}>
+                <div ref={setPainelLayout} data-r4-posicionando-texto={!inicio && Boolean(editorLayout.posicionarTexto) || undefined}
+                    onClickCapture={!inicio ? editorLayout.colocarTexto : undefined}
                     className={`${
                         mapa
                             ? 'max-w-full px-3 sm:px-5 py-4'
@@ -1295,24 +1301,22 @@ export default function PainelAdmin({
                     } w-full mx-auto transition-all`}
                 >
                     {aba === 'inicio' && (
-                        <LayoutR4Context.Provider value={editorLayout}>
                             <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
                                 modulos={itensVisiveis.filter((item) => item.id !== 'inicio' && (item.id === 'portal' || !MODULOS_PORTAL.includes(item.id)))} escuro={escuro}>
                                 {admin && <section className="space-y-2" {...editorLayout.item('bloco_feedback', 'secoes', 'Metas de feedback')}>
                                     <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} compacto />
                                 </section>}
                             </InicioAdminR4>
-                            {admin && <BarraLayoutR4 editor={editorLayout} />}
-                        </LayoutR4Context.Provider>
                     )}
                     {noPortal && admin && <nav aria-label="Portal do Aluno" className="flex flex-wrap gap-1 border-b border-[var(--r4-borda)] pb-2 mb-5">
                         {itensPortal.map((item) => <Link key={item.id} href={enderecoAdmin(item.id)}
+                            {...editorLayout.item("portal_aba_" + item.id, "portal_abas", item.rotulo)}
                             aria-current={aba === item.id ? 'page' : undefined}
                             className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${aba === item.id ? 'r4-acao' : 'hover:underline'}`}>
-                            {item.icone}{item.rotulo}
+                            {item.icone}<TextoLayoutR4 id={"portal_aba_" + item.id} campo="titulo" texto={item.rotulo} />
                         </Link>)}
                     </nav>}
-                    {aba === 'portal' && admin && <section className="space-y-4">
+                    {aba === 'portal' && admin && <section className="space-y-4" {...editorLayout.item('portal_chave', 'portal_conteudo', 'Acesso das famílias')}>
                         {admin && <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="flex items-center gap-2.5">
@@ -1394,8 +1398,8 @@ export default function PainelAdmin({
                         </p>
                     )}
                     {aba === 'agendamentos' && (
-                        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-                            <section className="xl:col-span-8 space-y-4">
+                        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start" data-r4-layout-grid="colunas-12">
+                            <section className="xl:col-span-8 space-y-4" {...editorLayout.item("agendamentos_lista", "colunas", "Agenda e filtros")}>
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                         <div>
@@ -1764,7 +1768,7 @@ export default function PainelAdmin({
                                 )}
                             </section>
 
-                            <aside className="xl:col-span-4 space-y-5">
+                            <aside className="xl:col-span-4 space-y-5" {...editorLayout.item("agendamentos_resumo", "colunas", "Resumo")}>
                                 <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -1923,20 +1927,20 @@ export default function PainelAdmin({
                     )}
 
                     {aba === 'textos' && admin && (
-                        <div className="space-y-5">
-                        <EditorCoresInterface classes={classesCompartilhadas} />
-                        <EditorTextosInterface classes={classesCompartilhadas} />
+                        <div className="flex flex-col gap-5">
+                        <div {...editorLayout.item("cores", "configuracao", "Cores da interface")}><EditorCoresInterface classes={classesCompartilhadas} /></div>
+                        <div {...editorLayout.item("textos", "configuracao", "Textos da interface")}><EditorTextosInterface classes={classesCompartilhadas} /></div>
                         </div>
                     )}
 
                     {aba === 'portal-textos' && admin && (
-                        <div className="space-y-5">
-                        <EditorTextosInterface classes={classesCompartilhadas} portal />
-                        <AbaTextosPortal
+                        <div className="flex flex-col gap-5">
+                        <div {...editorLayout.item("portal_interface", "configuracao", "Interface do portal")}><EditorTextosInterface classes={classesCompartilhadas} portal /></div>
+                        <div {...editorLayout.item("portal_mensagens", "configuracao", "Mensagens do portal")}><AbaTextosPortal
                             textosIniciais={textosPortal}
                             onTextosAtualizadosAction={setTextosPortal}
                             classes={classesCompartilhadas}
-                        />
+                        /></div>
                         </div>
                     )}
 
@@ -1966,8 +1970,16 @@ export default function PainelAdmin({
                         />
                     )}
 
-                    {aba === 'whatsapp' && <AdminWhatsApp />}
+                    {aba === 'whatsapp' && <section {...editorLayout.item('whatsapp', 'modulos', 'WhatsApp e automação')}><AdminWhatsApp /></section>}
+                    {!inicio && <>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 empty:hidden mt-4" data-r4-layout-grid="atalhos">
+                            <CardsLayoutR4 grupo="secoes" perfil={perfilAtual.role} />
+                        </div>
+                        <TextosLivresR4 painel={painelLayout} />
+                    </>}
                 </div>
+                {admin && <BarraLayoutR4 editor={editorLayout} />}
+                </LayoutR4Context.Provider>
             </div>
 
             <ModalPerfilAdmin

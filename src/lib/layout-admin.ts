@@ -2,6 +2,9 @@ import type { TemaR4 } from './cores-r4';
 import { MODULOS_ADMIN, type ModuloAdmin } from './admin-navegacao';
 
 export const PAGINA_LAYOUT_ADMIN = 'dashboard_visao_geral';
+export function paginaLayoutAdmin(pagina: unknown): pagina is string {
+    return pagina === PAGINA_LAYOUT_ADMIN || MODULOS_ADMIN.some((modulo) => pagina === modulo);
+}
 export const LIMITE_OFFSET_LAYOUT = 48;
 export const GRUPOS_CARDS = ['secoes', 'visao', 'unidades', 'atalhos', 'metas'] as const;
 export const ICONES_CARDS = ['grade', 'agenda', 'pessoas', 'escola', 'aviso'] as const;

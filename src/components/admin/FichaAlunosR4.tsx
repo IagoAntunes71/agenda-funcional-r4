@@ -1,5 +1,7 @@
 'use client';
 
+import { useLayoutR4 } from './EditorLayoutR4';
+import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -397,6 +399,7 @@ function Situacao({ aluno, atualizar, pode }: { aluno: Ficha; atualizar: () => v
 export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: ReactNode; atualizarPainel: () => Promise<void> }) {
     const params = useSearchParams();
     const id = Number(params.get('aluno')) || 0;
+    const layout = useLayoutR4();
     const secao = secoes.find((item) => item.id === params.get('secao'))?.id;
     const [revisao, setRevisao] = useState(0);
     const [modo, setModo] = useState('alunos');
@@ -415,17 +418,18 @@ export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: Rea
                 {secao && <span>{secoes.find((s) => s.id === secao)?.nome}</span>}
             </nav>
             {erro ? <p role="alert">{erro} <button onClick={atualizar}>Atualizar</button></p> : !aluno ? <p role="status">Carregando ficha…</p> : <>
-                <header className={css.cabecalho}>
+                <header className={css.cabecalho} {...layout?.item("ficha_cabecalho", "ficha", "Cabeçalho da ficha")}>
                     <span className={css.avatar}>{aluno.foto_ficha ?
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={aluno.foto_ficha} alt="" /> : obterIniciais(aluno.nome_aluno)}</span>
                     <div><h2>{aluno.nome_aluno}</h2><p>{[aluno.serie, aluno.colegio_nome].filter(Boolean).join(' · ') || 'Dados escolares pendentes'}</p></div>
                     <div className={css.contato}><strong>{aluno.responsavel_nome || 'Sem responsável'}</strong><p>{formatarTelefone(aluno.telefone)}</p><small>{!aluno.ativo ? 'Inativo' : aluno.responsavel_id && aluno.tem_pin ? 'Portal ativo' : 'Sem acesso ao portal'}</small></div>
                 </header>
-                {!secao && <div className={css.atalhos}>{secoes.map(({ id: destino, nome, descricao, Icone }) => <Link key={destino} href={caminho(id,destino)}>
-                    <Icone size={20} /><strong>{nome}</strong><small>{descricao}</small>
+                {!secao && <div className={css.atalhos}>{secoes.map(({ id: destino, nome, descricao, Icone }) => <Link key={destino} href={caminho(id,destino)} {...layout?.item("ficha_aba_" + destino, "ficha_abas", nome)}>
+                    <Icone size={20} /><strong><TextoLayoutR4 id={"ficha_aba_" + destino} campo="titulo" texto={nome} /></strong><small>{descricao}</small>
                 </Link>)}</div>}
-                {secao === 'perfil' && <section className={css.painel}><h2>Perfil do aluno</h2>
+                {secao === 'perfil' && <section className={css.painel} {...layout?.item("secao_perfil", "ficha", "Perfil do aluno")}>
+                    <h2><TextoLayoutR4 id="secao_perfil" campo="titulo" texto="Perfil do aluno" /></h2>
                     <Formulario acao="perfil" id={id} atualizado={atualizar} texto={base?.dados?.podeEditar ? 'Salvar perfil' : ''}>
                         {base?.dados?.podeEditar && <label>Foto<input type="file" name="foto" accept="image/jpeg,image/png,image/webp" /></label>}
                         <DadosEscolares aluno={aluno} bloqueado={!base?.dados?.podeEditar} />
@@ -434,7 +438,8 @@ export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: Rea
                         <Campo nome="CPF" name="cpf" valor={aluno.cpf} bloqueado={!base?.dados?.podeEditar} />
                     </Formulario>
                 </section>}
-                {secao === 'contatos' && <section className={css.painel}><h2>Contatos</h2>
+                {secao === 'contatos' && <section className={css.painel} {...layout?.item("secao_contatos", "ficha", "Contatos")}>
+                    <h2><TextoLayoutR4 id="secao_contatos" campo="titulo" texto="Contatos" /></h2>
                     <Formulario acao="contatos" id={id} atualizado={atualizar} texto={base?.dados?.podeEditar ? 'Salvar contatos' : ''}>
                         <Campo nome="E-mail de contato" name="email" valor={aluno.email} tipo="email" bloqueado={!base?.dados?.podeEditar} />
                         <label>Endereço<textarea name="endereco" defaultValue={aluno.endereco} maxLength={1000} disabled={!base?.dados?.podeEditar} /></label>
@@ -452,14 +457,17 @@ export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: Rea
                     </details>}
                     <ContatosAdicionais id={id} contatos={dados?.dados?.contatos || []} atualizar={atualizar} pode={Boolean(base?.dados?.podeEditar)} />
                 </section>}
-                {secao === 'situacao' && <Situacao aluno={aluno} atualizar={atualizar} pode={Boolean(base?.dados?.podeImportar)} />}
-                {(secao === 'calendario' || secao === 'controle') && <Calendario key={id + secao} id={id} controle={secao === 'controle'} ficha={aluno}
-                    podeEditarControle={Boolean(dados?.dados?.podeEditarControle)} />}
+                {secao === 'situacao' && <section {...layout?.item("secao_situacao", "ficha", "Situação")}>
+                    <Situacao aluno={aluno} atualizar={atualizar} pode={Boolean(base?.dados?.podeImportar)} />
+                </section>}
+                {(secao === 'calendario' || secao === 'controle') && <section
+                    {...layout?.item("secao_" + secao, "ficha", secao === 'calendario' ? "Calendário" : "Controle")}><Calendario key={id + secao} id={id} controle={secao === 'controle'} ficha={aluno}
+                    podeEditarControle={Boolean(dados?.dados?.podeEditarControle)} /></section>}
             </>}
         </> : <>
             <ListaAlunosR4 alunos={alunos} modo={modo} setModo={setModo} podeCriar={Boolean(base?.dados?.podeCriar)}
                 podeImportar={Boolean(base?.dados?.podeImportar)} carregando={!base} revisao={revisao} />
-            {modo === 'portal' ? contas : modo === 'importar' ? <Importacao alunos={alunos} atualizar={atualizar} fechar={() => setModo('alunos')} /> :
+            {modo === 'portal' ? <section {...layout?.item("contas_portal", "listagem", "Contas do Portal")}>{contas}</section> : modo === 'importar' ? <Importacao alunos={alunos} atualizar={atualizar} fechar={() => setModo('alunos')} /> :
                 modo === 'novo' ? <section className={css.painel}><h2>Novo aluno</h2><Formulario acao="criar" atualizado={() => { atualizar(); setModo('alunos'); }}>
                     <DadosEscolares /><Campo nome="Responsável" name="responsavel_nome" /><Campo nome="WhatsApp do responsável" name="telefone" tipo="tel" />
                 </Formulario></section> : null}

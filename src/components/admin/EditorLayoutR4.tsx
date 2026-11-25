@@ -6,7 +6,7 @@ import type { TemaR4 } from '@/lib/cores-r4';
 import { PainelPropriedadesLayoutR4 } from './PropriedadesLayoutR4';
 import css from './EditorLayoutR4.module.css';
 
-const endpoint = '/api/admin/layout?pagina=' + PAGINA_LAYOUT_ADMIN;
+const endpoint = '/api/admin/layout';
 const padrao = { offsetX: 0, offsetY: 0 };
 const desktop = () => window.matchMedia('(min-width: 1024px)').matches;
 const seletor = '[data-r4-layout-id]';
@@ -18,9 +18,11 @@ function irmaos(elemento: HTMLElement) {
         .sort((a,b) => Number(getComputedStyle(a).order) - Number(getComputedStyle(b).order));
 }
 
-export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: TemaR4) {
-    const [layoutsSalvos, setLayoutsSalvos] = useState<Partial<Record<TemaR4, LayoutAdmin>>>({});
-    const salvo = layoutsSalvos[tema];
+export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: TemaR4, pagina = PAGINA_LAYOUT_ADMIN) {
+    const chave = pagina + ":" + tema;
+    const [layoutsSalvos, setLayoutsSalvos] = useState<Partial<Record<string, LayoutAdmin>>>({});
+    const salvo = layoutsSalvos[chave];
+    const chaveEdicao = useRef<string | null>(null);
     const [rascunho, setRascunho] = useState<LayoutAdmin | null>(null);
     const [novoTexto, setNovoTexto] = useState(false);
     const [posicionarTexto, setPosicionarTexto] = useState<string | TextoLayout | null>(null);
@@ -37,21 +39,21 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: T
     const setMensagem = (texto: string) => setRetorno({ tema, texto });
     const [consulta, setConsulta] = useState(0);
     const gesto = useRef<{ item: HTMLElement; x: number; y: number; ox: number; oy: number; pixels: boolean; moveu: boolean } | null>(null);
-    const ativo = podeEditar && rascunho !== null && visivel;
+    const ativo = podeEditar && rascunho !== null && visivel && chaveEdicao.current === chave;
     const layout = ativo ? rascunho : salvo ?? {};
 
     useEffect(() => {
         if (!visivel) return;
         const pedido = new AbortController();
-        fetch(endpoint + '&tema=' + tema, { cache: 'no-store', signal: pedido.signal })
+        fetch(endpoint + '?pagina=' + encodeURIComponent(pagina) + '&tema=' + tema, { cache: 'no-store', signal: pedido.signal })
             .then(async (res) => {
                 if (!res.ok) throw new Error();
                 const dados = await res.json();
-                if (!pedido.signal.aborted) { setLayoutsSalvos((atual) => ({ ...atual, [tema]: dados.layout })); }
+                if (!pedido.signal.aborted) { setLayoutsSalvos((atual) => ({ ...atual, [chave]: dados.layout })); }
             })
             .catch(() => { if (!pedido.signal.aborted) setRetorno({ tema, texto: 'Não foi possível carregar o layout.' }); });
         return () => pedido.abort();
-    }, [visivel, consulta, tema]);
+    }, [visivel, consulta, tema, pagina, chave]);
 
     function atualizarItem(id: string, campos: Partial<PosicaoLayout>) {
         setRascunho((atual) => atual && ({ ...atual, [id]: { ...(atual[id] ?? padrao), ...campos } }));
@@ -68,7 +70,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: T
     }
 
     function remover(id: string, rotulo: string) {
-        if (!window.confirm('Remover “' + rotulo + '” da Visão geral?')) return;
+        if (!window.confirm('Remover “' + rotulo + '” desta página?')) return;
         setRascunho((atual) => {
             if (!atual) return atual;
             if (!atual[id]?.card && !atual[id]?.textoLivre) return { ...atual, [id]: { ...(atual[id] ?? padrao), oculto: true } };
@@ -130,11 +132,11 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: T
         try {
             const res = await fetch(endpoint, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pagina: PAGINA_LAYOUT_ADMIN, tema, layout: novo }),
+                body: JSON.stringify({ pagina, tema, layout: novo }),
             });
             const dados = await res.json();
             if (!res.ok) throw new Error(dados.error || 'Não foi possível salvar o layout.');
-            setLayoutsSalvos((atual) => ({ ...atual, [tema]: dados.layout }));
+            setLayoutsSalvos((atual) => ({ ...atual, [chave]: dados.layout }));
             fechar();
             setMensagem(Object.keys(novo).length ? 'Layout salvo no tema ' + nomeTema.toLowerCase() + '.' : 'Padrão restaurado no tema ' + nomeTema.toLowerCase() + '.');
         } catch (erro) {
@@ -163,7 +165,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: T
         setPosicionarTexto(null);
     }
 
-    function item(id: string, grupo: string, rotulo: string) {
+    function item(id: string, grupo: string, rotulo: string, ordemPadrao = 1000) {
         function alvoDoGesto(e: PointerEvent<HTMLElement>) {
             const alvo = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(`[data-r4-layout-grupo="${grupo}"]`);
             return alvo && alvo !== e.currentTarget && alvo.parentElement === e.currentTarget.parentElement ? alvo : undefined;
@@ -181,7 +183,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: T
             'data-r4-layout-selecionado': ativo && selecionado?.dataset.r4LayoutId === id || undefined,
             'data-r4-layout-destino': ativo && destino === id || undefined,
             style: {
-                order: pos.order ?? 1000,
+                order: pos.order ?? ordemPadrao,
                 '--r4-texto-x': pos.textoLivre ? pos.textoLivre.x + '%' : undefined,
                 '--r4-texto-y': pos.textoLivre ? pos.textoLivre.y + '%' : undefined,
                 '--r4-item-fundo': pos.fundo || 'var(--r4-painel)',
@@ -241,13 +243,13 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: T
     }
 
     return {
-        item, ativo, pronto, ocupado, mensagem, nomeTema, selecionado, modo, setModo, layout, mover,
+        item, pagina, ativo, pronto, ocupado, mensagem, nomeTema, selecionado, modo, setModo, layout, mover,
         novoCard, setNovoCard, novoTexto, setNovoTexto, posicionarTexto, setPosicionarTexto, colocarTexto, campoTexto, setCampoTexto, atualizarItem, atualizarTexto, remover,
         adicionar(id: string, posicao: PosicaoLayout) {
             atualizarItem(id, posicao);
             setNovoCard(false);
         },
-        iniciar: () => { if (salvo && podeEditar) { setRascunho(salvo); setMensagem(''); } },
+        iniciar: () => { if (salvo && podeEditar) { chaveEdicao.current = chave; setRascunho(salvo); setMensagem(''); } },
         fechar, gravar,
         tentar: () => { setMensagem(''); setConsulta((v) => v + 1); },
         trocar(direcao: number) {

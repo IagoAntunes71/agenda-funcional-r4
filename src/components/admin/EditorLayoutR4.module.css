@@ -122,3 +122,11 @@
     }
     :global([data-r4-texto-livre][data-r4-layout-editando]) { pointer-events: auto; }
 }
+
+@media (min-width: 1024px) {
+    :global([data-r4-layout-grid='colunas-12']) { --r4-span-2: 6; --r4-span-3: 9; }
+    :global([data-r4-layout-grid='colunas-12']) > :global([data-r4-layout-largura='1']) { grid-column: span 3; }
+}
+@media (min-width: 1081px) {
+    :global([data-r4-layout-grid='recepcao']) { --r4-span-2: 2; --r4-span-3: 3; }
+}

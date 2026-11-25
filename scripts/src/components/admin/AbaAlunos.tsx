@@ -322,7 +322,8 @@ export default function AbaAlunos({
                                 value={buscaAluno}
                                 onChange={(e) => setBuscaAluno(e.target.value)}
                                 placeholder={textoR4("Digite nome do responsável, aluno ou telefone...")}
-                                className={`w-full border rounded-xl pl-10 pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                                style={{ paddingLeft: '40px' }}
+                                className={`w-full border rounded-xl pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                             />
                         </div>
                     </div>

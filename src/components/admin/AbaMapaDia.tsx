@@ -1,4 +1,5 @@
 'use client';
+import { useLayoutR4 } from './EditorLayoutR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -390,13 +391,20 @@ export default function AbaMapaDia({
     }, [agendamentos, bloqueios, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
         filtroStatus, professorSemana, professores, professoresVisiveis, semana, podeVerOutrasAgendas, inicioMapa, fimMapa]);
 
-    const colunas = apresentacao && somenteComAula && !semana
+    const layout = useLayoutR4();
+    const colunasVisiveis = apresentacao && somenteComAula && !semana
         ? colunasCalculadas.filter((c) => c.aulasExibidas.length > 0)
         : colunasCalculadas;
 
-    const resumoAulas = new Map(colunas.flatMap((coluna) =>
+    const idColunaLayout = (coluna: (typeof colunasVisiveis)[number]) =>
+        semana ? 'dia_' + new Date(coluna.data + 'T12:00:00Z').getUTCDay() : 'professor_' + coluna.prof.id;
+    const colunas = [...colunasVisiveis]
+        .filter((coluna) => !layout?.layout[idColunaLayout(coluna)]?.oculto)
+        .sort((a, b) => (layout?.layout[idColunaLayout(a)]?.order ?? 1000) - (layout?.layout[idColunaLayout(b)]?.order ?? 1000));
+
+    const resumoAulas = new Map(colunasVisiveis.flatMap((coluna) =>
         coluna.aulas.map(({ aula }) => [aula.id, aula] as const)));
-    const resumoBloqueios = new Set(colunas.flatMap((coluna) =>
+    const resumoBloqueios = new Set(colunasVisiveis.flatMap((coluna) =>
         coluna.bloqueios.map(({ bloqueio }) => bloqueio.id)));
     const confirmadas = [...resumoAulas.values()].filter((aula) =>
         normalizarStatusAulaR4(aula.status) === 'confirmado').length;
@@ -715,7 +723,7 @@ export default function AbaMapaDia({
 
     return (
         <section ref={mapaRef} data-apresentacao={apresentacao} className={styles.mapa} data-tema={escuro ? 'escuro' : 'claro'}>
-            <div className={styles.painel} hidden={apresentacao}>
+            <div className={styles.painel} {...layout?.item("mapa_filtros", "mapa_blocos", "Filtros do mapa")} hidden={apresentacao}>
                 <div className={styles.topo}>
                     <div className={styles.controles}>
                         <div className={styles.segmentado} role="group" aria-label={textoR4("Visualização")}>
@@ -798,7 +806,7 @@ export default function AbaMapaDia({
                 </div>
             </div>
 
-            <div className={styles.agenda}>
+            <div className={styles.agenda} {...layout?.item("mapa_grade", "mapa_blocos", "Grade de horários")}>
                 <div className={styles.barraGrade}>
                     <div>
                         <h2>{semana ? textoR4("Visão semanal") : textoR4("Agenda por professor")}</h2>
@@ -837,8 +845,10 @@ export default function AbaMapaDia({
                             gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${apresentacao ? 118 : semana ? 150 : 171}px, 1fr))`,
                         }}>
                             <div className={`${styles.cabecalho} ${styles.canto}`}>{textoR4("Horário")}</div>
-                            {colunas.map(({ chave, prof, data }) => (
-                                <div className={styles.cabecalho} key={chave}>
+                            {colunas.map((coluna) => {
+                                const { chave, prof, data } = coluna;
+                                const props = layout?.item(idColunaLayout(coluna), 'mapa_colunas', semana ? formatarDiaCurtoPT(data) : prof.nome);
+                                return <div className={styles.cabecalho} key={chave} {...props} style={{ ...props?.style, order: undefined }}>
                                     {semana ? (
                                         <div className={styles.professor}>
                                             <span className={styles.avatar}><Calendar /></span>
@@ -869,8 +879,8 @@ export default function AbaMapaDia({
                                             </div>
                                         </>
                                     )}
-                                </div>
-                            ))}
+                                </div>;
+                            })}
                             <div className={styles.horas} style={{ height: alturaGrade }}>
                                 {horariosGrade.map((minuto) => (
                                     <div key={minuto} className={styles.hora} style={{ height: alturaSlot }}>

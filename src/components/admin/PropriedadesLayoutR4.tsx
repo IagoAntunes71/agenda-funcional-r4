@@ -36,6 +36,7 @@ function Cor({ titulo, valor, alterar, fallback }: { titulo: string; valor?: str
 }
 
 function NovoCard({ editor }: { editor: Editor }) {
+    const grupos = editor.pagina === 'dashboard_visao_geral' ? GRUPOS_CARDS : GRUPOS_CARDS.slice(0, 1);
     const [tipo, setTipo] = useState<'atalho' | 'aviso'>('atalho');
     function criar(e: FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -54,7 +55,7 @@ function NovoCard({ editor }: { editor: Editor }) {
         <label>Tipo<select value={tipo} onChange={(e) => setTipo(e.target.value === 'aviso' ? 'aviso' : 'atalho')}>
             <option value="atalho">Atalho</option><option value="aviso">Texto ou aviso</option>
         </select></label>
-        <label>Seção<select name="grupo">{GRUPOS_CARDS.map((grupo, i) => <option key={grupo} value={grupo}>{nomesGrupos[i]}</option>)}</select></label>
+        <label>Seção<select name="grupo">{grupos.map((grupo, i) => <option key={grupo} value={grupo}>{grupos.length === 1 ? "Página atual" : nomesGrupos[i]}</option>)}</select></label>
         <label>Título<input name="titulo" required maxLength={160} /></label>
         <label>Descrição<textarea name="descricao" maxLength={1600} rows={3} /></label>
         <label>Ícone<select name="icone"><option value="">Automático</option>{ICONES_CARDS.map((icone) => <option key={icone}>{icone}</option>)}</select></label>

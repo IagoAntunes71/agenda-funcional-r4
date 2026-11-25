@@ -1,4 +1,5 @@
 'use client';
+import { useLayoutR4 } from './EditorLayoutR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -458,11 +459,12 @@ export default function AbaProfessores({
         hora_fim: profFim,
     });
 
+    const layout = useLayoutR4();
     return (
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" data-r4-layout-grid="colunas-12">
             <form
                 onSubmit={(e) => void handleAdicionarProfessor(e)}
-                className={`lg:col-span-5 border rounded-2xl p-6 space-y-4 ${clsCard}`}
+                {...layout?.item("cadastro", "colunas", "Cadastrar professor")} className={`lg:col-span-5 border rounded-2xl p-6 space-y-4 ${clsCard}`}
             >
                 <h3
                     className={`text-sm font-bold flex items-center gap-2 ${clsTitulo}`}
@@ -619,7 +621,7 @@ export default function AbaProfessores({
             </form>
 
             <div
-                className={`lg:col-span-7 border rounded-2xl p-6 space-y-4 ${clsCard}`}
+                {...layout?.item("lista", "colunas", "Lista de professores")} className={`lg:col-span-7 border rounded-2xl p-6 space-y-4 ${clsCard}`}
             >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <h3 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Professores Cadastrados (")}{professoresFiltrados.length})

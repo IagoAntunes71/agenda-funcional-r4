@@ -1,5 +1,7 @@
 'use client';
 
+import { useLayoutR4 } from './EditorLayoutR4';
+import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Building2, CalendarDays, Download, GraduationCap, KeyRound, Phone, Plus, Search, Upload, UserRound } from 'lucide-react';
@@ -74,6 +76,7 @@ export default function ListaAlunosR4({ alunos, modo, setModo, podeCriar, podeIm
     alunos: Aluno[]; modo: string; setModo: (modo: string) => void; podeCriar: boolean; podeImportar: boolean;
     carregando: boolean; revisao: number;
 }) {
+    const layout = useLayoutR4();
     const [busca, setBusca] = useState('');
     const [colegio, setColegio] = useState('');
     const [serie, setSerie] = useState('');
@@ -109,10 +112,14 @@ export default function ListaAlunosR4({ alunos, modo, setModo, podeCriar, podeIm
     }, [idsFotos, chaveFotos]);
 
     return <>
-        <div className={css.toolbar} role="group" aria-label="Ferramentas de alunos">
+        <div className={css.toolbar} {...layout?.item("lista_ferramentas", "listagem", "Barra de ferramentas")} role="group" aria-label="Ferramentas de alunos">
             <nav className={css.segmentado} aria-label="Cadastros">
-                <button type="button" aria-pressed={modo !== 'portal'} onClick={() => setModo('alunos')}>Alunos</button>
-                <button type="button" aria-pressed={modo === 'portal'} onClick={() => setModo('portal')}>Contas do Portal</button>
+                <button type="button" {...layout?.item("aba_alunos", "abas_cadastro", "Alunos")} aria-pressed={modo !== 'portal'} onClick={() => setModo('alunos')}>
+                    <TextoLayoutR4 id="aba_alunos" campo="titulo" texto="Alunos" />
+                </button>
+                <button type="button" {...layout?.item("aba_contas", "abas_cadastro", "Contas do Portal")} aria-pressed={modo === 'portal'} onClick={() => setModo('portal')}>
+                    <TextoLayoutR4 id="aba_contas" campo="titulo" texto="Contas do Portal" />
+                </button>
             </nav>
             {modo === 'alunos' && <div className={css.filtros}>
                 <label className={css.busca}><Search size={16} aria-hidden="true" />
@@ -145,7 +152,7 @@ export default function ListaAlunosR4({ alunos, modo, setModo, podeCriar, podeIm
         {modo === 'alunos' && (carregando ? <p role="status">Carregando alunos…</p> : <>
             <p className={css.contagem} aria-live="polite">{quantidade.format(resultado.length)} {resultado.length === 1 ? 'aluno' : 'alunos'}</p>
             {!resultado.length && <p className={css.vazio}>Nenhum aluno encontrado.</p>}
-            <div className={css.grade}>{visiveis.map((a) => <CartaoAluno key={a.id} aluno={a}
+            <div className={css.grade} {...layout?.item("lista_grade", "listagem", "Grade de alunos")}>{visiveis.map((a) => <CartaoAluno key={a.id} aluno={a}
                 foto={fotos?.chave === chaveFotos ? fotos.dados[a.id] : undefined} />)}</div>
             {resultado.length > porPagina && <nav className={css.paginacao} aria-label="Paginação de alunos">
                 <button type="button" disabled={!paginaAtual} onClick={() => setPagina(paginaAtual - 1)}>Anterior</button>
