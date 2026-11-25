@@ -107,3 +107,18 @@
 :global([data-r4-layout-largura='total'][data-r4-layout-grupo='acoes']) { flex-basis: 100%; }
 :global([data-r4-layout-inline]) { cursor: text !important; }
 :global(textarea[data-r4-layout-inline]) { display: block; resize: vertical; }
+
+:global([data-r4-posicionando-texto]), :global([data-r4-posicionando-texto] *) { cursor: crosshair !important; }
+:global(:has(> [data-r4-texto-livre])) { position: relative; }
+:global([data-r4-texto-livre]) {
+    display: block; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap;
+    color: var(--r4-leitura); font-size: .875rem; font-weight: 500;
+}
+@media (min-width: 1024px) {
+    :global([data-r4-texto-livre]) {
+        position: absolute; inset-inline-start: var(--r4-texto-x); inset-block-start: var(--r4-texto-y); z-index: 2;
+        transform: translate(calc(-1 * var(--r4-texto-x)),calc(-1 * var(--r4-texto-y)));
+        width: max-content; max-width: min(95%, 36rem); pointer-events: none;
+    }
+    :global([data-r4-texto-livre][data-r4-layout-editando]) { pointer-events: auto; }
+}

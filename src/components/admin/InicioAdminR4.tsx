@@ -1,11 +1,11 @@
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowDownRight, ArrowRight, BadgeCheck, Building2, CalendarDays, CalendarCheck, CheckCircle2, ExternalLink, Layers3, UserRound } from 'lucide-react';
 import { enderecoAdmin, enderecoMapa, podeAcessarModulo, type PaginaAdmin } from '@/lib/admin-navegacao';
 import { obterAgoraBahia } from '@/lib/horarios-reforco';
 import { formatarDataBR, type PerfilAdmin, type UnidadeAdmin } from './types';
-import { CardsLayoutR4, IconeLayoutR4, TextoLayoutR4 } from './ConteudoLayoutR4';
+import { CardsLayoutR4, IconeLayoutR4, TextoLayoutR4, TextosLivresR4 } from './ConteudoLayoutR4';
 import { useLayoutR4 } from './EditorLayoutR4';
 import css from './InicioAdmin.module.css';
 
@@ -52,6 +52,7 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
 }) {
     const textoR4 = useTextoR4();
     const layout = useLayoutR4();
+    const [painel, setPainel] = useState<HTMLDivElement | null>(null);
     const hoje = obterAgoraBahia().dataISO;
     const unidadesAtivas = unidades.filter((unidade) => unidade.ativa);
     const atalhos = atalhosOperacao.flatMap((id) => modulos.filter((item) => item.id === id));
@@ -69,7 +70,8 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
         { id: 'desmarcadas', titulo: 'Desmarcadas e canceladas', valor: resumo?.desmarcadas, cor: 'desmarcadas', Icone: ArrowDownRight },
     ];
 
-    return <div className={css.inicio} data-tema={escuro ? 'escuro' : 'claro'}>
+    return <div ref={setPainel} className={css.inicio} onClickCapture={layout?.colocarTexto}
+        data-r4-posicionando-texto={Boolean(layout?.posicionarTexto) || undefined} data-tema={escuro ? 'escuro' : 'claro'}>
         <div className={css.visao} data-r4-layout-grid="visao" {...layout?.item('bloco_visao', 'secoes', 'Resumo da Visão geral')}>
             <section className={css.perfil} {...layout?.item('bloco_perfil', 'visao', 'Perfil e ações')}>
                 <div className={css.identidade}>
@@ -160,5 +162,6 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
         </section>}
         {children}
         <CardsLayoutR4 grupo="secoes" perfil={perfil.role} />
+        <TextosLivresR4 painel={painel} />
     </div>;
 }

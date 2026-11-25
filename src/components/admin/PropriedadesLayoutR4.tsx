@@ -65,17 +65,45 @@ function NovoCard({ editor }: { editor: Editor }) {
     </form>;
 }
 
+function NovoTexto({ editor }: { editor: Editor }) {
+    return <form className={css.campos} onSubmit={(e) => {
+        e.preventDefault();
+        const dados = new FormData(e.currentTarget);
+        const texto = String(dados.get('texto') || '').trim();
+        if (!texto) return;
+        editor.setPosicionarTexto({
+            texto,
+            fonte: FONTES.find((item) => item === dados.get('fonte')),
+            tamanho: TAMANHOS_TEXTO.find((item) => item === dados.get('tamanho')),
+            cor: dados.get('usarCor') ? String(dados.get('cor') || '') : undefined,
+        });
+        editor.setNovoTexto(false);
+    }}>
+        <label>Texto<textarea name="texto" rows={3} required maxLength={1600} /></label>
+        <label>Fonte<select name="fonte"><option value="">Padrão</option>
+            {FONTES.map((item, i) => <option key={item} value={item}>{['Fonte do painel','Humanista','Serifada','Monoespaçada'][i]}</option>)}
+        </select></label>
+        <label>Tamanho<select name="tamanho"><option value="">Padrão</option>
+            {TAMANHOS_TEXTO.map((item, i) => <option key={item} value={item}>{['Pequeno','Médio','Grande','Extra grande'][i]}</option>)}
+        </select></label>
+        <div className={css.cor}><label>Cor<input name="cor" type="color" defaultValue="#0e7c86" /></label>
+            <label><input name="usarCor" type="checkbox" /> Usar cor personalizada</label></div>
+        <button type="submit" disabled={editor.ocupado}>Escolher posição</button>
+    </form>;
+}
+
 function Propriedades({ editor, id }: { editor: Editor; id: string }) {
     const pos = editor.layout[id] ?? {};
     const rotulo = editor.selecionado?.dataset.r4LayoutRotulo ?? id;
     const permiteDestino = /^(unidade|acao|atalho)_/.test(id) || pos.card?.tipo === 'atalho';
-    const campo = editor.campoTexto;
+    const campo = editor.campoTexto ?? (pos.textoLivre ? 'descricao' : undefined);
     const tipografia = campo ? pos.textos?.[campo] : undefined;
     const alterar = (valores: Partial<PosicaoLayout>) => editor.atualizarItem(id, valores);
     const alterarFonte = (valores: Partial<TextoLayout>) => { if (campo) editor.atualizarTexto(id, campo, valores); };
 
     return <fieldset className={css.campos} disabled={editor.ocupado}>
         <legend>{rotulo}</legend>
+        {!pos.textoLivre && <>
         <div className={css.colunas}>
             <Opcoes titulo="Largura" valor={pos.largura} opcoes={LARGURAS} nomes={['1 coluna','2 colunas','3 colunas','Largura total']}
                 alterar={(largura) => alterar({ largura })} />
@@ -90,7 +118,7 @@ function Propriedades({ editor, id }: { editor: Editor; id: string }) {
                 <button key={fundo} type="button" style={{ background: fundo }} aria-label={'Fundo ' + fundo}
                     aria-pressed={pos.fundo === fundo} onClick={() => alterar({ fundo })} />)}</div>
         </>}
-        <Cor titulo="Cor do texto" valor={pos.corTexto} fallback="#0f172a" alterar={(corTexto) => alterar({ corTexto })} />
+        <Cor titulo="Cor geral do card" valor={pos.corTexto} fallback="#0f172a" alterar={(corTexto) => alterar({ corTexto })} />
         <Cor titulo="Cor dos ícones" valor={pos.corIcone} fallback="#0e7c86" alterar={(corIcone) => alterar({ corIcone })} />
         {permiteDestino && <Opcoes titulo="Destino do atalho" valor={pos.modulo} opcoes={MODULOS_ADMIN}
             nomes={MODULOS_ADMIN.map((modulo) => nomesModulos[modulo])} alterar={(modulo) => {
@@ -101,8 +129,11 @@ function Propriedades({ editor, id }: { editor: Editor; id: string }) {
             }} />}
         {(permiteDestino || pos.card) && <Opcoes titulo="Ícone" valor={pos.icone} opcoes={ICONES_CARDS}
             alterar={(icone) => alterar({ icone })} />}
+        </>}
+        {pos.textoLivre && <button type="button" onClick={() => editor.setPosicionarTexto(id)}>Reposicionar texto</button>}
         {campo ? <fieldset className={css.campos}>
             <legend>Tipografia · {campo}</legend>
+            <Cor titulo="Cor deste texto" valor={tipografia?.cor} fallback="#0e7c86" alterar={(cor) => alterarFonte({ cor })} />
             <Opcoes titulo="Fonte" valor={tipografia?.fonte} opcoes={FONTES} nomes={['Fonte do painel','Humanista','Serifada','Monoespaçada']}
                 alterar={(fonte) => alterarFonte({ fonte })} />
             <div className={css.colunas}>
@@ -111,7 +142,7 @@ function Propriedades({ editor, id }: { editor: Editor; id: string }) {
                 <Opcoes titulo="Peso" valor={tipografia?.peso} opcoes={PESOS} nomes={['Normal','Semibold','Bold']}
                     alterar={(peso) => alterarFonte({ peso })} />
             </div>
-            <button type="button" onClick={() => alterarFonte({ texto: undefined })}>Restaurar texto</button>
+            {!pos.textoLivre && <button type="button" onClick={() => alterarFonte({ texto: undefined })}>Restaurar texto</button>}
         </fieldset> : <small>Clique em um título, subtítulo ou rótulo para editar texto e tipografia.</small>}
         <button className={css.remover} type="button" onClick={() => editor.remover(id, rotulo)}>Remover do painel</button>
     </fieldset>;
@@ -120,14 +151,14 @@ function Propriedades({ editor, id }: { editor: Editor; id: string }) {
 export function PainelPropriedadesLayoutR4({ editor, id }: { editor: Editor; id?: string }) {
     const [aberto, setAberto] = useState(true);
     const ocultos = Object.entries(editor.layout).filter(([, pos]) => pos.oculto);
-    if (!id && !editor.novoCard && !ocultos.length) return null;
+    if (!id && !editor.novoCard && !editor.novoTexto && !ocultos.length) return null;
     return <aside className={css.propriedades} aria-label="Propriedades do layout">
         <div className={css.botoes}>
-            <strong>{editor.novoCard ? 'Adicionar Card' : 'Propriedades'}</strong>
-            {editor.novoCard ? <button type="button" onClick={() => editor.setNovoCard(false)}>Fechar</button> :
+            <strong>{editor.novoTexto ? 'Adicionar Texto' : editor.novoCard ? 'Adicionar Card' : 'Propriedades'}</strong>
+            {(editor.novoCard || editor.novoTexto) ? <button type="button" onClick={() => { editor.setNovoCard(false); editor.setNovoTexto(false); }}>Fechar</button> :
                 <button type="button" aria-expanded={aberto} onClick={() => setAberto(!aberto)}>{aberto ? 'Recolher' : 'Expandir'}</button>}
         </div>
-        {editor.novoCard ? <NovoCard editor={editor} /> : aberto && <>
+        {editor.novoTexto ? <NovoTexto editor={editor} /> : editor.novoCard ? <NovoCard editor={editor} /> : aberto && <>
             {id && <Propriedades editor={editor} id={id} />}
             {!!ocultos.length && <details><summary>Blocos removidos ({ocultos.length})</summary>
                 {ocultos.map(([chave, pos]) => <button key={chave} type="button" disabled={editor.ocupado}

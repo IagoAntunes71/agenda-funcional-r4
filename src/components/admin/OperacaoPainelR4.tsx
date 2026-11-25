@@ -2,9 +2,10 @@
 
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { CardsLayoutR4 } from './ConteudoLayoutR4';
-import { useLayoutR4 } from './EditorLayoutR4';
 import MetaFeedbackR4 from './MetaFeedbackR4';
-import MetaFeedbackDashboardR4 from './MetaFeedbackDashboardR4';
+import DetalhesFeedbackR4 from './MetaFeedbackDashboardR4';
+import { TextoLayoutR4 } from './ConteudoLayoutR4';
+import feedbackCss from './MetaFeedbackDashboardR4.module.css';
 import Link from 'next/link';
 import { CORES_STATUS_R4, OPERACAO_PADRAO, PERMISSOES_R4, podeOperacao, type OperacaoR4, type PermissaoR4, type PerfilOperacao } from '@/lib/operacao-r4';
 import { LISTA_STATUS_AULA_R4, obterMetaStatusR4 } from '@/lib/agenda-status-r4';
@@ -144,7 +145,6 @@ type Linha = { id: number; aluno_id?: number; plano?: string; orientacoes?: stri
 export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = false }: {
     painel: 'recepcao' | 'alunos' | 'metas'; perfil: PerfilOperacao; unidades?: UnidadeAdmin[]; compacto?: boolean;
 }) {
-    const editorLayout = useLayoutR4();
     const { cfg } = useOperacaoR4();
     const [mes, setMes] = useState(() => obterAgoraBahia().dataISO.slice(0, 7));
     const [busca, setBusca] = useState('');
@@ -166,6 +166,37 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
         return () => { clearTimeout(timer); pedido.abort(); };
     }, [consulta]);
     const atual = dados?.chave === consulta ? dados : null;
+    if (painel === 'metas' && compacto) {
+        const totais = atual?.metas?.reduce((acc, meta) => ({
+            total: acc.total + meta.total, feitos: acc.feitos + meta.feitos, vencidos: acc.vencidos + meta.vencidos,
+        }), { total: 0, feitos: 0, vencidos: 0 });
+        const percentual = totais?.total ? Math.floor(100 * totais.feitos / totais.total) : 0;
+        return <div className="grid gap-3">
+            <article className={feedbackCss.card}>
+                <header className={feedbackCss.identidade}>
+                    <h3><TextoLayoutR4 id="bloco_feedback" campo="titulo" texto="Feedback geral" /></h3>
+                    <Link href="/admin/metas" className={feedbackCss.atalho}>Ver feedbacks por professor <span aria-hidden="true">↗</span></Link>
+                </header>
+                {!atual && <p role="status">Carregando progresso…</p>}
+                {atual?.erro && <p role="alert">{atual.erro} <button type="button" className="underline"
+                    onClick={() => setAtualizar((v) => v + 1)}>Tentar novamente</button></p>}
+                {totais && <>
+                    <div className={feedbackCss.progresso}>
+                        <span><TextoLayoutR4 id="bloco_feedback" campo="rotulo" texto="Progresso do mês atual" /></span>
+                        <strong>{percentual}%</strong>
+                        <progress aria-label="Progresso geral dos feedbacks" max={100} value={percentual}
+                            data-faixa={percentual >= 85 ? 'alta' : percentual >= 50 ? 'media' : 'baixa'} />
+                    </div>
+                    <dl className={feedbackCss.numeros}>
+                        <div><dt><TextoLayoutR4 id="bloco_feedback" campo="feitos" texto="Feitos" /></dt><dd>{totais.feitos}</dd></div>
+                        <div><dt><TextoLayoutR4 id="bloco_feedback" campo="faltantes" texto="Faltantes" /></dt><dd>{totais.total - totais.feitos}</dd></div>
+                        <div><dt><TextoLayoutR4 id="bloco_feedback" campo="vencidos" texto="Vencidos" /></dt><dd>{totais.vencidos}</dd></div>
+                    </dl>
+                </>}
+            </article>
+            <CardsLayoutR4 grupo="metas" perfil={perfil} />
+        </div>;
+    }
     return <div className="space-y-3">
         <div className={`${painel === 'metas' ? 'pb-1' : caixa} flex gap-2 flex-wrap items-end`}>
             <label className="grid gap-1 text-sm">Mês<input type="month" className={campo} value={mes} onChange={(e) => { setMes(e.target.value); setOffset(0); }} /></label>
@@ -187,15 +218,12 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
         {!atual && <p role="status">Carregando…</p>}
         {atual?.erro && <p role="alert">{atual.erro} <button type="button" className="underline" onClick={() => setAtualizar((v) => v + 1)}>Tentar novamente</button></p>}
         {atual?.metas?.length === 0 && <p>Nenhuma aula realizada neste mês.</p>}
-        {(atual?.metas || (painel === 'metas' && compacto)) && <div data-r4-layout-grid={compacto ? 'metas' : undefined} className={compacto ? "grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3" : "grid gap-4"}>
-        {atual?.metas?.slice(0, compacto ? 3 : undefined).map((meta) => compacto && perfil === 'admin' ? (
-            <MetaFeedbackDashboardR4 key={meta.chave + ':' + mes} {...meta} mes={mes}
-                itemLayout={editorLayout?.item('meta_' + encodeURIComponent(meta.chave), 'metas', meta.professor)} />
-        ) : <MetaFeedbackR4 key={meta.chave} professor={meta.professor} feitos={meta.feitos} total={meta.total}
-            vencidos={meta.vencidos} compacto={compacto} />)}
-        {compacto && <CardsLayoutR4 grupo="metas" perfil={perfil} />}
+        {atual?.metas && <div className="grid gap-4">
+            {atual.metas.map((meta) => <MetaFeedbackR4 key={meta.chave + ':' + mes} professor={meta.professor}
+                feitos={meta.feitos} total={meta.total} vencidos={meta.vencidos} compacto={compacto}>
+                {perfil === 'admin' && <DetalhesFeedbackR4 chave={meta.chave} mes={mes} feitos={meta.feitos} total={meta.total} />}
+            </MetaFeedbackR4>)}
         </div>}
-        {compacto && <Link href="/admin/metas" className="underline text-sm">Abrir metas de feedback</Link>}
         {financeiro && atual?.somas && <div className={`${caixa} grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm`}>
             {atual.somas.cobrar !== undefined && <div>Total previsto e devido pelas famílias<br /><strong>{dinheiro.format(atual.somas.cobrar)}</strong></div>}
             <div>Repasse previsto<br /><strong>{dinheiro.format(atual.somas.repassePrevisto)}</strong></div>

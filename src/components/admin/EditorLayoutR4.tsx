@@ -20,6 +20,8 @@ function irmaos(elemento: HTMLElement) {
 export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
     const [salvo, setSalvo] = useState<LayoutAdmin>({});
     const [rascunho, setRascunho] = useState<LayoutAdmin | null>(null);
+    const [novoTexto, setNovoTexto] = useState(false);
+    const [posicionarTexto, setPosicionarTexto] = useState<string | TextoLayout | null>(null);
     const [novoCard, setNovoCard] = useState(false);
     const [campoTexto, setCampoTexto] = useState<CampoTextoLayout | undefined>();
     const [selecionado, setSelecionado] = useState<HTMLElement | null>(null);
@@ -64,7 +66,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
         if (!window.confirm('Remover “' + rotulo + '” da Visão geral?')) return;
         setRascunho((atual) => {
             if (!atual) return atual;
-            if (!atual[id]?.card) return { ...atual, [id]: { ...(atual[id] ?? padrao), oculto: true } };
+            if (!atual[id]?.card && !atual[id]?.textoLivre) return { ...atual, [id]: { ...(atual[id] ?? padrao), oculto: true } };
             const restante = { ...atual };
             delete restante[id];
             return restante;
@@ -77,6 +79,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
         setSelecionado(elemento);
         setCampoTexto(campo);
         setNovoCard(false);
+        setNovoTexto(false);
     }
 
     function mover(id: string, x: number, y: number) {
@@ -107,6 +110,8 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
         setRascunho(null);
         setSelecionado(null);
         setNovoCard(false);
+        setNovoTexto(false);
+        setPosicionarTexto(null);
         setCampoTexto(undefined);
         setDestino(undefined);
         setModo('ordem');
@@ -132,6 +137,27 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
         } finally { setOcupado(false); }
     }
 
+    function colocarTexto(e: React.MouseEvent<HTMLElement>) {
+        if (!ativo || !posicionarTexto || ocupado) return;
+        const alvo = (e.target as Element).closest<HTMLElement>(seletor);
+        if (alvo?.dataset.r4LayoutId?.startsWith('texto_')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const caixa = (alvo ?? e.currentTarget).getBoundingClientRect();
+        const ponto = {
+            alvo: alvo?.dataset.r4LayoutId || 'painel',
+            x: Math.max(0, Math.min(100, (e.clientX - caixa.left) / Math.max(1, caixa.width) * 100)),
+            y: Math.max(0, Math.min(100, (e.clientY - caixa.top) / Math.max(1, caixa.height) * 100)),
+        };
+        if (typeof posicionarTexto === 'string') atualizarItem(posicionarTexto, { textoLivre: ponto });
+        else atualizarItem('texto_' + crypto.randomUUID(), {
+            ...padrao, textoLivre: ponto, textos: { descricao: posicionarTexto },
+        });
+        setSelecionado(null);
+        setCampoTexto(undefined);
+        setPosicionarTexto(null);
+    }
+
     function item(id: string, grupo: string, rotulo: string) {
         function alvoDoGesto(e: PointerEvent<HTMLElement>) {
             const alvo = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(`[data-r4-layout-grupo="${grupo}"]`);
@@ -142,7 +168,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
             return (e.target as Element).closest(seletor) === e.currentTarget;
         }
         return {
-            'data-r4-layout-id': id, 'data-r4-layout-oculto': pos.oculto || undefined,
+            'data-r4-layout-id': id, 'data-r4-texto-livre': Boolean(pos.textoLivre) || undefined, 'data-r4-layout-oculto': pos.oculto || undefined,
             'data-r4-layout-largura': pos.largura, 'data-r4-layout-espaco': pos.espacamento,
             'data-r4-layout-superficie': pos.superficie, 'data-r4-layout-tem-texto': Boolean(pos.corTexto) || undefined,
             'data-r4-layout-tem-icone': Boolean(pos.corIcone) || undefined, 'data-r4-layout-grupo': grupo, 'data-r4-layout-rotulo': rotulo,
@@ -151,6 +177,8 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
             'data-r4-layout-destino': ativo && destino === id || undefined,
             style: {
                 order: pos.order ?? 1000,
+                '--r4-texto-x': pos.textoLivre ? pos.textoLivre.x + '%' : undefined,
+                '--r4-texto-y': pos.textoLivre ? pos.textoLivre.y + '%' : undefined,
                 '--r4-item-fundo': pos.fundo || 'var(--r4-painel)',
                 '--r4-item-texto': pos.corTexto || 'currentColor',
                 '--r4-item-icone': pos.corIcone || 'currentColor',
@@ -172,7 +200,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
             } : undefined,
             onDragStart: ativo ? (e: React.DragEvent<HTMLElement>) => e.preventDefault() : undefined,
             onPointerDown: ativo ? (e: PointerEvent<HTMLElement>) => {
-                if (ocupado || e.button !== 0 || !e.isPrimary || !pertence(e) || (e.target as Element).closest('[data-r4-layout-campo]')) return;
+                if (ocupado || posicionarTexto || e.button !== 0 || !e.isPrimary || !pertence(e) || (e.target as Element).closest('[data-r4-layout-campo]')) return;
                 const pixels = (modo === 'pixels' || e.shiftKey) && desktop();
                 selecionar(e.currentTarget);
                 gesto.current = { item: e.currentTarget, x: e.clientX, y: e.clientY, ox: pos.offsetX, oy: pos.offsetY, pixels, moveu: false };
@@ -209,7 +237,7 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
 
     return {
         item, ativo, pronto, ocupado, mensagem, selecionado, modo, setModo, layout, mover,
-        novoCard, setNovoCard, campoTexto, setCampoTexto, atualizarItem, atualizarTexto, remover,
+        novoCard, setNovoCard, novoTexto, setNovoTexto, posicionarTexto, setPosicionarTexto, colocarTexto, campoTexto, setCampoTexto, atualizarItem, atualizarTexto, remover,
         adicionar(id: string, posicao: PosicaoLayout) {
             atualizarItem(id, posicao);
             setNovoCard(false);
@@ -233,7 +261,10 @@ export const useLayoutR4 = () => useContext(LayoutR4Context);
 export function BotoesLayoutR4({ editor }: { editor: Editor }) {
     return <div className={css.botoes}>
         {editor.ativo ? <>
-            <button type="button" disabled={editor.ocupado} onClick={() => editor.setNovoCard(true)}>+ Adicionar Card</button>
+            <button type="button" disabled={editor.ocupado} onClick={() => { editor.setNovoTexto(false); editor.setNovoCard(true); }}>+ Adicionar Card</button>
+            <button type="button" disabled={editor.ocupado} onClick={() => {
+                editor.setNovoCard(false); editor.setPosicionarTexto(null); editor.setNovoTexto(true);
+            }}>+ Adicionar Texto</button>
             <button type="button" className={css.salvar} disabled={editor.ocupado} onClick={() => void editor.gravar(editor.layout)}>Salvar Layout</button>
             <button type="button" disabled={editor.ocupado} onClick={editor.fechar}>Cancelar</button>
             <button type="button" disabled={editor.ocupado} onClick={() => {
@@ -254,6 +285,8 @@ export function BarraLayoutR4({ editor }: { editor: Editor }) {
     <div className={css.barra} role="region" aria-label="Editor de layout">
         <button type="button" aria-pressed={editor.modo === 'ordem'} onClick={() => editor.setModo('ordem')}>Reordenar</button>
         <button type="button" className={css.desktop} aria-pressed={editor.modo === 'pixels'} onClick={() => editor.setModo('pixels')}>Mover em pixels</button>
+        {editor.posicionarTexto && <span role="status">Clique dentro de um card ou em uma área livre para posicionar o texto.
+            <button type="button" onClick={() => editor.setPosicionarTexto(null)}>Cancelar posição</button></span>}
         {id ? <>
             <strong>{editor.selecionado?.dataset.r4LayoutRotulo}</strong>
             <button type="button" disabled={editor.ocupado} onClick={() => editor.trocar(-1)}>Anterior</button>

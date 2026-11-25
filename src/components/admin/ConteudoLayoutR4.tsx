@@ -1,5 +1,6 @@
-import { useState, type ReactNode, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useEffect, useState, type ReactNode, type ChangeEvent, type KeyboardEvent } from 'react';
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import { ArrowUpRight, Building2, CalendarDays, LayoutGrid, Megaphone, UsersRound } from 'lucide-react';
 import { enderecoAdmin, podeAcessarModulo } from '@/lib/admin-navegacao';
 import type { RoleSistema } from '@/lib/admin-auth';
@@ -26,6 +27,7 @@ export function TextoLayoutR4({ id, campo, texto }: { id: string; campo: CampoTe
         'data-r4-layout-fonte': config?.fonte,
         'data-r4-layout-tamanho': config?.tamanho,
         'data-r4-layout-peso': config?.peso,
+        style: config?.cor ? { color: config.cor } : undefined,
     };
     const valor = config?.texto ?? texto;
     const entrada = {
@@ -67,4 +69,42 @@ export function CardsLayoutR4({ grupo, perfil }: { grupo: NonNullable<PosicaoLay
             ? <Link key={id} className={cssInicio.card} href={enderecoAdmin(modulo)} {...props}>{conteudo}</Link>
             : <article key={id} className={cssInicio.card} {...props}>{conteudo}</article>;
     })}</>;
+}
+
+export function TextosLivresR4({ painel }: { painel: HTMLDivElement | null }) {
+    const editor = useLayoutR4();
+    const layout = editor?.layout;
+    const [alvos, setAlvos] = useState<Record<string, HTMLElement>>({});
+    const ids = JSON.stringify(Array.from(new Set(Object.values(layout ?? {}).flatMap((item) =>
+        item.textoLivre ? [item.textoLivre.alvo] : []))));
+
+    useEffect(() => {
+        if (!painel || ids === '[]') return;
+        const desejados = new Set<string>(JSON.parse(ids));
+        function encontrar() {
+            const novos: Record<string, HTMLElement> = {};
+            if (desejados.has('painel') && painel) novos.painel = painel;
+            painel?.querySelectorAll<HTMLElement>('[data-r4-layout-id]').forEach((elemento) => {
+                const id = elemento.dataset.r4LayoutId;
+                if (id && desejados.has(id)) novos[id] = elemento;
+            });
+            setAlvos((atual) => Object.keys(atual).length === Object.keys(novos).length &&
+                Object.entries(novos).every(([id, elemento]) => atual[id] === elemento) ? atual : novos);
+        }
+        encontrar();
+        const observador = new MutationObserver(encontrar);
+        observador.observe(painel, { childList: true, subtree: true });
+        return () => observador.disconnect();
+    }, [painel, ids]);
+
+    if (!editor || !layout) return null;
+    return Object.entries(layout).flatMap(([id, pos]) => {
+        if (!pos.textoLivre) return [];
+        const alvo = alvos[pos.textoLivre.alvo];
+        if (!alvo?.isConnected) return [];
+        const texto = pos.textos?.descricao?.texto || 'Texto';
+        return [createPortal(<span {...editor.item(id, 'texto_livre', texto.slice(0,48))}>
+            <TextoLayoutR4 id={id} campo="descricao" texto={texto} />
+        </span>, alvo, id)];
+    });
 }

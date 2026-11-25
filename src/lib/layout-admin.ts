@@ -15,6 +15,7 @@ const CAMPOS_TEXTO: readonly CampoTextoLayout[] = ['titulo', 'descricao', 'rotul
 
 export type TextoLayout = {
     texto?: string;
+    cor?: string;
     fonte?: typeof FONTES[number];
     tamanho?: typeof TAMANHOS_TEXTO[number];
     peso?: typeof PESOS[number];
@@ -33,6 +34,7 @@ export type PosicaoLayout = {
     corIcone?: string;
     modulo?: ModuloAdmin;
     icone?: typeof ICONES_CARDS[number];
+    textoLivre?: { alvo: string; x: number; y: number };
     card?: { grupo: typeof GRUPOS_CARDS[number]; tipo: 'atalho' | 'aviso' };
     textos?: Partial<Record<CampoTextoLayout, TextoLayout>>;
 };
@@ -62,8 +64,8 @@ export function validarLayoutAdmin(valor: unknown): LayoutAdmin | null {
     if (!objeto(valor) || Object.keys(valor).length > 800) return null;
     const layout: LayoutAdmin = {};
     for (const [id, item] of Object.entries(valor)) {
-        if (!/^(bloco|semana|unidade|acao|atalho|meta|custom)_[a-zA-Z0-9_%.-]{1,160}$/.test(id) || !objeto(item)) return null;
-        const { order, offsetX, offsetY, oculto, largura, espacamento, superficie, fundo, corTexto, corIcone, modulo, icone, card, textos } = item as Partial<PosicaoLayout>;
+        if (!/^(bloco|semana|unidade|acao|atalho|meta|custom|texto)_[a-zA-Z0-9_%.-]{1,160}$/.test(id) || !objeto(item)) return null;
+        const { order, offsetX, offsetY, oculto, largura, espacamento, superficie, fundo, corTexto, corIcone, modulo, icone, card, textos, textoLivre } = item as Partial<PosicaoLayout>;
         if (order !== undefined && (!Number.isSafeInteger(order) || order < 0 || order > 800)) return null;
         if (typeof offsetX !== 'number' || !Number.isSafeInteger(offsetX) || Math.abs(offsetX) > LIMITE_OFFSET_LAYOUT ||
             typeof offsetY !== 'number' || !Number.isSafeInteger(offsetY) || Math.abs(offsetY) > LIMITE_OFFSET_LAYOUT) return null;
@@ -71,6 +73,10 @@ export function validarLayoutAdmin(valor: unknown): LayoutAdmin | null {
             !opcional(largura, LARGURAS) || !opcional(espacamento, ESPACAMENTOS) || !opcional(superficie, SUPERFICIES) ||
             !opcional(icone, ICONES_CARDS) || !cor(fundo) || !cor(corTexto) || !cor(corIcone) ||
             (modulo !== undefined && !moduloLayout(modulo))) return null;
+        if (id.startsWith('texto_') !== Boolean(textoLivre)) return null;
+        if (textoLivre && (!objeto(textoLivre) || typeof textoLivre.alvo !== 'string' ||
+            !/^(painel|(bloco|semana|unidade|acao|atalho|meta|custom)_[a-zA-Z0-9_%.-]{1,160})$/.test(textoLivre.alvo) ||
+            ![textoLivre.x, textoLivre.y].every((v) => Number.isFinite(v) && v >= 0 && v <= 100))) return null;
         if (id.startsWith('custom_') !== Boolean(card)) return null;
         if (card && (!objeto(card) || !GRUPOS_CARDS.includes(card.grupo) ||
             !['atalho','aviso'].includes(card.tipo) || (card.tipo === 'atalho' && !modulo))) return null;
@@ -79,13 +85,14 @@ export function validarLayoutAdmin(valor: unknown): LayoutAdmin | null {
             if (!objeto(textos)) return null;
             for (const [campo, estilo] of Object.entries(textos)) {
                 if (!CAMPOS_TEXTO.some((nome) => nome === campo) || !objeto(estilo)) return null;
-                const { texto, fonte, tamanho, peso } = estilo as TextoLayout;
+                const { texto, fonte, tamanho, peso, cor: corTextoCampo } = estilo as TextoLayout;
                 if ((texto !== undefined && (typeof texto !== 'string' || texto.length > (campo === 'descricao' ? 1600 : 160))) ||
-                    !opcional(fonte,FONTES) || !opcional(tamanho,TAMANHOS_TEXTO) || !opcional(peso,PESOS)) return null;
-                textosValidados[campo as CampoTextoLayout] = { texto, fonte, tamanho, peso };
+                    !cor(corTextoCampo) || !opcional(fonte,FONTES) || !opcional(tamanho,TAMANHOS_TEXTO) || !opcional(peso,PESOS)) return null;
+                textosValidados[campo as CampoTextoLayout] = { texto, fonte, tamanho, peso, cor: corTextoCampo };
             }
         }
         layout[id] = { order, offsetX, offsetY, oculto, largura, espacamento, superficie, fundo, corTexto, corIcone, modulo, icone,
+            textoLivre: textoLivre ? { alvo: textoLivre.alvo, x: textoLivre.x, y: textoLivre.y } : undefined,
             card: card ? { grupo: card.grupo, tipo: card.tipo } : undefined, textos: textos === undefined ? undefined : textosValidados };
     }
     return layout;
