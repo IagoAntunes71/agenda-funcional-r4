@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { lerSessaoAdmin } from '@/lib/admin-auth';
+import { garantirHistoricoAgendamento } from "@/lib/agendamento-historico";
 import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
 import { formatarTelefone, gerarVariantesTelefone, normalizarTelefone } from '@/lib/cliente-helpers';
 import { prepararCadastroAlunoR4 } from '@/lib/cadastro-aluno-r4';
@@ -20,14 +21,31 @@ export async function GET(req: NextRequest) {
         if (sessao.role === 'professor' || !podeOperacao(cfg, sessao.role, 'todosAlunos')) return erro('Sem acesso à ficha de alunos.', 403);
         await garantirEstruturaContasResponsaveis();
         await prepararCadastroAlunoR4();
+        const fotos = req.nextUrl.searchParams.get('fotos');
+        if (fotos !== null) {
+            const ids = [...new Set(fotos.split(',').map(Number))];
+            if (ids.length > 24 || !ids.every(idValido)) return erro('Lista de fotos inválida.', 400);
+            const linhas = await sql`SELECT id, foto_ficha FROM alunos
+                WHERE id = ANY(${ids}::int[]) AND nullif(foto_ficha,'') IS NOT NULL`;
+            return NextResponse.json({ fotos: Object.fromEntries(linhas.map((linha) => [linha.id, linha.foto_ficha])) },
+                { headers: { 'Cache-Control': 'private, no-store' } });
+        }
         const id = Number(req.nextUrl.searchParams.get('id') || 0);
         if (!id) {
-            const alunos = await sql`SELECT a.id, a.nome_aluno, a.colegio_nome, a.serie, coalesce(a.ativo,true) AS ativo,
+            await garantirHistoricoAgendamento();
+            const alunos = await sql`WITH ultima_unidade AS (
+                SELECT DISTINCT ON (ag.aluno_id) ag.aluno_id, u.nome
+                FROM agendamentos ag JOIN unidades u ON u.id = ag.unidade_id
+                WHERE ag.aluno_id IS NOT NULL AND ag.excluido_em IS NULL
+                    AND coalesce(ag.status,'confirmado') NOT IN ('cancelado','desmarcado_com_cobranca','desmarcado_sem_cobranca')
+                ORDER BY ag.aluno_id, ag.data DESC, ag.id DESC
+            ) SELECT a.id, nullif(a.foto_ficha,'') IS NOT NULL AS tem_foto, unidade.nome AS unidade_nome, a.nome_aluno, a.colegio_nome, a.serie, coalesce(a.ativo,true) AS ativo,
                 a.clin_care_aluno_id, a.responsavel_id, coalesce(r.nome,a.responsavel_nome,'') AS responsavel_nome,
                 coalesce(nullif(r.telefone,''),nullif(a.telefone,''),a.contato_importado) AS telefone,
                 coalesce(nullif(trim(r.pin_hash),''),nullif(trim(a.pin_hash),'')) IS NOT NULL AS tem_pin,
                 to_char(a.nascimento,'YYYY-MM-DD') AS nascimento
-                FROM alunos a LEFT JOIN responsaveis r ON r.id = a.responsavel_id ORDER BY a.nome_aluno, a.id`;
+                FROM alunos a LEFT JOIN responsaveis r ON r.id = a.responsavel_id
+                LEFT JOIN ultima_unidade unidade ON unidade.aluno_id = a.id ORDER BY a.nome_aluno, a.id`;
             return NextResponse.json({ alunos, podeEditar: podeOperacao(cfg, sessao.role, 'editarAlunos'),
                 podeCriar: podeOperacao(cfg, sessao.role, 'editarAlunos') && (sessao.role === 'admin' || cfg.recepcaoCadastra),
                 podeImportar: sessao.role === 'admin' });

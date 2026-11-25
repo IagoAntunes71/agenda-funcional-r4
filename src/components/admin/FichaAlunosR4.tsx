@@ -3,18 +3,15 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, CalendarDays, ClipboardList, Contact, GraduationCap, Search, UserRound, UserRoundX } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ClipboardList, Contact, GraduationCap, UserRound, UserRoundX } from 'lucide-react';
 import { formatarTelefone, normalizarTelefone, SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { FORMATO_ALUNOS_CLINCARE, inferirColegioClinCare, inferirSerieClinCare, padronizarColegioClinCare, validarAlunoClinCare, type AlunoClinCare } from '@/lib/importacao-alunos-clincare';
 import { obterMetaStatusR4 } from '@/lib/agenda-status-r4';
 import { adicionarDiasISO, obterAgoraBahia } from '@/lib/horarios-reforco';
 import { comprimirImagemAvatar, formatarDataBR, obterIniciais } from './types';
+import ListaAlunosR4, { type Aluno } from './ListaAlunosR4';
 import css from './FichaAlunosR4.module.css';
 
-type Aluno = {
-    id: number; nome_aluno: string; colegio_nome: string; serie: string; ativo: boolean; clin_care_aluno_id: string | null;
-    responsavel_id: number | null; responsavel_nome: string; telefone: string; tem_pin: boolean; nascimento: string | null;
-};
 type Contato = { id: number; nome: string; parentesco: string; telefone: string; email: string; cpf: string; observacoes: string; principal_clincare?: boolean };
 type Ficha = Aluno & { foto_ficha: string; cpf: string; sexo: string; email: string; endereco: string; plano: string; orientacoes: string };
 type Aula = { id: number; data: string; inicio: string; fim: string; materia: string; professor: string; unidade: string; status: string; feedback: string | null };
@@ -403,15 +400,9 @@ export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: Rea
     const secao = secoes.find((item) => item.id === params.get('secao'))?.id;
     const [revisao, setRevisao] = useState(0);
     const [modo, setModo] = useState('alunos');
-    const [busca, setBusca] = useState('');
-    const [inativos, setInativos] = useState(false);
-    const [pagina, setPagina] = useState(0);
     const base = useConsulta<Base>('/api/admin/ficha-aluno', revisao);
     const dados = useConsulta<{ aluno: Ficha; podeEditarControle: boolean; contatos: Contato[] }>(id ? '/api/admin/ficha-aluno?id=' + id + (secao === 'contatos' ? '&contatos=1' : '') : '', revisao);
     const alunos = base?.dados?.alunos || [];
-    const resultado = alunos.filter((a) => (inativos || a.ativo) &&
-        (limpar([a.nome_aluno,a.responsavel_nome,a.telefone,a.colegio_nome,a.serie].join(' ')).includes(limpar(busca)) ||
-        (/\d{4}/.test(busca.replace(/\D/g,'')) && a.telefone.replace(/\D/g,'').includes(busca.replace(/\D/g,'')))));
     const aluno = dados?.dados?.aluno;
     const atualizar = () => { setRevisao((r) => r + 1); void atualizarPainel(); };
     const erro = base?.erro || dados?.erro;
@@ -466,34 +457,12 @@ export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: Rea
                     podeEditarControle={Boolean(dados?.dados?.podeEditarControle)} />}
             </>}
         </> : <>
-            <nav className={css.acoes} aria-label="Cadastros">
-                <button aria-pressed={modo === 'alunos'} onClick={() => setModo('alunos')}>Alunos</button>
-                <button aria-pressed={modo === 'portal'} onClick={() => setModo('portal')}>Contas do Portal</button>
-                {base?.dados?.podeCriar && <button className="r4-acao" onClick={() => setModo('novo')}>Novo aluno</button>}
-                {base?.dados?.podeImportar && <button onClick={() => setModo('importar')}>Importar Clin Care</button>}
-            </nav>
+            <ListaAlunosR4 alunos={alunos} modo={modo} setModo={setModo} podeCriar={Boolean(base?.dados?.podeCriar)}
+                podeImportar={Boolean(base?.dados?.podeImportar)} carregando={!base} revisao={revisao} />
             {modo === 'portal' ? contas : modo === 'importar' ? <Importacao alunos={alunos} atualizar={atualizar} fechar={() => setModo('alunos')} /> :
                 modo === 'novo' ? <section className={css.painel}><h2>Novo aluno</h2><Formulario acao="criar" atualizado={() => { atualizar(); setModo('alunos'); }}>
                     <DadosEscolares /><Campo nome="Responsável" name="responsavel_nome" /><Campo nome="WhatsApp do responsável" name="telefone" tipo="tel" />
-                </Formulario></section> : !base ? <p role="status">Carregando alunos…</p> : <>
-                    <div className={css.busca}>
-                        <label><Search size={16} /><input type="search" aria-label="Buscar alunos" placeholder="Aluno, responsável, WhatsApp ou colégio" value={busca}
-                            onChange={(e) => { setBusca(e.target.value); setPagina(0); }} /></label>
-                        <label><input type="checkbox" checked={inativos} onChange={(e) => { setInativos(e.target.checked); setPagina(0); }} /> Exibir inativos</label>
-                        <span>{resultado.length} alunos</span>
-                    </div>
-                    {resultado.length === 0 && <p>Nenhum aluno encontrado.</p>}
-                    <div className={css.cartoes}>{resultado.slice(pagina * 24,pagina * 24 + 24).map((a) => <article key={a.id}>
-                        <div className={css.acoes}><span className={css.avatar}>{obterIniciais(a.nome_aluno)}</span>
-                            <Link href={caminho(a.id,'calendario')} aria-label={'Calendário de ' + a.nome_aluno}><CalendarDays size={17} /></Link></div>
-                        <Link className={css.nome} href={caminho(a.id)}>{a.nome_aluno}</Link>
-                        <p>{[a.serie,a.colegio_nome].filter(Boolean).join(' · ') || 'Dados escolares pendentes'}</p>
-                        <small>{a.responsavel_nome || 'Sem responsável'}{a.telefone && ' · ' + formatarTelefone(a.telefone)}</small>
-                        <small>{!a.ativo ? 'Inativo' : a.responsavel_id && a.tem_pin ? 'Portal ativo' : 'Sem acesso ao portal'}</small>
-                    </article>)}</div>
-                    {resultado.length > 24 && <div className={css.acoes}><button disabled={!pagina} onClick={() => setPagina(pagina - 1)}>Anterior</button>
-                        <span>Página {pagina + 1}</span><button disabled={(pagina + 1) * 24 >= resultado.length} onClick={() => setPagina(pagina + 1)}>Próxima</button></div>}
-                </>}
+                </Formulario></section> : null}
         </>}
     </div>;
 }
