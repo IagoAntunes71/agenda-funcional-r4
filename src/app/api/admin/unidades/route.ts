@@ -9,15 +9,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     try {
-        const { id, clin_care_id, ativa } = await req.json();
-        if (!id || !clin_care_id?.trim()) {
+        const { id, ativa } = await req.json();
+        if (!Number.isSafeInteger(Number(id)) || Number(id) < 1 || typeof ativa !== 'boolean') {
             return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 });
         }
 
         await sql`
       UPDATE unidades
-      SET clin_care_id = ${clin_care_id.trim()},
-          ativa = ${Boolean(ativa)}
+      SET ativa = ${ativa}
       WHERE id = ${Number(id)}
     `;
 

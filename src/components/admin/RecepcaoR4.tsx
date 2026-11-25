@@ -62,18 +62,25 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
 
     useEffect(() => {
         const pedido = new AbortController();
-        const tempo = setTimeout(async () => {
+        let atualizando = false;
+        async function consultar(silencioso = false) {
+            if (atualizando || (silencioso && document.hidden)) return;
+            atualizando = true;
             try {
-                const res = await fetch('/api/admin/operacao?' + consulta, { signal: pedido.signal });
+                const res = await fetch('/api/admin/operacao?' + consulta, { cache: 'no-store', signal: pedido.signal });
                 const corpo = await res.json();
                 if (!res.ok) throw new Error(corpo.error || 'Falha ao consultar a recepção.');
                 if (!pedido.signal.aborted) setResposta({ chave: consulta, dados: corpo });
             } catch (erro) {
-                if (!pedido.signal.aborted) setResposta({ chave: consulta, dados: { resultados: [], total: 0, temMais: false, resumo: {}, bloqueios: [],
+                if (!silencioso && !pedido.signal.aborted) setResposta({ chave: consulta, dados: { resultados: [], total: 0, temMais: false, resumo: {}, bloqueios: [],
                     erro: erro instanceof Error ? erro.message : 'Falha ao consultar a recepção.' } });
-            }
-        }, 180);
-        return () => { pedido.abort(); clearTimeout(tempo); };
+            } finally { atualizando = false; }
+        }
+        const tempo = setTimeout(() => void consultar(), 180);
+        const timer = setInterval(() => void consultar(true), 5000);
+        const noFoco = () => void consultar(true);
+        window.addEventListener('focus', noFoco);
+        return () => { pedido.abort(); clearTimeout(tempo); clearInterval(timer); window.removeEventListener('focus', noFoco); };
     }, [consulta]);
 
     function limparSelecao() {
@@ -98,7 +105,7 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             unidade_id: aula.unidade_id, unidade_nome: aula.unidade, materia: aula.materia, data: aula.data,
             hora_inicio: aula.inicio, hora_fim: aula.fim, horario: aula.inicio, duracao_minutos: aula.duracao,
             status: aula.status, serie_aluno: aula.serie, colegio_aluno: aula.colegio, nome_responsavel: '',
-            whatsapp_responsavel: '', observacoes: null, sincronizado_clincare: false, criado_em_formatado: '',
+            whatsapp_responsavel: '', observacoes: null, criado_em_formatado: '',
         });
     }
 

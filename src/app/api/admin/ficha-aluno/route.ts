@@ -4,7 +4,6 @@ import { garantirHistoricoAgendamento } from "@/lib/agendamento-historico";
 import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
 import { formatarTelefone, gerarVariantesTelefone, normalizarTelefone } from '@/lib/cliente-helpers';
 import { prepararCadastroAlunoR4 } from '@/lib/cadastro-aluno-r4';
-import { chavesColegioClinCare, inferirSerieClinCare, padronizarColegioClinCare, validarAlunoClinCare } from '@/lib/importacao-alunos-clincare';
 import { sql } from '@/lib/db';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { podeOperacao } from '@/lib/operacao-r4';
@@ -40,7 +39,7 @@ export async function GET(req: NextRequest) {
                     AND coalesce(ag.status,'confirmado') NOT IN ('cancelado','desmarcado_com_cobranca','desmarcado_sem_cobranca')
                 ORDER BY ag.aluno_id, ag.data DESC, ag.id DESC
             ) SELECT a.id, nullif(a.foto_ficha,'') IS NOT NULL AS tem_foto, unidade.nome AS unidade_nome, a.nome_aluno, a.colegio_nome, a.serie, coalesce(a.ativo,true) AS ativo,
-                a.clin_care_aluno_id, a.responsavel_id, coalesce(r.nome,a.responsavel_nome,'') AS responsavel_nome,
+                a.responsavel_id, coalesce(r.nome,a.responsavel_nome,'') AS responsavel_nome,
                 coalesce(nullif(r.telefone,''),nullif(a.telefone,''),a.contato_importado) AS telefone,
                 coalesce(nullif(trim(r.pin_hash),''),nullif(trim(a.pin_hash),'')) IS NOT NULL AS tem_pin,
                 to_char(a.nascimento,'YYYY-MM-DD') AS nascimento
@@ -48,11 +47,11 @@ export async function GET(req: NextRequest) {
                 LEFT JOIN ultima_unidade unidade ON unidade.aluno_id = a.id ORDER BY a.nome_aluno, a.id`;
             return NextResponse.json({ alunos, podeEditar: podeOperacao(cfg, sessao.role, 'editarAlunos'),
                 podeCriar: podeOperacao(cfg, sessao.role, 'editarAlunos') && (sessao.role === 'admin' || cfg.recepcaoCadastra),
-                podeImportar: sessao.role === 'admin' });
+                podeAdministrar: sessao.role === 'admin' });
         }
         if (!idValido(id)) return erro('Aluno inválido.', 400);
         const [aluno] = await sql`SELECT a.id, a.nome_aluno, a.colegio_nome, a.serie, coalesce(a.ativo,true) AS ativo,
-            a.responsavel_id, a.clin_care_aluno_id, to_char(a.nascimento,'YYYY-MM-DD') AS nascimento,
+            a.responsavel_id, to_char(a.nascimento,'YYYY-MM-DD') AS nascimento,
             a.sexo, a.cpf, a.email, a.endereco, a.foto_ficha, coalesce(r.nome,a.responsavel_nome,'') AS responsavel_nome,
             coalesce(nullif(r.telefone,''),nullif(a.telefone,''),a.contato_importado) AS telefone,
             coalesce(nullif(trim(r.pin_hash),''),nullif(trim(a.pin_hash),'')) IS NOT NULL AS tem_pin,
@@ -73,7 +72,7 @@ export async function GET(req: NextRequest) {
             WHERE a.aluno_id = ${id} AND a.excluido_em IS NULL AND a.data BETWEEN ${inicio}::date AND ${fim}::date
             ORDER BY a.data, coalesce(a.hora_inicio,a.horario), a.id` : [];
         const contatos = req.nextUrl.searchParams.get('contatos') === '1' ? await sql`
-            SELECT id, nome, parentesco, telefone, email, cpf, observacoes, principal_clincare FROM r4_contatos_aluno
+            SELECT id, nome, parentesco, telefone, email, cpf, observacoes FROM r4_contatos_aluno
             WHERE aluno_id = ${id} ORDER BY id` : [];
         return NextResponse.json({ aluno, aulas, contatos, podeEditarControle: podeOperacao(cfg, sessao.role, 'condutas') });
     } catch (e) {
@@ -82,24 +81,6 @@ export async function GET(req: NextRequest) {
     }
 }
 
-function cadastroColegio(nome: string) {
-    const chaves = chavesColegioClinCare(nome);
-    return sql`
-        WITH candidato AS (
-            SELECT id,nome FROM colegios WHERE translate(lower(regexp_replace(trim(nome), '[[:space:]]+', ' ', 'g')), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') = ANY(${chaves}::text[])
-            ORDER BY (lower(regexp_replace(trim(nome), '[[:space:]]+', ' ', 'g')) = lower(${nome})) DESC, aprovado DESC,id LIMIT 1
-        ), renomeado AS (
-            UPDATE colegios SET nome = ${nome}
-            WHERE id = (SELECT id FROM candidato)
-                AND ${chaves.length > 1} AND nome <> ${nome}
-            RETURNING id
-        ), alunos_ajustados AS (
-            UPDATE alunos SET colegio_nome = ${nome}
-            WHERE colegio_id IN (SELECT id FROM renomeado)
-        )
-        INSERT INTO colegios(nome, aprovado)
-        SELECT ${nome}, true WHERE NOT EXISTS (SELECT 1 FROM candidato)`;
-}
 
 export async function POST(req: NextRequest) {
     const sessao = await lerSessaoAdmin();
@@ -113,103 +94,17 @@ export async function POST(req: NextRequest) {
         const id = Number(dados.id || 0);
         const acao = dados.acao;
         const nome = texto(dados.nome_aluno);
-        const importacao = acao === 'importar' || acao === 'importar_ficha';
-        const colegioInformado = texto(dados.colegio_nome).replace(/\s+/g, ' ');
-        const colegio = importacao ? padronizarColegioClinCare(colegioInformado) : colegioInformado;
-        const serie = importacao ? inferirSerieClinCare(texto(dados.serie)) : texto(dados.serie);
+        const colegio = texto(dados.colegio_nome).replace(/\s+/g, ' ');
+        const serie = texto(dados.serie);
         const telefone = normalizarTelefone(texto(dados.telefone, 30));
         const variantes = [10,11].includes(telefone.length) ? gerarVariantesTelefone(telefone) : [];
         const responsavel = texto(dados.responsavel_nome);
 
-        if (acao === 'importar_ficha') {
-            if (sessao.role !== 'admin') return erro('Apenas administradores podem importar.', 403);
-            const criar = dados.novo === true && id === 0;
-            if (!validarAlunoClinCare(dados) || (!idValido(id) && !criar)) return erro('Ficha ou destino inválido.',400);
-            const externo = dados.clin_care_aluno_id;
-            const contatos = dados.responsaveis.map((item) => ({
-                ...item, principal: item.principal || dados.responsaveis.length === 1, telefone: normalizarTelefone(item.telefone),
-                chave: item.nome.trim().normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().replace(/\s+/g,' ') +
-                    '|' + normalizarTelefone(item.telefone),
-            }));
-            if (new Set(contatos.map((item) => item.chave)).size !== contatos.length) {
-                return erro('Há responsáveis com o mesmo nome e telefone nesta ficha. Revise o arquivo.',409);
-            }
-            const principal = contatos.find((item) => item.principal) ?? (contatos.length === 1 ? contatos[0] : undefined);
-            const gravarFicha = sql`
-                WITH escola AS (SELECT id,nome FROM colegios WHERE ${colegio.length >= 2}
-                    AND translate(lower(regexp_replace(trim(nome), '[[:space:]]+', ' ', 'g')), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') = ANY(${chavesColegioClinCare(colegio)}::text[]) ORDER BY (nome = ${colegio}) DESC, aprovado DESC,id LIMIT 1), existente AS (
-                    UPDATE alunos SET clin_care_aluno_id = ${externo},
-                        colegio_id = coalesce((SELECT id FROM escola),colegio_id),
-                        colegio_nome = coalesce((SELECT nome FROM escola),colegio_nome),
-                        serie = coalesce(nullif(${serie},''),serie),
-                        nascimento = coalesce(nascimento, nullif(${dados.nascimento},'')::date),
-                        endereco = coalesce(nullif(endereco,''),${dados.endereco}),
-                        contato_importado = coalesce(nullif(${principal?.telefone || ''},''),contato_importado),
-                        responsavel_nome = coalesce(nullif(trim(responsavel_nome),''),${principal?.nome || ''})
-                    WHERE id = ${id} AND (clin_care_aluno_id IS NULL OR clin_care_aluno_id = ${externo})
-                    RETURNING id
-                ), novo AS (
-                    INSERT INTO alunos(nome_aluno,colegio_id,colegio_nome,serie,telefone,responsavel_nome,clin_care_aluno_id,contato_importado,
-                        ativo,nascimento,endereco)
-                    SELECT ${dados.nome_aluno.trim()},(SELECT id FROM escola),coalesce((SELECT nome FROM escola),''),${serie},'',${principal?.nome || ''},${externo},
-                        ${principal?.telefone || ''},true,nullif(${dados.nascimento},'')::date,${dados.endereco}
-                    WHERE ${criar}
-                    ON CONFLICT (clin_care_aluno_id) DO NOTHING RETURNING id
-                ), alvo AS (
-                    SELECT id FROM existente UNION ALL SELECT id FROM novo
-                ), gravados AS (
-                    INSERT INTO r4_contatos_aluno(aluno_id,nome,telefone,email,cpf,chave_importacao,principal_clincare)
-                    SELECT alvo.id, item.nome, item.telefone, item.email, item.cpf, item.chave, item.principal
-                    FROM alvo CROSS JOIN jsonb_to_recordset(${JSON.stringify(contatos)}::jsonb)
-                        AS item(nome text, telefone text, email text, cpf text, chave text, principal boolean)
-                    ON CONFLICT (aluno_id,chave_importacao) DO UPDATE SET
-                        email = coalesce(nullif(excluded.email,''),r4_contatos_aluno.email),
-                        cpf = coalesce(nullif(excluded.cpf,''),r4_contatos_aluno.cpf),
-                        principal_clincare = excluded.principal_clincare
-                    RETURNING id
-                )
-                SELECT id, (SELECT count(*)::int FROM gravados) AS contatos FROM alvo`;
-            const [resultado] = colegio.length >= 2
-                ? (await sql.transaction([sql`LOCK TABLE colegios IN SHARE ROW EXCLUSIVE MODE`, cadastroColegio(colegio), gravarFicha]))[2]
-                : await gravarFicha;
-            if (!resultado) return erro('Já existe um vínculo para este ID. Reabra a importação e confira o cadastro.',409);
-            return NextResponse.json(resultado);
-        }
-        if (acao === 'importar' || acao === 'criar') {
-            if (acao === 'importar' && sessao.role !== 'admin') return erro('Apenas administradores podem importar.',403);
-            if (acao === 'criar' && sessao.role === 'atendimento' && !cfg.recepcaoCadastra) return erro('Cadastro indisponível para a recepção.',403);
-            const externo = acao === 'importar' ? texto(dados.clin_care_aluno_id) : null;
-            if (nome.length < 2 || (acao === 'importar' && !externo) || (dados.telefone && !variantes.length)) return erro('Confira nome, ID do Clin Care e WhatsApp.',400);
-            if (externo && !dados.novo && !idValido(id)) return erro('Escolha o cadastro existente ou confirme um novo aluno.',400);
-            if (externo) {
-                const gravarAluno = sql`
-                    WITH escola AS (
-                        SELECT id,nome FROM colegios WHERE ${colegio.length >= 2}
-                        AND translate(lower(regexp_replace(trim(nome), '[[:space:]]+', ' ', 'g')), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') = ANY(${chavesColegioClinCare(colegio)}::text[])
-                        ORDER BY (nome = ${colegio}) DESC, aprovado DESC,id LIMIT 1
-                    ), vinculado AS (
-                        UPDATE alunos SET clin_care_aluno_id = ${externo},
-                            contato_importado = coalesce(nullif(${telefone},''),contato_importado),
-                            colegio_id = coalesce((SELECT id FROM escola),colegio_id),
-                            colegio_nome = coalesce((SELECT nome FROM escola),colegio_nome),
-                            serie = coalesce(nullif(${serie},''),serie)
-                        WHERE id = ${id} AND (clin_care_aluno_id IS NULL OR clin_care_aluno_id = ${externo}) RETURNING id
-                    ), novo AS (
-                        INSERT INTO alunos(nome_aluno,colegio_id,colegio_nome,serie,telefone,responsavel_nome,clin_care_aluno_id,contato_importado,ativo)
-                        SELECT ${nome},(SELECT id FROM escola),coalesce((SELECT nome FROM escola),''),${serie},'',${responsavel},${externo},${telefone},true
-                        WHERE ${id === 0 && dados.novo === true}
-                        ON CONFLICT (clin_care_aluno_id) DO NOTHING RETURNING id
-                    ) SELECT id FROM vinculado UNION ALL SELECT id FROM novo`;
-                const [registro] = colegio.length >= 2
-                    ? (await sql.transaction([sql`LOCK TABLE colegios IN SHARE ROW EXCLUSIVE MODE`, cadastroColegio(colegio), gravarAluno]))[2]
-                    : await gravarAluno;
-                return registro ? NextResponse.json(registro) : erro('Aluno já vinculado ou cadastro inexistente.',409);
-            }
-            const [aluno] = await sql`INSERT INTO alunos (nome_aluno, colegio_nome, serie, telefone, responsavel_nome,
-                    clin_care_aluno_id, contato_importado, ativo)
-                VALUES (${nome}, ${colegio}, ${serie}, '', ${responsavel}, ${externo}, ${telefone}, true)
-                ON CONFLICT (clin_care_aluno_id) DO NOTHING RETURNING id`;
-            if (!aluno && externo) return NextResponse.json({ existente: true });
+        if (acao === 'criar') {
+            if (sessao.role === 'atendimento' && !cfg.recepcaoCadastra) return erro('Cadastro indisponível para a recepção.',403);
+            if (nome.length < 2 || (dados.telefone && !variantes.length)) return erro('Confira nome e WhatsApp.',400);
+            const [aluno] = await sql`INSERT INTO alunos (nome_aluno, colegio_nome, serie, telefone, responsavel_nome, contato_importado, ativo)
+                VALUES (${nome}, ${colegio}, ${serie}, '', ${responsavel}, ${telefone}, true) RETURNING id`;
             return NextResponse.json({ id: aluno.id });
         }
         if (!idValido(id)) return erro('Aluno inválido.',400);

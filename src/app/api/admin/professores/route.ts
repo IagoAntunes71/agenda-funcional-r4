@@ -43,10 +43,6 @@ function normalizarMateriasSeries(
 }
 
 async function garantirColunasProfessor() {
-    await sql`
-        ALTER TABLE professores
-        DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
-    `;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
@@ -63,7 +59,7 @@ export async function POST(req: NextRequest) {
         await garantirColunasProfessor();
         const body = await req.json();
         const nome = String(body?.nome || '').trim();
-        const clinCareId = String(body?.clin_care_id || '').trim() || null;
+        const grupoProfessor = crypto.randomUUID();
 
         const unidadesIds: number[] = Array.isArray(body?.unidades_ids)
             ? Array.from(new Set(body.unidades_ids.map(Number).filter(Boolean)))
@@ -93,7 +89,7 @@ export async function POST(req: NextRequest) {
             await sql`
                 INSERT INTO professores (
                     nome,
-                    clin_care_id,
+                    grupo_professor,
                     unidade_id,
                     materias,
                     materias_series,
@@ -106,7 +102,7 @@ export async function POST(req: NextRequest) {
                 )
                 VALUES (
                     ${nome},
-                    ${clinCareId},
+                    ${grupoProfessor},
                     ${uid},
                     ${materias},
                     ${JSON.stringify(materiasSeries)}::jsonb,
@@ -149,10 +145,10 @@ export async function PATCH(req: NextRequest) {
         }
 
         const refRows = (await sql`
-            SELECT id, nome, clin_care_id, ativo
+            SELECT id, nome, grupo_professor, ativo
             FROM professores
             WHERE id = ${id}
-        `) as { id: number; nome: string; clin_care_id: string | null; ativo: boolean }[];
+        `) as { id: number; nome: string; grupo_professor: string | null; ativo: boolean }[];
 
         if (refRows.length === 0) {
             return NextResponse.json(
@@ -168,11 +164,11 @@ export async function PATCH(req: NextRequest) {
             body?.nome === undefined &&
             body?.materias === undefined
         ) {
-            if (ref.clin_care_id) {
+            if (ref.grupo_professor) {
                 await sql`
                     UPDATE professores
                     SET ativo = ${body.ativo}
-                    WHERE clin_care_id = ${ref.clin_care_id}
+                    WHERE grupo_professor = ${ref.grupo_professor}
                 `;
             } else {
                 await sql`
@@ -185,7 +181,7 @@ export async function PATCH(req: NextRequest) {
         }
 
         const nome = String(body?.nome || '').trim();
-        const clinCareId = String(body?.clin_care_id || '').trim() || null;
+        const grupoProfessor = ref.grupo_professor || crypto.randomUUID();
 
         const unidadesIds: number[] = Array.isArray(body?.unidades_ids)
             ? Array.from(new Set(body.unidades_ids.map(Number).filter(Boolean)))
@@ -212,11 +208,11 @@ export async function PATCH(req: NextRequest) {
         }
 
         const grupoRows = (
-            ref.clin_care_id
+            ref.grupo_professor
                 ? await sql`
                     SELECT id, unidade_id
                     FROM professores
-                    WHERE clin_care_id = ${ref.clin_care_id}
+                    WHERE grupo_professor = ${ref.grupo_professor}
                        OR id = ${id}
                     ORDER BY id ASC
                 `
@@ -254,7 +250,7 @@ export async function PATCH(req: NextRequest) {
                 WHERE professor_id = ANY(${idsParaExcluir}::int[])
             `;
             await sql`
-                DELETE FROM bloqueios_clincare
+                DELETE FROM r4_bloqueios_agenda
                 WHERE professor_id = ANY(${idsParaExcluir}::int[])
             `;
             await sql`
@@ -286,7 +282,7 @@ export async function PATCH(req: NextRequest) {
             UPDATE professores
             SET
                 nome = ${nome},
-                clin_care_id = ${clinCareId},
+                grupo_professor = ${grupoProfessor},
                 materias = ${materias},
                 materias_series = ${JSON.stringify(materiasSeries)}::jsonb,
                 manha_ativo = ${manhaAtivo},
@@ -302,7 +298,7 @@ export async function PATCH(req: NextRequest) {
             await sql`
                 INSERT INTO professores (
                     nome,
-                    clin_care_id,
+                    grupo_professor,
                     unidade_id,
                     materias,
                     materias_series,
@@ -315,7 +311,7 @@ export async function PATCH(req: NextRequest) {
                 )
                 VALUES (
                     ${nome},
-                    ${clinCareId},
+                    ${grupoProfessor},
                     ${novaUnidadeId},
                     ${materias},
                     ${JSON.stringify(materiasSeries)}::jsonb,

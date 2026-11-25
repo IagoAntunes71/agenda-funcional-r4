@@ -1,6 +1,6 @@
 /**
  * ARQUIVO: src/app/api/admin/bloqueios/route.ts
- * FUNÇÃO: Cria (POST) e exclui (DELETE) bloqueios de agenda na tabela `bloqueios_clincare`
+ * FUNÇÃO: Cria (POST) e exclui (DELETE) bloqueios de agenda na tabela `r4_bloqueios_agenda`
  * com origem = 'manual'. Permite que tanto Atendimento/Admin quanto o próprio Professor
  * bloqueiem horários na agenda (com início, duração e recorrência), refletindo também
  * no Portal do Aluno para impedir reservas nesses intervalos.
@@ -14,9 +14,9 @@ import { adicionarDiasISO } from '@/lib/horarios-reforco';
 
 async function garantirColunasBloqueios() {
     await Promise.all([
-        sql`ALTER TABLE bloqueios_clincare ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'clincare'`,
-        sql`ALTER TABLE bloqueios_clincare ADD COLUMN IF NOT EXISTS descricao TEXT`,
-        sql`ALTER TABLE bloqueios_clincare ADD COLUMN IF NOT EXISTS criado_por_nome TEXT`,
+        sql`ALTER TABLE r4_bloqueios_agenda ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'manual'`,
+        sql`ALTER TABLE r4_bloqueios_agenda ADD COLUMN IF NOT EXISTS descricao TEXT`,
+        sql`ALTER TABLE r4_bloqueios_agenda ADD COLUMN IF NOT EXISTS criado_por_nome TEXT`,
     ]);
 }
 
@@ -62,14 +62,14 @@ export async function POST(req: NextRequest) {
 
         // Localiza todos os registros do mesmo professor (caso atue em mais de uma unidade)
         const profRows = (await sql`
-      SELECT id, nome, clin_care_id, unidade_id
+      SELECT id, nome, grupo_professor, unidade_id
       FROM professores
       WHERE id = ${professorIdInput}
       LIMIT 1
     `) as {
             id: number;
             nome: string;
-            clin_care_id: string | null;
+            grupo_professor: string | null;
             unidade_id: number;
         }[];
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       SELECT id AS professor_id, unidade_id
       FROM professores
       WHERE id = ${alvo.id}
-         OR (${alvo.clin_care_id}::text IS NOT NULL AND clin_care_id = ${alvo.clin_care_id})
+         OR (${alvo.grupo_professor}::text IS NOT NULL AND grupo_professor = ${alvo.grupo_professor})
          OR lower(trim(nome)) = lower(trim(${alvo.nome}))
     `) as { professor_id: number; unidade_id: number }[];
 
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 
             for (const reg of unidadesDoProf) {
                 await sql`
-          INSERT INTO bloqueios_clincare (
+          INSERT INTO r4_bloqueios_agenda (
             professor_id,
             unidade_id,
             data,
@@ -173,7 +173,7 @@ export async function PATCH(req: NextRequest) {
 
         if (sessao.role === 'professor') {
             await sql`
-                UPDATE bloqueios_clincare
+                UPDATE r4_bloqueios_agenda
                 SET
                     motivo = ${titulo},
                     descricao = ${descricao || null},
@@ -190,7 +190,7 @@ export async function PATCH(req: NextRequest) {
             `;
         } else {
             await sql`
-                UPDATE bloqueios_clincare
+                UPDATE r4_bloqueios_agenda
                 SET
                     motivo = ${titulo},
                     descricao = ${descricao || null},
@@ -227,7 +227,7 @@ export async function DELETE(req: NextRequest) {
 
         if (sessao.role === 'professor') {
             await sql`
-        DELETE FROM bloqueios_clincare
+        DELETE FROM r4_bloqueios_agenda
         WHERE id = ${id}
           AND professor_id IN (
             SELECT id FROM professores
@@ -236,7 +236,7 @@ export async function DELETE(req: NextRequest) {
           )
       `;
         } else {
-            await sql`DELETE FROM bloqueios_clincare WHERE id = ${id}`;
+            await sql`DELETE FROM r4_bloqueios_agenda WHERE id = ${id}`;
         }
 
         return NextResponse.json({ sucesso: true });

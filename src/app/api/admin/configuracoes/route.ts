@@ -29,8 +29,8 @@ export async function garantirConfiguracoesEUnidadeOnline() {
     const jaTemOnline = unidadesExistentes.some((u) => u.nome_norm === 'online');
     if (!jaTemOnline) {
         await sql`
-      INSERT INTO unidades (nome, clin_care_id, ativa)
-      VALUES ('Online', 'id-online', true)
+      INSERT INTO unidades (nome, ativa)
+      VALUES ('Online', true)
     `;
     }
 
@@ -39,8 +39,8 @@ export async function garantirConfiguracoesEUnidadeOnline() {
     );
     if (!jaTemImbui) {
         await sql`
-      INSERT INTO unidades (nome, clin_care_id, ativa)
-      VALUES ('Imbuí', 'id-imbui', true)
+      INSERT INTO unidades (nome, ativa)
+      VALUES ('Imbuí', true)
     `;
     }
 }

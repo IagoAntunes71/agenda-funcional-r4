@@ -39,9 +39,9 @@ export async function gravarOperacaoR4(cfg: OperacaoR4) {
 }
 
 export function professorDaAula(
-    vinculado: { id: number; clin_care_id?: string | null } | undefined,
-    destino: { id: number; clin_care_id?: string | null },
+    vinculado: { id: number; grupo_professor?: string | null } | undefined,
+    destino: { id: number; grupo_professor?: string | null },
 ) {
     return Boolean(vinculado && (vinculado.id === destino.id ||
-        (vinculado.clin_care_id && vinculado.clin_care_id === destino.clin_care_id)));
+        (vinculado.grupo_professor && vinculado.grupo_professor === destino.grupo_professor)));
 }

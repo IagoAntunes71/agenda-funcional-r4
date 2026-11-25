@@ -228,7 +228,6 @@ function SeletorSeriesPorMateria({
 
 type Rascunho = {
     nome: string;
-    clin_care_id: string;
     unidades_ids: number[];
     materias: string;
     materias_series: MapaMateriasSeries;
@@ -240,7 +239,7 @@ type Rascunho = {
 };
 
 const rota = '/admin/professores';
-const chaveProfessor = (p: ProfessorAdmin) => p.clin_care_id ? 'cc:' + p.clin_care_id : 'nm:' + p.nome.trim().toLowerCase();
+const chaveProfessor = (p: ProfessorAdmin) => p.grupo_professor ? 'grupo:' + p.grupo_professor : 'nm:' + p.nome.trim().toLowerCase();
 
 async function gravarProfessor(metodo: 'POST' | 'PATCH', payload: object) {
     const resposta = await fetch('/api/admin/professores', {
@@ -260,7 +259,7 @@ function FormularioProfessor({ professor, unidades, escuro, classes, aoSalvar, f
     const { clsInput, clsSubCard } = classes;
     const [erro, setErro] = useState('');
     const [dados, setDados] = useState<Rascunho>(() => ({
-        nome: professor?.nome ?? '', clin_care_id: professor?.clin_care_id ?? '',
+        nome: professor?.nome ?? '',
         unidades_ids: professor?.unidades_ids ?? (unidades[0] ? [unidades[0].id] : []),
         materias: professor?.materias?.join(', ') ?? '', materias_series: professor?.materias_series ?? {},
         manha_ativo: Boolean(professor?.manha_ativo), manha_inicio: professor?.manha_inicio || '08:00',
@@ -297,7 +296,6 @@ function FormularioProfessor({ professor, unidades, escuro, classes, aoSalvar, f
         <fieldset disabled={pendente} className="grid gap-4">
             <div className="grid gap-3 sm:grid-cols-2">
                 <label className={campo}>{t('Nome *')}<input className={input} required value={dados.nome} onChange={(e) => mudar('nome', e.target.value)} /></label>
-                <label className={campo}>{t('ID Clin Care')}<input className={input} value={dados.clin_care_id} onChange={(e) => mudar('clin_care_id', e.target.value)} /></label>
             </div>
             <div className={'grid gap-2 rounded-xl border p-3 ' + clsSubCard}>
                 <strong className="text-sm">{t('Unidades de Atendimento *')}</strong>
@@ -458,7 +456,6 @@ export default function AbaProfessores({ unidades, professores, agendamentos, es
                 <span className={css.avatar} aria-hidden="true">{obterIniciais(professor.nome)}</span>
                 <div className="min-w-0 flex-1">
                     <h2 className="text-xl font-bold">{professor.nome}</h2>
-                    <p className="text-sm">ID Clin Care · {professor.clin_care_id || 'Não informado'}</p>
                     <p className="text-sm">{professor.unidades_nomes.join(' · ')}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">

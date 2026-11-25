@@ -45,7 +45,7 @@ export default function ArquivoAgendamentosR4({ escuro, onFechar, onSelecionar }
         onSelecionar({
             ...aula, status: 'cancelado', unidade_id: 0, unidade_nome: '', professor_id: 0, professor_nome: '',
             hora_inicio: '', horario: '', nome_responsavel: '', whatsapp_responsavel: '', colegio_aluno: '',
-            serie_aluno: '', observacoes: null, sincronizado_clincare: false, criado_em_formatado: '',
+            serie_aluno: '', observacoes: null, criado_em_formatado: '',
         });
     }
 

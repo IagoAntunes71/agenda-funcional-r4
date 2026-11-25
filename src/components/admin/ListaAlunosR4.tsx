@@ -4,13 +4,13 @@ import { useLayoutR4 } from './EditorLayoutR4';
 import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Building2, CalendarDays, Download, GraduationCap, KeyRound, Phone, Plus, Search, Upload, UserRound } from 'lucide-react';
+import { Building2, CalendarDays, Download, GraduationCap, KeyRound, Phone, Plus, Search, UserRound } from 'lucide-react';
 import { formatarTelefone } from '@/lib/cliente-helpers';
 import { obterIniciais } from './types';
 import css from './ListaAlunosR4.module.css';
 
 export type Aluno = {
-    id: number; nome_aluno: string; colegio_nome: string; serie: string; ativo: boolean; clin_care_aluno_id: string | null;
+    id: number; nome_aluno: string; colegio_nome: string; serie: string; ativo: boolean; 
     responsavel_id: number | null; responsavel_nome: string; telefone: string; tem_pin: boolean; nascimento: string | null;
     unidade_nome?: string | null; tem_foto?: boolean;
 };
@@ -72,8 +72,8 @@ function CartaoAluno({ aluno, foto }: { aluno: Aluno; foto?: string }) {
     </article>;
 }
 
-export default function ListaAlunosR4({ alunos, modo, setModo, podeCriar, podeImportar, carregando, revisao }: {
-    alunos: Aluno[]; modo: string; setModo: (modo: string) => void; podeCriar: boolean; podeImportar: boolean;
+export default function ListaAlunosR4({ alunos, modo, setModo, podeCriar, carregando, revisao }: {
+    alunos: Aluno[]; modo: string; setModo: (modo: string) => void; podeCriar: boolean;
     carregando: boolean; revisao: number;
 }) {
     const layout = useLayoutR4();
@@ -142,8 +142,6 @@ export default function ListaAlunosR4({ alunos, modo, setModo, podeCriar, podeIm
                     <button type="button" className={css.icone} aria-label="Exportar alunos filtrados" title="Exportar alunos filtrados"
                         disabled={!resultado.length} onClick={() => exportar(resultado)}><Download size={16} /></button>
                 </>}
-                {podeImportar && <button type="button" className={css.icone} aria-label="Importar Clin Care" title="Importar Clin Care"
-                    onClick={() => setModo('importar')}><Upload size={16} /></button>}
                 {podeCriar && <button type="button" className={'r4-acao ' + css.novo} onClick={() => setModo('novo')}>
                     <Plus size={16} /> Novo aluno
                 </button>}

@@ -21,7 +21,7 @@ export default function DiretorioProfessoresR4({ professores, classes }: {
     const hoje = obterAgoraBahia().dataISO;
     const perfis = new Map<string, { nome: string; unidades: Map<number, string>; materias: Set<string> }>();
     for (const prof of professores.filter((item) => item.ativo)) {
-        const chave = prof.clin_care_id || normalizar(prof.nome);
+        const chave = prof.grupo_professor || normalizar(prof.nome);
         const perfil = perfis.get(chave) ?? { nome: prof.nome, unidades: new Map(), materias: new Set() };
         perfil.unidades.set(prof.unidade_id, prof.unidade_nome);
         filtrarMateriasVisiveis(prof.materias).forEach((materia) => perfil.materias.add(materia));

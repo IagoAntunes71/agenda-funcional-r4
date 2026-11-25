@@ -1,3 +1,4 @@
+import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { NextRequest, NextResponse } from 'next/server';
 import {
     LIMITE_AGENDAMENTOS_SIMULTANEOS,
@@ -13,19 +14,15 @@ import {
     avaliarStatusChaveMestra,
     gerarDatasDisponiveisSemana,
     gerarTodosSlotsProfessor,
+    obterAgoraBahia,
     obterSlotsDisponiveisProfessor,
 } from '@/lib/horarios-reforco';
 import {
     filtrarMateriasProfessorPorSerie,
     gerarVariantesTelefone,
-    normalizarTelefone,
 } from '@/lib/cliente-helpers';
 import { notificarGrupoNovoAgendamento } from '@/lib/whatsapp-notificacao';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
-import {
-    dispararRoboReservaClinCare,
-    garantirColunasFilaReserva,
-} from '@/lib/clincare-fila';
 
 declare global {
     // eslint-disable-next-line no-var
@@ -53,7 +50,6 @@ function garantirTabelaAgendamentos(): Promise<void> {
           observacoes TEXT,
           status TEXT NOT NULL DEFAULT 'confirmado',
           notificado_whatsapp BOOLEAN NOT NULL DEFAULT false,
-          lancado_clincare BOOLEAN NOT NULL DEFAULT false,
           criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `;
@@ -66,6 +62,7 @@ function garantirTabelaAgendamentos(): Promise<void> {
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS data DATE`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_inicio TIME`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS hora_fim TIME`,
+                sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS duracao_minutos INTEGER DEFAULT 100`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_nome TEXT`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS aluno_telefone TEXT`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS colegio_nome TEXT`,
@@ -74,13 +71,11 @@ function garantirTabelaAgendamentos(): Promise<void> {
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS observacoes TEXT`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'confirmado'`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS notificado_whatsapp BOOLEAN DEFAULT false`,
-                sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`,
                 sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ DEFAULT now()`,
                 sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`,
                 sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`,
                 sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`,
                 sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`,
-                garantirColunasFilaReserva(),
             ]);
         })().catch((err) => {
             globalThis.__r4AgendarSchemaPromise = undefined;
@@ -109,19 +104,14 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
+        const remarcarId = Number(body?.remarcarId ?? 0);
+        if (!Number.isSafeInteger(remarcarId) || remarcarId < 0) return NextResponse.json({ error: 'Aula inválida.' }, { status: 400 });
         const unidadeId = Number(body?.unidadeId || 0);
         const professorId = Number(body?.professorId || 0);
         const alunoId = Number(body?.alunoId || 0) || null;
         const materia = String(body?.materia || '').trim();
         const data = String(body?.data || '').trim();
         const horaInicio = String(body?.horaInicio || '').trim();
-        const alunoNome = String(body?.alunoNome || '').trim();
-        const alunoTelefoneRaw = String(body?.alunoTelefone || '');
-        const alunoTelefone = normalizarTelefone(alunoTelefoneRaw);
-        const variantesTelefone = gerarVariantesTelefone(alunoTelefoneRaw);
-        const colegioNome = String(body?.colegioNome || '').trim();
-        const serie = String(body?.serie || '').trim();
-        const responsavelNome = String(body?.responsavelNome || '').trim();
         const observacoes = String(body?.observacoes || '').trim();
 
         if (
@@ -130,9 +120,7 @@ export async function POST(req: NextRequest) {
             !materia ||
             !data ||
             !horaInicio ||
-            !alunoNome ||
-            !alunoTelefone ||
-            variantesTelefone.length === 0
+            !alunoId
         ) {
             return NextResponse.json(
                 { error: 'Dados incompletos para confirmar a aula.' },
@@ -166,7 +154,7 @@ export async function POST(req: NextRequest) {
       SELECT
         id,
         nome,
-        clin_care_id,
+        grupo_professor,
         unidade_id,
         materias, materias_series,
         COALESCE(manha_ativo, false) AS manha_ativo,
@@ -178,11 +166,12 @@ export async function POST(req: NextRequest) {
       WHERE id = ${professorId}
         AND unidade_id = ${unidadeId}
         AND ativo = true
+        AND EXISTS (SELECT 1 FROM unidades u WHERE u.id = ${unidadeId} AND u.ativa)
       LIMIT 1
     `) as {
             id: number;
             nome: string;
-            clin_care_id: string | null;
+            grupo_professor: string | null;
             unidade_id: number;
             materias: string[];
             materias_series: Record<string, string[]> | null;
@@ -201,6 +190,10 @@ export async function POST(req: NextRequest) {
         }
 
         const prof = profRows[0];
+        const agora = obterAgoraBahia();
+        if (data === agora.dataISO && horaParaMinutos(horaInicio) <= agora.minutosDoDia) {
+            return NextResponse.json({ error: 'Este horário já passou.' }, { status: 409 });
+        }
         const slotsConfiguradosProf = gerarTodosSlotsProfessor(prof);
         const slotEscolhido = slotsConfiguradosProf.find(
             (s) => s.inicio === horaInicio
@@ -236,13 +229,18 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        const alunoNome = alunoSelecionado.nome_aluno;
+        const alunoTelefone = sessaoCliente.telefone;
+        const variantesTelefone = gerarVariantesTelefone(alunoTelefone);
+        const colegioNome = alunoSelecionado.colegio_nome;
+        const serie = alunoSelecionado.serie;
         const materiasPermitidas = filtrarMateriasProfessorPorSerie(prof.materias, prof.materias_series, alunoSelecionado.serie);
         if (!materiasPermitidas.some((opcao) => materiaBase(opcao) === materiaBase(materia))) {
             return NextResponse.json({ error: 'Selecione uma matéria disponível para o professor e a série do aluno.' }, { status: 400 });
         }
 
         if (
-            alunoSelecionado.agendamentos_futuros >= LIMITE_AGENDAMENTOS_SIMULTANEOS
+            !remarcarId && alunoSelecionado.agendamentos_futuros >= LIMITE_AGENDAMENTOS_SIMULTANEOS
         ) {
             return NextResponse.json(
                 {
@@ -260,6 +258,7 @@ export async function POST(req: NextRequest) {
       FROM agendamentos a
       LEFT JOIN professores p ON p.id = a.professor_id
       WHERE LEFT(a.data::text, 10) = ${data}
+        AND a.id <> ${remarcarId} AND a.excluido_em IS NULL
         AND LEFT(COALESCE(a.hora_inicio, a.horario)::text, 5) = ${slotEscolhido.inicio}
         AND COALESCE(a.status, 'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
         AND (
@@ -267,8 +266,8 @@ export async function POST(req: NextRequest) {
           OR (
             lower(trim(COALESCE(a.aluno_nome, a.nome_aluno, ''))) = lower(trim(${alunoNome}))
             AND regexp_replace(
-              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
-              '^55(?=\d{10,11}$)',
+              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
+              '^55(?=[0-9]{10,11}$)',
               ''
             ) = ANY(${variantesTelefone}::text[])
           )
@@ -285,14 +284,14 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        let responsavelFinal = responsavelNome || familia.responsavelNome || '';
+        let responsavelFinal = familia.responsavelNome || '';
         if (!responsavelFinal && variantesTelefone.length > 0) {
             const respRows = (await sql`
         SELECT responsavel_nome
         FROM alunos
         WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
+          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+          '^55(?=[0-9]{10,11}$)',
           ''
         ) = ANY(${variantesTelefone}::text[])
           AND NULLIF(trim(responsavel_nome), '') IS NOT NULL
@@ -307,28 +306,28 @@ export async function POST(req: NextRequest) {
         LEFT(b.hora_inicio::text, 5) AS hora_inicio,
         LEFT(b.hora_fim::text, 5) AS hora_fim,
         b.motivo
-      FROM bloqueios_clincare b
+      FROM r4_bloqueios_agenda b
       LEFT JOIN professores p ON p.id = b.professor_id
       WHERE LEFT(b.data::text, 10) = ${data}
         AND (
           b.professor_id = ${prof.id}
-          OR (${prof.clin_care_id}::text IS NOT NULL AND p.clin_care_id = ${prof.clin_care_id})
+          OR (${prof.grupo_professor}::text IS NOT NULL AND p.grupo_professor = ${prof.grupo_professor})
         )
     `) as IntervaloOcupado[];
 
         const agendamentosProf = (await sql`
       SELECT
-        LEFT(a.hora_inicio::text, 5) AS hora_inicio,
-        LEFT(a.hora_fim::text, 5) AS hora_fim
+        LEFT(coalesce(a.hora_inicio, a.horario)::text, 5) AS hora_inicio,
+        LEFT(coalesce(a.hora_fim, coalesce(a.hora_inicio, a.horario) + interval '100 minutes')::text, 5) AS hora_fim
       FROM agendamentos a
       LEFT JOIN professores p ON p.id = a.professor_id
       WHERE LEFT(a.data::text, 10) = ${data}
-        AND a.hora_inicio IS NOT NULL
-        AND a.hora_fim IS NOT NULL
+        AND a.id <> ${remarcarId} AND a.excluido_em IS NULL
+        AND coalesce(a.hora_inicio, a.horario) IS NOT NULL
         AND COALESCE(a.status, 'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
         AND (
           a.professor_id = ${prof.id}
-          OR (${prof.clin_care_id}::text IS NOT NULL AND p.clin_care_id = ${prof.clin_care_id})
+          OR (${prof.grupo_professor}::text IS NOT NULL AND p.grupo_professor = ${prof.grupo_professor})
         )
     `) as IntervaloOcupado[];
 
@@ -353,71 +352,70 @@ export async function POST(req: NextRequest) {
         }
 
         const unidadeRows = (await sql`
-      SELECT nome, COALESCE(clin_care_id, '') AS clin_care_id
+      SELECT nome
       FROM unidades
       WHERE id = ${unidadeId}
       LIMIT 1
-    `) as { nome: string; clin_care_id: string }[];
+    `) as { nome: string }[];
 
         const nomeUnidade = unidadeRows[0]?.nome || 'Unidade';
-        const clinCareUnidadeId = unidadeRows[0]?.clin_care_id || '';
-        const unidadeTemClinCare =
-            clinCareUnidadeId.length > 0 && !clinCareUnidadeId.startsWith('id-');
-        const statusInicialReserva = unidadeTemClinCare
-            ? 'pendente'
-            : 'nao_aplicavel';
-
         const materiaAgendada = rotuloMateriaAula(materia, horaParaMinutos(slotEscolhido.fim) - horaParaMinutos(slotEscolhido.inicio));
-        const [, inserido] = await sql.transaction([
+        const antecedencia = remarcarId ? (await lerOperacaoR4()).antecedencia : 0;
+        const inicio = slotEscolhido.inicio;
+        const fim = slotEscolhido.fim;
+        const duracao = horaParaMinutos(fim) - horaParaMinutos(inicio);
+        // A leitura de disponibilidade acima explica o conflito. Esta condição é reavaliada
+        // depois da trava, na mesma transação que grava ou move a aula.
+        const livre = sql`
+            SELECT 1 WHERE NOT EXISTS (
+                SELECT 1 FROM r4_bloqueios_agenda b
+                JOIN professores p ON p.id = b.professor_id
+                WHERE b.data = ${data}::date
+                  AND (p.id = ${prof.id} OR p.grupo_professor = ${prof.grupo_professor})
+                  AND b.hora_inicio < ${fim}::time AND b.hora_fim > ${inicio}::time
+            ) AND NOT EXISTS (
+                SELECT 1 FROM agendamentos a
+                LEFT JOIN professores p ON p.id = a.professor_id
+                WHERE a.data = ${data}::date AND a.id <> ${remarcarId} AND a.excluido_em IS NULL
+                  AND coalesce(a.status,'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
+                  AND (a.aluno_id = ${alunoId} OR p.id = ${prof.id} OR p.grupo_professor = ${prof.grupo_professor})
+                  AND coalesce(a.hora_inicio,a.horario) < ${fim}::time
+                  AND coalesce(a.hora_fim,coalesce(a.hora_inicio,a.horario) + interval '100 minutes') > ${inicio}::time
+            )`;
+        const gravacao = remarcarId
+            ? sql`UPDATE agendamentos SET unidade_id = ${unidadeId}, professor_id = ${prof.id},
+                materia = ${materiaAgendada}, data = ${data}::date, hora_inicio = ${inicio}::time,
+                hora_fim = ${fim}::time, horario = ${inicio}::time, duracao_minutos = ${duracao},
+                observacoes = ${observacoes || null}, notificado_whatsapp = false
+              WHERE id = ${remarcarId} AND aluno_id = ${alunoId} AND excluido_em IS NULL
+                AND coalesce(status, 'confirmado') IN ('agendado','confirmado')
+                AND ((agendamentos.data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia')
+                    >= now() + make_interval(hours => ${antecedencia})
+                AND EXISTS (${livre}) RETURNING id`
+            : sql`INSERT INTO agendamentos (
+                unidade_id, professor_id, aluno_id, materia, data, hora_inicio, hora_fim, duracao_minutos,
+                aluno_nome, aluno_telefone, colegio_nome, serie, responsavel_nome, observacoes,
+                status, notificado_whatsapp
+              ) SELECT ${unidadeId}, ${prof.id}, ${alunoId}, ${materiaAgendada}, ${data}::date,
+                ${inicio}::time, ${fim}::time, ${duracao}, ${alunoSelecionado.nome_aluno}, ${sessaoCliente.telefone},
+                ${alunoSelecionado.colegio_nome || null}, ${alunoSelecionado.serie || null},
+                ${responsavelFinal || null}, ${observacoes || null}, 'confirmado', false
+              WHERE EXISTS (${livre})
+                AND (SELECT count(*) FROM agendamentos WHERE aluno_id = ${alunoId}
+                  AND excluido_em IS NULL AND status IN ('agendado','confirmado')
+                  AND ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia') > now())
+                  < ${LIMITE_AGENDAMENTOS_SIMULTANEOS}
+              RETURNING id`;
+        const [, , , inserido] = await sql.transaction([
+            sql`LOCK TABLE agendamentos IN SHARE ROW EXCLUSIVE MODE`,
+            sql`LOCK TABLE r4_bloqueios_agenda IN SHARE MODE`,
             sql`SELECT set_config('r4.ator_agenda', ${(responsavelFinal || 'Responsável') + ' · Portal do Aluno'}, true)`,
-            sql`
-      INSERT INTO agendamentos (
-        unidade_id,
-        professor_id,
-        aluno_id,
-        materia,
-        data,
-        hora_inicio,
-        hora_fim,
-        aluno_nome,
-        aluno_telefone,
-        colegio_nome,
-        serie,
-        responsavel_nome,
-        observacoes,
-        status,
-        notificado_whatsapp,
-        lancado_clincare,
-        clincare_reserva_status
-      )
-      VALUES (
-        ${unidadeId},
-        ${prof.id},
-        ${alunoId},
-        ${materiaAgendada},
-        ${data}::date,
-        ${slotEscolhido.inicio}::time,
-        ${slotEscolhido.fim}::time,
-        ${alunoNome},
-        ${alunoTelefone},
-        ${colegioNome || null},
-        ${serie || null},
-        ${responsavelFinal || null},
-        ${observacoes || null},
-        'confirmado',
-        false,
-        false,
-        ${statusInicialReserva}
-      )
-      RETURNING id
-    `,
+            gravacao,
         ]);
-
         const agendamentoId = inserido[0]?.id;
-
-        if (unidadeTemClinCare && agendamentoId) {
-            await dispararRoboReservaClinCare(agendamentoId);
-        }
+        if (!agendamentoId) return NextResponse.json({
+            error: remarcarId ? 'Remarcação indisponível. Confira o prazo e escolha um horário livre.' : 'Horário ocupado ou limite de aulas atingido.',
+        }, { status: 409 });
 
         const notif = await notificarGrupoNovoAgendamento({
             id: agendamentoId,
@@ -432,6 +430,9 @@ export async function POST(req: NextRequest) {
             colegioNome,
             serie,
             observacoes,
+        }).catch((erro) => {
+            console.error('Falha na notificação da aula gravada:', erro);
+            return { enviado: false, linkWaMe: null };
         });
 
         if (notif.enviado && agendamentoId) {
@@ -439,7 +440,7 @@ export async function POST(req: NextRequest) {
         UPDATE agendamentos
         SET notificado_whatsapp = true
         WHERE id = ${agendamentoId}
-      `;
+      `.catch((erro) => console.error("Falha ao registrar a notificação:", erro));
         }
 
         return NextResponse.json(
@@ -459,13 +460,12 @@ export async function POST(req: NextRequest) {
                     linkWaMe: notif.linkWaMe,
                 },
             },
-            { status: 201 }
+            { status: remarcarId ? 200 : 201 }
         );
     } catch (error) {
         console.error('Erro ao registrar agendamento:', error);
-        const detalhe = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
-            { error: `Não foi possível concluir o agendamento: ${detalhe}` },
+            { error: 'Não foi possível concluir o agendamento.' },
             { status: 500 }
         );
     }

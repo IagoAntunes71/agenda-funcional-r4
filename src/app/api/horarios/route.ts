@@ -1,127 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { SlotHorario } from '@/types/agenda';
-
-
-function horaParaMinutos(hora: string): number {
-    const [h, m] = hora.split(':').map(Number);
-    return h * 60 + (m || 0);
-}
-
-function minutosParaHora(minutos: number): string {
-    const h = String(Math.floor(minutos / 60)).padStart(2, '0');
-    const m = String(minutos % 60).padStart(2, '0');
-    return `${h}:${m}`;
-}
+import { GET as consultarDisponibilidade } from '../disponibilidade/route';
 
 export async function GET(req: NextRequest) {
-    const { searchParams } = new URL(req.url);
-    const professorId = Number(searchParams.get('professorId'));
-    const data = searchParams.get('data');
-
-    if (!professorId || !data) {
-        return NextResponse.json(
-            { error: 'Parâmetros professorId e data são obrigatórios.' },
-            { status: 400 }
-        );
+    const professorId = Number(req.nextUrl.searchParams.get('professorId'));
+    const data = req.nextUrl.searchParams.get('data');
+    if (!Number.isSafeInteger(professorId) || professorId < 1 || !data) {
+        return NextResponse.json({ error: 'Informe professor e data.' }, { status: 400 });
     }
-
     try {
-        const [profRows, bloqueios, agendamentos, agoraBahia] = await Promise.all([
-            sql`
-        SELECT
-          to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
-          to_char(hora_fim, 'HH24:MI') AS hora_fim
-        FROM professores
-        WHERE id = ${professorId} AND ativo = true
-        LIMIT 1
-      `,
-            sql`
-        SELECT
-          to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
-          to_char(hora_fim, 'HH24:MI') AS hora_fim,
-          motivo
-        FROM bloqueios_clincare
-        WHERE professor_id = ${professorId}
-          AND data = ${data}::date
-      `,
-            sql`
-        SELECT to_char(horario, 'HH24:MI') AS horario
-        FROM agendamentos
-        WHERE professor_id = ${professorId}
-          AND data = ${data}::date
-          AND status <> 'cancelado'
-      `,
-            sql`
-        SELECT
-          to_char(now() AT TIME ZONE 'America/Bahia', 'YYYY-MM-DD') AS hoje,
-          to_char(now() AT TIME ZONE 'America/Bahia', 'HH24:MI') AS hora_atual
-      `,
-        ]);
-
-        if (profRows.length === 0) {
-            return NextResponse.json({ slots: [] });
-        }
-
-        const inicioMin = horaParaMinutos(profRows[0].hora_inicio);
-        const fimMin = horaParaMinutos(profRows[0].hora_fim);
-        const horariosReservados = new Set(agendamentos.map((a) => a.horario));
-
-        const hoje = agoraBahia[0]?.hoje;
-        const minutosAgora =
-            hoje === data ? horaParaMinutos(agoraBahia[0].hora_atual) : -1;
-
-        const slots: SlotHorario[] = [];
-
-        for (let min = inicioMin; min + 60 <= fimMin; min += 60) {
-            const horarioStr = minutosParaHora(min);
-            const slotFim = min + 60;
-
-            if (minutosAgora >= 0 && min <= minutosAgora) {
-                slots.push({
-                    horario: horarioStr,
-                    disponivel: false,
-                    motivoIndisponivel: 'Encerrado',
-                });
-                continue;
-            }
-
-            if (horariosReservados.has(horarioStr)) {
-                slots.push({
-                    horario: horarioStr,
-                    disponivel: false,
-                    motivoIndisponivel: 'Reservado',
-                });
-                continue;
-            }
-
-            const bloqueioEncontrado = bloqueios.find((b) => {
-                const bInicio = horaParaMinutos(b.hora_inicio);
-                const bFim = horaParaMinutos(b.hora_fim);
-                return min < bFim && slotFim > bInicio;
-            });
-
-            if (bloqueioEncontrado) {
-                slots.push({
-                    horario: horarioStr,
-                    disponivel: false,
-                    motivoIndisponivel: bloqueioEncontrado.motivo || 'Ocupado',
-                });
-                continue;
-            }
-
-            slots.push({
-                horario: horarioStr,
-                disponivel: true,
-            });
-        }
-
-        return NextResponse.json({ slots });
-    } catch (error) {
-        console.error('Erro ao buscar horários:', error);
-        return NextResponse.json(
-            { error: 'Não foi possível carregar os horários.' },
-            { status: 500 }
-        );
+        const [professor] = await sql`SELECT p.unidade_id FROM professores p
+            JOIN unidades u ON u.id = p.unidade_id WHERE p.id = ${professorId} AND p.ativo AND u.ativa`;
+        if (!professor) return NextResponse.json({ slots: [] });
+        const url = req.nextUrl.clone();
+        url.searchParams.set('unidadeId', String(professor.unidade_id));
+        const resposta = await consultarDisponibilidade(new NextRequest(url));
+        if (!resposta.ok) return resposta;
+        const agenda = await resposta.json();
+        const grade = agenda.dataSelecionada === data
+            ? agenda.professores.find((p: { id: number }) => p.id === professorId) : null;
+        const livres = new Set<string>(grade?.slotsDisponiveis.map((s: { inicio: string }) => s.inicio));
+        return NextResponse.json({
+            slots: (grade?.todosSlots ?? []).map((s: { inicio: string }) => ({
+                horario: s.inicio, disponivel: livres.has(s.inicio),
+                motivoIndisponivel: livres.has(s.inicio) ? undefined : 'Indisponível',
+            })),
+        }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch {
+        return NextResponse.json({ error: 'Não foi possível carregar os horários.' }, { status: 500 });
     }
 }

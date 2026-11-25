@@ -1,7 +1,10 @@
+import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
     IntervaloOcupado,
+    horaParaMinutos,
+    obterAgoraBahia,
     avaliarStatusChaveMestra,
     gerarDatasDisponiveisSemana,
     obterSlotsDisponiveisProfessor,
@@ -15,7 +18,7 @@ import {
 interface ProfessorRow {
     id: number;
     nome: string;
-    clin_care_id: string | null;
+    grupo_professor: string | null;
     unidade_id: number;
     materias: string[] | null;
     materias_series: MapaMateriasSeries | null;
@@ -28,7 +31,7 @@ interface ProfessorRow {
 
 interface BloqueioRow extends IntervaloOcupado {
     professor_id: number;
-    clin_care_id: string | null;
+    grupo_professor: string | null;
 }
 
 declare global {
@@ -40,7 +43,7 @@ function garantirEstruturaBanco(): Promise<void> {
     if (!globalThis.__r4DispSchemaPromise) {
         globalThis.__r4DispSchemaPromise = Promise.all([
             sql`
-        CREATE TABLE IF NOT EXISTS bloqueios_clincare (
+        CREATE TABLE IF NOT EXISTS r4_bloqueios_agenda (
           id SERIAL PRIMARY KEY,
           professor_id INT NOT NULL,
           unidade_id INT NOT NULL,
@@ -68,6 +71,7 @@ function garantirEstruturaBanco(): Promise<void> {
 export async function GET(req: NextRequest) {
     try {
         await garantirEstruturaBanco();
+        await garantirHistoricoAgendamento();
         const modoChaveMestra = await obterModoChaveMestra();
         const statusSistema = avaliarStatusChaveMestra(modoChaveMestra);
 
@@ -112,7 +116,7 @@ export async function GET(req: NextRequest) {
             );
         }
 
-        const unidadeIdAtiva = unidadeIdParam || unidades[0]?.id || 0;
+        const unidadeIdAtiva = unidades.find((u) => u.id === unidadeIdParam)?.id ?? unidades[0]?.id ?? 0;
         const dataValidaNaLista = datas.some((d) => d.data === dataParam);
         const dataAtiva = dataValidaNaLista ? dataParam : datas[0]?.data || '';
 
@@ -137,7 +141,7 @@ export async function GET(req: NextRequest) {
       SELECT
         id,
         nome,
-        clin_care_id,
+        grupo_professor,
         unidade_id,
         materias,
         COALESCE(materias_series, '{}'::jsonb) AS materias_series,
@@ -155,11 +159,11 @@ export async function GET(req: NextRequest) {
         const bloqueiosDia = (await sql`
       SELECT
         b.professor_id,
-        p.clin_care_id,
+        p.grupo_professor,
         LEFT(b.hora_inicio::text, 5) AS hora_inicio,
         LEFT(b.hora_fim::text, 5) AS hora_fim,
         b.motivo
-      FROM bloqueios_clincare b
+      FROM r4_bloqueios_agenda b
       LEFT JOIN professores p ON p.id = b.professor_id
       WHERE LEFT(b.data::text, 10) = ${dataAtiva}
     `) as BloqueioRow[];
@@ -167,14 +171,14 @@ export async function GET(req: NextRequest) {
         const agendamentosDia = (await sql`
       SELECT
         a.professor_id,
-        p.clin_care_id,
-        LEFT(a.hora_inicio::text, 5) AS hora_inicio,
-        LEFT(a.hora_fim::text, 5) AS hora_fim
+        p.grupo_professor,
+        LEFT(coalesce(a.hora_inicio, a.horario)::text, 5) AS hora_inicio,
+        LEFT(coalesce(a.hora_fim, coalesce(a.hora_inicio, a.horario) + interval '100 minutes')::text, 5) AS hora_fim
       FROM agendamentos a
       LEFT JOIN professores p ON p.id = a.professor_id
       WHERE LEFT(a.data::text, 10) = ${dataAtiva}
-        AND a.hora_inicio IS NOT NULL
-        AND a.hora_fim IS NOT NULL
+        AND a.excluido_em IS NULL
+        AND coalesce(a.hora_inicio, a.horario) IS NOT NULL
         AND COALESCE(a.status, 'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
     `) as BloqueioRow[];
 
@@ -213,17 +217,18 @@ export async function GET(req: NextRequest) {
                 )
                 : professoresElegiveisSerie;
 
+        const agora = obterAgoraBahia();
         const professoresComHorarios = professoresFiltrados.map((prof) => {
             const bloqueiosDoProf = bloqueiosDia.filter(
                 (b) =>
                     b.professor_id === prof.id ||
-                    (prof.clin_care_id && b.clin_care_id === prof.clin_care_id)
+                    (prof.grupo_professor && b.grupo_professor === prof.grupo_professor)
             );
 
             const agendamentosDoProf = agendamentosDia.filter(
                 (a) =>
                     a.professor_id === prof.id ||
-                    (prof.clin_care_id && a.clin_care_id === prof.clin_care_id)
+                    (prof.grupo_professor && a.grupo_professor === prof.grupo_professor)
             );
 
             const { todosSlots, slotsDisponiveis } = obterSlotsDisponiveisProfessor(
@@ -244,7 +249,7 @@ export async function GET(req: NextRequest) {
                 unidade_id: prof.unidade_id,
                 materias: prof.materiasValidas,
                 todosSlots,
-                slotsDisponiveis,
+                slotsDisponiveis: slotsDisponiveis.filter((slot) => dataAtiva !== agora.dataISO || horaParaMinutos(slot.inicio) > agora.minutosDoDia),
             };
         });
 

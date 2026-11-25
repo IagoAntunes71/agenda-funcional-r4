@@ -7,9 +7,7 @@ import { sql } from '@/lib/db';
 import { lerSessaoAdmin } from '@/lib/admin-auth';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
-import { CONFIG_SYNC_MODOS } from '@/app/api/admin/sincronizar/route';
 import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
-import { garantirColunasFilaReserva } from '@/lib/clincare-fila';
 
 export async function GET(req: NextRequest) {
     const sessao = await lerSessaoAdmin();
@@ -33,13 +31,10 @@ export async function GET(req: NextRequest) {
 
         await garantirEstruturaContasResponsaveis();
         await Promise.all([
-            garantirColunasFilaReserva(),
             sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`,
             sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`,
             sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`,
             sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`,
-            sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`,
-            sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS sincronizado_clincare BOOLEAN DEFAULT false`,
         ]);
 
         const [
@@ -50,12 +45,10 @@ export async function GET(req: NextRequest) {
             datasLiberadas,
             agendamentos,
             bloqueios,
-            syncInfo,
-            disparosRaw,
             resumoSemanaRaw,
         ] = await Promise.all([
             sql`
-        SELECT id, nome, clin_care_id, ativa
+        SELECT id, nome, ativa
         FROM unidades
         ORDER BY id ASC
       `,
@@ -63,7 +56,7 @@ export async function GET(req: NextRequest) {
         SELECT
           p.id,
           p.nome,
-          p.clin_care_id,
+          p.grupo_professor,
           p.unidade_id,
           u.nome AS unidade_nome,
           p.materias,
@@ -93,7 +86,7 @@ export async function GET(req: NextRequest) {
             SELECT 1 FROM alunos alvo JOIN agendamentos a ON a.aluno_id = alvo.id
             JOIN professores p ON p.id = a.professor_id JOIN professores v ON v.id = ${sessao.professor_id}
             WHERE alvo.responsavel_id = r.id AND a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
-              AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+              AND (v.id = p.id OR nullif(v.grupo_professor,'') = nullif(p.grupo_professor,''))
         )
         ORDER BY r.nome ASC, r.id ASC
       `,
@@ -127,7 +120,7 @@ export async function GET(req: NextRequest) {
             SELECT 1 FROM agendamentos a JOIN professores p ON p.id = a.professor_id
             JOIN professores v ON v.id = ${sessao.professor_id}
             WHERE a.aluno_id = al.id AND a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
-              AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+              AND (v.id = p.id OR nullif(v.grupo_professor,'') = nullif(p.grupo_professor,''))
         ))
         ORDER BY COALESCE(NULLIF(trim(r.nome), ''), NULLIF(trim(al.responsavel_nome), ''), al.nome_aluno) ASC, al.nome_aluno ASC
       `,
@@ -150,7 +143,7 @@ export async function GET(req: NextRequest) {
           COALESCE(u.nome, 'Unidade') AS unidade_nome,
           a.professor_id,
           COALESCE(p.nome, 'Professor') AS professor_nome,
-          p.clin_care_id AS professor_clin_care_id,
+          p.grupo_professor AS professor_grupo_professor,
           a.materia,
           to_char(a.data, 'YYYY-MM-DD') AS data,
           COALESCE(
@@ -205,9 +198,6 @@ export async function GET(req: NextRequest) {
           a.observacoes,
           nullif(trim(a.feedback_professor), '') IS NOT NULL AS feedback_feito,
           COALESCE(a.status, 'confirmado') AS status,
-          COALESCE(a.lancado_clincare, a.sincronizado_clincare, false) AS sincronizado_clincare,
-          COALESCE(a.clincare_reserva_status, 'pendente') AS clincare_reserva_status,
-          a.clincare_reserva_erro,
           to_char(a.criado_em AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS criado_em_formatado
         FROM agendamentos a
         LEFT JOIN unidades u ON u.id = a.unidade_id
@@ -220,7 +210,7 @@ export async function GET(req: NextRequest) {
           ))
           AND (${outrasAgendas && !mesProfessor} OR EXISTS (
             SELECT 1 FROM professores vinculado WHERE vinculado.id = ${sessao.professor_id}
-              AND (vinculado.id = p.id OR nullif(vinculado.clin_care_id, '') = nullif(p.clin_care_id, ''))
+              AND (vinculado.id = p.id OR nullif(vinculado.grupo_professor, '') = nullif(p.grupo_professor, ''))
           ))
         ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
         LIMIT ${mesProfessor ? null : 250}
@@ -229,26 +219,17 @@ export async function GET(req: NextRequest) {
                 SELECT
                     b.id,
                     b.professor_id,
-                    p.clin_care_id AS professor_clin_care_id,
+                    p.grupo_professor AS professor_grupo_professor,
                     to_char(b.data, 'YYYY-MM-DD') AS data,
                     LEFT(b.hora_inicio::text, 5) AS hora_inicio,
                     LEFT(b.hora_fim::text, 5) AS hora_fim,
-                    coalesce(to_jsonb(b)->>'origem', 'clincare') AS origem,
-                    CASE WHEN to_jsonb(b)->>'origem' = 'manual' THEN b.motivo ELSE 'Bloqueio Clin Care' END AS motivo,
+                    coalesce(to_jsonb(b)->>'origem', 'manual') AS origem,
+                    b.motivo AS motivo,
                     CASE WHEN to_jsonb(b)->>'origem' = 'manual' THEN b.descricao END AS descricao
-                FROM bloqueios_clincare b
+                FROM r4_bloqueios_agenda b
                     LEFT JOIN professores p ON p.id = b.professor_id
                 WHERE b.data >= CURRENT_DATE - INTERVAL '15 days'
                 ORDER BY b.data ASC, b.hora_inicio ASC
-      `,
-            sql`
-        SELECT to_char(max(atualizado_em) AT TIME ZONE 'America/Bahia', 'DD/MM/YYYY HH24:MI') AS ultima_sincronizacao
-        FROM bloqueios_clincare
-      `,
-            sql`
-        SELECT chave, valor
-        FROM configuracoes_sistema
-        WHERE chave IN ('sync_disparo_hoje', 'sync_disparo_semana', 'sync_disparo_mes')
       `,
             sql`
                 WITH semana AS (
@@ -265,7 +246,7 @@ export async function GET(req: NextRequest) {
                             SELECT 1 FROM professores vinculado
                             JOIN professores destino ON destino.id = a.professor_id
                             WHERE vinculado.id = ${sessao.professor_id}
-                                AND (vinculado.id = destino.id OR vinculado.clin_care_id = destino.clin_care_id)
+                                AND (vinculado.id = destino.id OR vinculado.grupo_professor = destino.grupo_professor)
                         ))
                     GROUP BY s.inicio, d.numero
                 )
@@ -316,26 +297,6 @@ export async function GET(req: NextRequest) {
             };
         });
 
-        const mapaDisparos = new Map<string, string>(
-            (disparosRaw as { chave: string; valor: string }[]).map((r) => [
-                r.chave,
-                r.valor,
-            ])
-        );
-
-        const agora = Date.now();
-        function calcularProximoDisponivel(
-            chaveDb: string,
-            cooldownSegundos: number
-        ): string | null {
-            const iso = mapaDisparos.get(chaveDb);
-            if (!iso) return null;
-            const disparoMs = new Date(iso).getTime();
-            if (Number.isNaN(disparoMs)) return null;
-            const expiraMs = disparoMs + cooldownSegundos * 1000;
-            return expiraMs > agora ? new Date(expiraMs).toISOString() : null;
-        }
-
         return NextResponse.json({
             sessao,
             resumoSemana: resumoSemanaRaw[0] ?? null,
@@ -343,32 +304,16 @@ export async function GET(req: NextRequest) {
                 modo: modoChaveMestra,
                 aberto: statusChaveMestra.aberto,
             } : undefined,
-            cooldownsSync: {
-                hoje: calcularProximoDisponivel(
-                    CONFIG_SYNC_MODOS.hoje.chaveDb,
-                    CONFIG_SYNC_MODOS.hoje.cooldownSegundos
-                ),
-                semana: calcularProximoDisponivel(
-                    CONFIG_SYNC_MODOS.semana.chaveDb,
-                    CONFIG_SYNC_MODOS.semana.cooldownSegundos
-                ),
-                mes: calcularProximoDisponivel(
-                    CONFIG_SYNC_MODOS.mes.chaveDb,
-                    CONFIG_SYNC_MODOS.mes.cooldownSegundos
-                ),
-            },
             unidades,
             professores,
             responsaveis: listaResponsaveis,
             alunos: listaAlunos,
             datasLiberadas,
             agendamentos: sessao.role === 'professor' ? agendamentos.map((aula) => {
-                const unidade = unidades.find((item) => item.id === aula.unidade_id);
-                return unidadeOnline(aula.unidade_nome, unidade?.clin_care_id) ? aula :
+                return unidadeOnline(aula.unidade_nome) ? aula :
                     { ...aula, nome_responsavel: '', whatsapp_responsavel: '' };
             }) : agendamentos,
             bloqueios,
-            ultimaSincronizacao: syncInfo[0]?.ultima_sincronizacao || null,
         });
     } catch (error) {
         console.error('Erro ao carregar painel admin:', error);

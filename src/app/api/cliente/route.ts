@@ -1,3 +1,4 @@
+import { lerSessaoCliente } from '@/lib/cliente-auth';
 import { alunoImportadoAguardandoVinculo } from '@/lib/cadastro-aluno-r4';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { NextRequest, NextResponse } from 'next/server';
@@ -49,9 +50,12 @@ async function buscarProximasAulasPorTelefone(telefoneBruto: string) {
     if (variantes.length === 0) return [];
 
     try {
+        await garantirHistoricoAgendamento();
+        const { antecedencia } = await lerOperacaoR4();
         const rows = await sql`
       SELECT
         a.id,
+        a.aluno_id,
         COALESCE(u.nome, 'Unidade') AS unidade_nome,
         COALESCE(p.nome, 'Professor') AS professor_nome,
         a.materia,
@@ -96,24 +100,25 @@ async function buscarProximasAulasPorTelefone(telefoneBruto: string) {
               - NOW()
             )
           ) / 3600.0
-        ) >= 2 AS pode_cancelar
+        ) >= ${antecedencia} AS pode_cancelar
       FROM agendamentos a
       LEFT JOIN unidades u ON u.id = a.unidade_id
       LEFT JOIN professores p ON p.id = a.professor_id
-      WHERE COALESCE(a.status, 'confirmado') = 'confirmado'
+      WHERE COALESCE(a.status, 'confirmado') IN ('confirmado','agendado')
+        AND a.excluido_em IS NULL
         AND ((a.data + COALESCE(a.hora_fim, a.hora_inicio, a.horario, '20:50'::time)) AT TIME ZONE 'America/Bahia') >= NOW()
         AND (
           regexp_replace(
-            regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
-            '^55(?=\d{10,11}$)',
+            regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
+            '^55(?=[0-9]{10,11}$)',
             ''
           ) = ANY(${variantes}::text[])
           OR a.aluno_id IN (
             SELECT id
             FROM alunos
             WHERE regexp_replace(
-              regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-              '^55(?=\d{10,11}$)',
+              regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+              '^55(?=[0-9]{10,11}$)',
               ''
             ) = ANY(${variantes}::text[])
           )
@@ -131,7 +136,12 @@ export async function GET(req: NextRequest) {
         await garantirTabelasClientesEColegios();
 
         const { searchParams } = new URL(req.url);
-        const telefoneRaw = searchParams.get('telefone') || '';
+        const solicitado = searchParams.get('telefone');
+        const sessao = solicitado ? await lerSessaoCliente() : null;
+        if (solicitado && (!sessao || !gerarVariantesTelefone(sessao.telefone).includes(normalizarTelefone(solicitado)))) {
+            return NextResponse.json({ error: 'Confirme seu WhatsApp e PIN.' }, { status: 401 });
+        }
+        const telefoneRaw = sessao?.telefone || '';
         const telefone = normalizarTelefone(telefoneRaw);
         const variantes = gerarVariantesTelefone(telefoneRaw);
 
@@ -161,8 +171,8 @@ export async function GET(req: NextRequest) {
         SELECT id, nome
         FROM responsaveis
         WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
+          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+          '^55(?=[0-9]{10,11}$)',
           ''
         ) = ANY(${variantes}::text[])
         ORDER BY id ASC
@@ -180,8 +190,8 @@ export async function GET(req: NextRequest) {
           serie
         FROM alunos
         WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
+          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+          '^55(?=[0-9]{10,11}$)',
           ''
         ) = ANY(${variantes}::text[])
           AND ativo = true
@@ -215,8 +225,8 @@ export async function GET(req: NextRequest) {
           SELECT COALESCE(NULLIF(trim(responsavel_nome), ''), NULLIF(trim(nome_responsavel), '')) AS resp
           FROM agendamentos
           WHERE regexp_replace(
-            regexp_replace(COALESCE(aluno_telefone, whatsapp_responsavel, ''), '\D', '', 'g'),
-            '^55(?=\d{10,11}$)',
+            regexp_replace(COALESCE(aluno_telefone, whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
+            '^55(?=[0-9]{10,11}$)',
             ''
           ) = ANY(${variantes}::text[])
             AND COALESCE(NULLIF(trim(responsavel_nome), ''), NULLIF(trim(nome_responsavel), '')) IS NOT NULL
@@ -259,7 +269,9 @@ export async function POST(req: NextRequest) {
 
         if (acao === 'cancelarAgendamento') {
             const agendamentoId = Number(body?.agendamentoId || 0);
-            const telefoneRaw = String(body?.telefone || '');
+            const sessao = await lerSessaoCliente();
+            if (!sessao) return NextResponse.json({ error: 'Confirme seu WhatsApp e PIN.' }, { status: 401 });
+            const telefoneRaw = sessao.telefone;
             const telefone = normalizarTelefone(telefoneRaw);
             const variantes = gerarVariantesTelefone(telefoneRaw);
 
@@ -319,16 +331,16 @@ export async function POST(req: NextRequest) {
         WHERE a.id = ${agendamentoId}
           AND (
             regexp_replace(
-              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '\D', '', 'g'),
-              '^55(?=\d{10,11}$)',
+              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
+              '^55(?=[0-9]{10,11}$)',
               ''
             ) = ANY(${variantes}::text[])
             OR a.aluno_id IN (
               SELECT id
               FROM alunos
               WHERE regexp_replace(
-                regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-                '^55(?=\d{10,11}$)',
+                regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+                '^55(?=[0-9]{10,11}$)',
                 ''
               ) = ANY(${variantes}::text[])
             )
@@ -356,7 +368,7 @@ export async function POST(req: NextRequest) {
             }
 
             const ag = registros[0];
-            if (ag.status !== 'confirmado') {
+            if (!['confirmado','agendado'].includes(ag.status)) {
                 return NextResponse.json(
                     { error: 'Este agendamento já foi cancelado ou concluído.' },
                     { status: 400 }
@@ -375,11 +387,17 @@ export async function POST(req: NextRequest) {
             }
 
             await garantirHistoricoAgendamento();
-            await sql.transaction([
+            const [, cancelados] = await sql.transaction([
                 sql`SELECT set_config('r4.ator_agenda', ${(ag.responsavel_nome || 'Responsável') + ' · Portal do Aluno'}, true)`,
                 sql`UPDATE agendamentos SET status = 'cancelado'
-                    WHERE id = ${agendamentoId} AND excluido_em IS NULL`,
+                    WHERE id = ${agendamentoId} AND excluido_em IS NULL
+                      AND coalesce(status,'confirmado') IN ('confirmado','agendado')
+                      AND ((data + coalesce(hora_inicio, horario, '14:10'::time)) AT TIME ZONE 'America/Bahia')
+                          >= now() + make_interval(hours => ${antecedencia})
+                    RETURNING id`,
             ]);
+
+            if (!cancelados.length) return NextResponse.json({ error: "Esta aula não pode mais ser cancelada." }, { status: 409 });
 
             await notificarGrupoCancelamentoAgendamento({
                 id: ag.id,
@@ -431,8 +449,8 @@ export async function POST(req: NextRequest) {
           telefone_formatado = ${telFmt},
           atualizado_em = now()
         WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
+          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+          '^55(?=[0-9]{10,11}$)',
           ''
         ) = ANY(${variantes}::text[])
       `;
@@ -444,8 +462,8 @@ export async function POST(req: NextRequest) {
           telefone = ${telefone},
           telefone_formatado = ${telFmt}
         WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
+          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+          '^55(?=[0-9]{10,11}$)',
           ''
         ) = ANY(${variantes}::text[])
           AND ativo = true
@@ -475,8 +493,8 @@ export async function POST(req: NextRequest) {
         SET ativo = false
         WHERE id = ${alunoId}
           AND regexp_replace(
-            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-            '^55(?=\d{10,11}$)',
+            regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+            '^55(?=[0-9]{10,11}$)',
             ''
           ) = ANY(${variantes}::text[])
       `;
@@ -485,8 +503,8 @@ export async function POST(req: NextRequest) {
         SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
         FROM alunos
         WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
+          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+          '^55(?=[0-9]{10,11}$)',
           ''
         ) = ANY(${variantes}::text[])
           AND ativo = true
@@ -577,8 +595,8 @@ export async function POST(req: NextRequest) {
           telefone_formatado = ${telFmt}
         WHERE id = ${alunoId}
           AND regexp_replace(
-            regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-            '^55(?=\d{10,11}$)',
+            regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+            '^55(?=[0-9]{10,11}$)',
             ''
           ) = ANY(${variantes}::text[])
           AND ativo = true
@@ -588,8 +606,8 @@ export async function POST(req: NextRequest) {
         SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
         FROM alunos
         WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
+          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+          '^55(?=[0-9]{10,11}$)',
           ''
         ) = ANY(${variantes}::text[])
           AND ativo = true
@@ -700,8 +718,8 @@ export async function POST(req: NextRequest) {
       SELECT id, nome, pin_hash
       FROM responsaveis
       WHERE regexp_replace(
-        regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-        '^55(?=\d{10,11}$)',
+        regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+        '^55(?=[0-9]{10,11}$)',
         ''
       ) = ANY(${variantes}::text[])
       ORDER BY id ASC
@@ -783,8 +801,8 @@ export async function POST(req: NextRequest) {
         responsavel_nome = COALESCE(NULLIF(${nomeRespFinal}, ''), responsavel_nome),
         pin_hash = COALESCE(NULLIF(trim(pin_hash), ''), ${pinHerdado})
       WHERE regexp_replace(
-        regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'),
-        '^55(?=\d{10,11}$)',
+        regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
+        '^55(?=[0-9]{10,11}$)',
         ''
       ) = ANY(${variantes}::text[])
         AND ativo = true

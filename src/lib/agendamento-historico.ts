@@ -42,7 +42,7 @@ export function garantirHistoricoAgendamento() {
                 FROM unnest(ARRAY['unidade_id','professor_id','aluno_id','materia','data','hora_inicio',
                     'hora_fim','duracao_minutos','observacoes','feedback_professor','status',
                     'aluno_nome','responsavel_nome','aluno_telefone','colegio_nome','serie',
-                    'excluido_em','lancado_clincare','notificado_whatsapp','clincare_reserva_status']) AS lista(campo)
+                    'excluido_em','notificado_whatsapp']) AS lista(campo)
                 WHERE anterior->campo IS DISTINCT FROM atual->campo;
                 IF cardinality(campos_alterados) = 0 THEN RETURN NEW; END IF;
                 tipo := CASE
@@ -50,7 +50,7 @@ export function garantirHistoricoAgendamento() {
                     WHEN 'status' = ANY(campos_alterados) THEN
                         'Status: ' || coalesce(anterior->>'status', '—') || ' → ' || coalesce(atual->>'status', '—')
                     WHEN 'feedback_professor' = ANY(campos_alterados) THEN 'Feedback atualizado'
-                    WHEN campos_alterados <@ ARRAY['lancado_clincare','notificado_whatsapp','clincare_reserva_status'] THEN 'Integração atualizada'
+                    WHEN campos_alterados <@ ARRAY['notificado_whatsapp'] THEN 'Integração atualizada'
                     ELSE 'Agendamento editado'
                 END;
             END IF;

@@ -73,7 +73,6 @@ import {
     AgendamentoAdmin,
     AlunoAdmin,
     BloqueioAdmin,
-    CooldownsSync,
     DataAdmin,
     PerfilAdmin,
     ProfessorAdmin,
@@ -84,13 +83,6 @@ import {
     formatarDataBR,
     obterIniciais,
 } from './types';
-
-function formatarCronometro(segundos: number): string {
-    if (segundos <= 0) return 'Liberado';
-    const min = Math.floor(segundos / 60);
-    const seg = segundos % 60;
-    return `${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}`;
-}
 
 function materiaAgendamento(aula: AgendamentoAdmin) {
     const intervalo = intervaloAula(aula);
@@ -132,7 +124,6 @@ export default function PainelAdmin({
     const [carregandoDados, setCarregandoDados] = useState(false);
     const [mesProfessor, setMesProfessor] = useState(() => obterAgoraBahia().dataISO.slice(0, 7));
     const [consultaProfessor, setConsultaProfessor] = useState<{ mes: string; erro?: string } | null>(null);
-    const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
 
     const [perfilAtual, setPerfilAtual] = useState<PerfilAdmin>({
         id: 0,
@@ -166,19 +157,6 @@ export default function PainelAdmin({
         TEXTOS_PORTAL_PADRAO
     );
 
-    const [cooldownsSync, setCooldownsSync] = useState<CooldownsSync>({
-        hoje: null,
-        semana: null,
-        mes: null,
-    });
-    const [agoraMs, setAgoraMs] = useState<number>(() => Date.now());
-    const [disparandoSync, setDisparandoSync] = useState<
-        'hoje' | 'semana' | 'mes' | null
-    >(null);
-    const [feedbackSync, setFeedbackSync] = useState<{
-        tipo: 'sucesso' | 'erro';
-        texto: string;
-    } | null>(null);
 
     const [modoChaveMestra, setModoChaveMestra] =
         useState<ModoChaveMestra>('auto');
@@ -203,7 +181,6 @@ export default function PainelAdmin({
     const [filtroStatus, setFiltroStatus] = useState<string>('todos');
     const [salvandoStatusId, setSalvandoStatusId] = useState<number | null>(null);
     const [retornoStatus, setRetornoStatus] = useState<{ texto: string; erro: boolean } | null>(null);
-    const [filtroClinCare, setFiltroClinCare] = useState<string>('todos');
 
     useEffect(() => {
         const salvo = window.localStorage.getItem('r4_admin_tema');
@@ -225,24 +202,6 @@ export default function PainelAdmin({
         });
     }
 
-    useEffect(() => {
-        const temCooldownAtivo = Boolean(
-            cooldownsSync.hoje || cooldownsSync.semana || cooldownsSync.mes
-        );
-        if (!temCooldownAtivo) return;
-
-        const timer = window.setInterval(() => {
-            setAgoraMs(Date.now());
-        }, 1000);
-
-        return () => window.clearInterval(timer);
-    }, [cooldownsSync]);
-
-    function calcularRestanteSegundos(expiraISO: string | null): number {
-        if (!expiraISO) return 0;
-        const diff = Math.ceil((new Date(expiraISO).getTime() - agoraMs) / 1000);
-        return diff > 0 ? diff : 0;
-    }
 
     const carregarPerfisETextos = useCallback(async () => {
         try {
@@ -270,8 +229,8 @@ export default function PainelAdmin({
         }
     }, []);
 
-    const carregarDados = useCallback(async (signal?: AbortSignal) => {
-        setCarregandoDados(true);
+    const carregarDados = useCallback(async (signal?: AbortSignal, silencioso = false) => {
+        if (!silencioso) setCarregandoDados(true);
         try {
             const url = mesConsulta ? '/api/admin/painel?mesProfessor=' + mesConsulta : '/api/admin/painel';
             const res = await fetch(url, { cache: 'no-store', signal });
@@ -303,14 +262,6 @@ export default function PainelAdmin({
                 setSistemaAbertoAgora(Boolean(json.chaveMestra.aberto));
             }
 
-            if (json.cooldownsSync) {
-                setCooldownsSync({
-                    hoje: json.cooldownsSync.hoje || null,
-                    semana: json.cooldownsSync.semana || null,
-                    mes: json.cooldownsSync.mes || null,
-                });
-                setAgoraMs(Date.now());
-            }
 
             setUnidades(json.unidades || []);
             setProfessores(json.professores || []);
@@ -320,15 +271,14 @@ export default function PainelAdmin({
             setAgendamentos(json.agendamentos || []);
             setResumoSemana(json.resumoSemana || null);
             setBloqueios(json.bloqueios || []);
-            setUltimaSincronizacao(json.ultimaSincronizacao || null);
 
-            await carregarPerfisETextos();
+            if (!silencioso) await carregarPerfisETextos();
         } catch (erro) {
             if (mesConsulta && !signal?.aborted) setConsultaProfessor({
                 mes: mesConsulta, erro: erro instanceof Error ? erro.message : 'Falha ao carregar a agenda.',
             });
         } finally {
-            if (!signal?.aborted) setCarregandoDados(false);
+            if (!silencioso && !signal?.aborted) setCarregandoDados(false);
         }
     }, [carregarPerfisETextos, mesConsulta]);
 
@@ -338,6 +288,25 @@ export default function PainelAdmin({
         const timer = window.setTimeout(() => void carregarDados(pedido.signal), 0);
         return () => { window.clearTimeout(timer); pedido.abort(); };
     }, [autenticado, carregarDados]);
+
+    useEffect(() => {
+        if (!autenticado || (aba !== 'inicio' && aba !== 'mapa')) return;
+        const pedido = new AbortController();
+        let atualizando = false;
+        async function atualizarAgenda() {
+            if (document.hidden || atualizando) return;
+            atualizando = true;
+            try { await carregarDados(pedido.signal, true); }
+            finally { atualizando = false; }
+        }
+        const timer = window.setInterval(() => void atualizarAgenda(), 5000);
+        window.addEventListener('focus', atualizarAgenda);
+        return () => {
+            pedido.abort();
+            clearInterval(timer);
+            window.removeEventListener('focus', atualizarAgenda);
+        };
+    }, [autenticado, aba, carregarDados]);
 
     async function handleTrocaFotoRapida(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
@@ -378,54 +347,6 @@ export default function PainelAdmin({
                 texto: 'Não foi possível processar esta imagem.',
             });
             setModalPerfilAberto(true);
-        }
-    }
-
-    async function dispararSincronizacao(modo: 'hoje' | 'semana' | 'mes') {
-        setDisparandoSync(modo);
-        setFeedbackSync(null);
-        try {
-            const res = await fetch('/api/admin/sincronizar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ modo }),
-            });
-            const json = await res.json();
-
-            if (json.proximoDisponivelEm) {
-                setCooldownsSync((prev) => ({
-                    ...prev,
-                    [modo]: json.proximoDisponivelEm,
-                }));
-                setAgoraMs(Date.now());
-            }
-
-            if (!res.ok) {
-                setFeedbackSync({
-                    tipo: 'erro',
-                    texto: json.error || 'Não foi possível iniciar a sincronização.',
-                });
-                return;
-            }
-
-            const tempoEstimado =
-                modo === 'hoje'
-                    ? 'cerca de 40 segundos'
-                    : modo === 'semana'
-                        ? 'cerca de 2 minutos'
-                        : 'alguns minutos';
-
-            setFeedbackSync({
-                tipo: 'sucesso',
-                texto: `Sincronização "${json.rotulo}" iniciada! Os bloqueios do Clin Care serão atualizados em ${tempoEstimado}.`,
-            });
-        } catch {
-            setFeedbackSync({
-                tipo: 'erro',
-                texto: 'Erro de conexão ao solicitar sincronização.',
-            });
-        } finally {
-            setDisparandoSync(null);
         }
     }
 
@@ -511,20 +432,9 @@ export default function PainelAdmin({
         }
     }
 
-    async function alternarLancadoClinCare(id: number, lancadoAtual: boolean) {
-        await fetch('/api/admin/agendamentos', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, lancado_clincare: !lancadoAtual }),
-        });
-        await carregarDados();
-    }
-
-    const escuro = tema === 'escuro';
-
-    // Paleta com alto contraste no Modo Claro e identidade R4 no Modo Escuro
     const clsCard = 'r4-painel shadow-xs';
     const clsSubCard = 'r4-painel-secundario';
+    const escuro = tema === 'escuro';
     const clsInput = escuro
         ? 'bg-[#251b19] border-[#60443d] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
         : 'bg-white border-slate-400/80 text-slate-900 font-medium placeholder:text-slate-500 focus:border-[#0E7C86] focus:ring-2 focus:ring-[#0E7C86]/20';
@@ -697,23 +607,17 @@ export default function PainelAdmin({
         );
     }
 
-    const restanteHoje = calcularRestanteSegundos(cooldownsSync.hoje);
-    const restanteSemana = calcularRestanteSegundos(cooldownsSync.semana);
-    const restanteMes = calcularRestanteSegundos(cooldownsSync.mes);
 
     const confirmadosCount = agendamentos.filter(
         (a) => a.status === 'confirmado'
-    ).length;
-    const pendentesClinCare = agendamentos.filter(
-        (a) => a.status !== 'cancelado' && !a.sincronizado_clincare
     ).length;
 
     const professoresUnicosCount = new Set(
         professores
             .filter((p) => p.ativo)
             .map((p) =>
-                p.clin_care_id
-                    ? `cc:${p.clin_care_id}`
+                p.grupo_professor
+                    ? `grupo:${p.grupo_professor}`
                     : `nm:${p.nome.trim().toLowerCase()}`
             )
     ).size;
@@ -736,7 +640,7 @@ export default function PainelAdmin({
         {
             id: 'agendamentos',
             rotulo: 'Agendamentos',
-            subtitulo: 'Aulas, sync e relatórios',
+            subtitulo: 'Aulas e relatórios',
             badge: confirmadosCount,
             icone: <CalendarCheck2 className="w-4 h-4" />,
         },
@@ -837,8 +741,6 @@ export default function PainelAdmin({
         )
             return false;
         if (filtroStatus !== 'todos' && normalizarStatusAulaR4(a.status) !== filtroStatus) return false;
-        if (filtroClinCare === 'pendentes' && a.sincronizado_clincare) return false;
-        if (filtroClinCare === 'lancados' && !a.sincronizado_clincare) return false;
         return true;
     });
 
@@ -865,7 +767,6 @@ export default function PainelAdmin({
             'Responsável',
             'WhatsApp',
             'Status',
-            'Lançado Clin Care',
             'Assunto / Observações',
         ];
 
@@ -881,7 +782,6 @@ export default function PainelAdmin({
             ag.nome_responsavel,
             ag.whatsapp_responsavel,
             ag.status.toUpperCase(),
-            ag.sincronizado_clincare ? 'Sim' : 'Pendente',
             ag.observacoes || '',
         ]);
 
@@ -1493,22 +1393,6 @@ export default function PainelAdmin({
                                             </select>
                                         </div>
 
-                                        <div>
-                                            <label
-                                                className={`block text-[11px] font-semibold mb-1 ${clsSubtexto}`}
-                                            >{textoR4("Lançamento Clin Care")}</label>
-                                            <select
-                                                value={filtroClinCare}
-                                                onChange={(e) =>
-                                                    setFiltroClinCare(e.target.value)
-                                                }
-                                                className={`w-full border rounded-xl px-3 py-2 text-xs focus:outline-none ${clsInput}`}
-                                            >
-                                                <option value="todos">{textoR4("Todos")}</option>
-                                                <option value="pendentes">{textoR4("Pendentes de lançar")}</option>
-                                                <option value="lancados">{textoR4("Já lançados")}</option>
-                                            </select>
-                                        </div>
                                     </div>
 
                                     <div
@@ -1600,35 +1484,6 @@ export default function PainelAdmin({
                                                                 </option>)}
                                                             </select>
 
-                                                            {ag.status !== 'cancelado' && (
-                                                                <span
-                                                                    title={
-                                                                        ag.clincare_reserva_erro ||
-                                                                        undefined
-                                                                    }
-                                                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                                                        ag.sincronizado_clincare
-                                                                            ? 'bg-[#0E7C86]/15 text-[#0B5C63] dark:text-[#25A4AF] border-[#0E7C86]/40'
-                                                                            : ag.clincare_reserva_status ===
-                                                                            'reservado'
-                                                                                ? 'bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 border-cyan-500/40'
-                                                                                : ag.clincare_reserva_status ===
-                                                                                'erro'
-                                                                                    ? 'bg-[#BE1E23]/20 text-rose-700 dark:text-rose-400 border-[#BE1E23]/40'
-                                                                                    : 'bg-[#C24124]/15 text-amber-800 dark:text-amber-400 border-[#C24124]/40'
-                                                                    }`}
-                                                                >
-                                                                    {ag.sincronizado_clincare
-                                                                        ? textoR4("Confirmado (Aluno Vinculado)")
-                                                                        : ag.clincare_reserva_status ===
-                                                                        'reservado'
-                                                                            ? textoR4("RESERVADO APP (Trocar p/ Aluno)")
-                                                                            : ag.clincare_reserva_status ===
-                                                                            'erro'
-                                                                                ? textoR4("Erro Robô Clin Care")
-                                                                                : textoR4("Robô Reservando...")}
-                                                                </span>
-                                                            )}
                                                         </div>
                                                     </div>
 
@@ -1663,13 +1518,6 @@ export default function PainelAdmin({
                                                             </p>
                                                         )}
 
-                                                        {ag.clincare_reserva_erro &&
-                                                            !ag.sincronizado_clincare && (
-                                                                <p className="text-[11px] text-rose-700 dark:text-rose-400 bg-[#BE1E23]/15 border border-[#BE1E23]/35 rounded-lg px-2.5 py-1.5 mt-1.5">
-                                                                    <strong>{textoR4("Robô Clin Care:")}</strong>{' '}
-                                                                    {ag.clincare_reserva_erro}
-                                                                </p>
-                                                            )}
                                                     </div>
 
                                                     <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1683,83 +1531,6 @@ export default function PainelAdmin({
                                                                 <MessageCircle className="w-3.5 h-3.5" />{' '}{textoR4("WhatsApp")}</a>
                                                         )}
 
-                                                        {ag.status !== 'cancelado' && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    void alternarLancadoClinCare(
-                                                                        ag.id,
-                                                                        ag.sincronizado_clincare
-                                                                    )
-                                                                }
-                                                                className={`px-3 py-1.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition ${
-                                                                    ag.sincronizado_clincare
-                                                                        ? 'bg-[#0E7C86]/15 border-[#0E7C86]/45 text-[#0B5C63] dark:text-[#25A4AF]'
-                                                                        : 'bg-[#C24124]/15 border-[#C24124]/45 text-amber-800 dark:text-amber-400'
-                                                                }`}
-                                                            >
-                                                                <ClipboardCheck className="w-3.5 h-3.5" />
-                                                                {ag.sincronizado_clincare
-                                                                    ? textoR4("Lançado ✓")
-                                                                    : textoR4("Marcar Lançado")}
-                                                            </button>
-                                                        )}
-
-                                                        {(ag.status === 'cancelado' ||
-                                                            (ag.status === 'confirmado' &&
-                                                                !ag.sincronizado_clincare &&
-                                                                ag.clincare_reserva_status !==
-                                                                'reservado')) && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={async () => {
-                                                                    try {
-                                                                        const resposta =
-                                                                            await fetch(
-                                                                                '/api/admin/agendamentos',
-                                                                                {
-                                                                                    method: 'PATCH',
-                                                                                    headers: {
-                                                                                        'Content-Type':
-                                                                                            'application/json',
-                                                                                    },
-                                                                                    body: JSON.stringify(
-                                                                                        {
-                                                                                            id: ag.id,
-                                                                                            reenviar_robo:
-                                                                                                true,
-                                                                                        }
-                                                                                    ),
-                                                                                }
-                                                                            );
-                                                                        if (!resposta.ok) {
-                                                                            const retorno =
-                                                                                await resposta
-                                                                                    .json()
-                                                                                    .catch(
-                                                                                        () => ({})
-                                                                                    );
-                                                                            window.alert(
-                                                                                retorno.error ||
-                                                                                'Não foi possível acionar o robô.'
-                                                                            );
-                                                                        }
-                                                                    } catch {
-                                                                        window.alert(
-                                                                            'Falha de conexão ao acionar o robô.'
-                                                                        );
-                                                                    } finally {
-                                                                        await carregarDados();
-                                                                    }
-                                                                }}
-                                                                className="px-3 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-600/40 text-cyan-800 dark:text-cyan-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer hover:bg-cyan-500/25"
-                                                            >
-                                                                <RefreshCw className="w-3.5 h-3.5" />
-                                                                {ag.status === 'cancelado'
-                                                                    ? textoR4("Repetir cancelamento no ClinCare")
-                                                                    : textoR4("Reenviar Robô")}
-                                                            </button>
-                                                        )}
 
                                                     </div>
                                                 </div>
@@ -1770,109 +1541,6 @@ export default function PainelAdmin({
                             </section>
 
                             <aside className="xl:col-span-4 space-y-5" {...editorLayout.item("agendamentos_resumo", "colunas", "Resumo")}>
-                                <div className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <h2 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Sincronizar Clin Care")}</h2>
-                                            <p className={`text-[11px] ${clsSubtexto}`}>{textoR4("Última leitura:")}{' '}
-                                                <strong>
-                                                    {ultimaSincronizacao || 'Aguardando'}
-                                                </strong>
-                                            </p>
-                                        </div>
-                                        <RefreshCw className="w-4 h-4 text-[#0E7C86] dark:text-[#1496A1]" />
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <button
-                                            type="button"
-                                            disabled={restanteHoje > 0 || disparandoSync !== null}
-                                            onClick={() => void dispararSincronizacao('hoje')}
-                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between border transition ${
-                                                restanteHoje > 0
-                                                    ? `${clsSubCard} ${clsSubtexto} cursor-not-allowed`
-                                                    : 'bg-[#0E7C86]/15 hover:bg-[#0E7C86] border-[#0E7C86]/45 text-[#0B5C63] dark:text-[#25A4AF] hover:text-white cursor-pointer'
-                                            }`}
-                                        >
-                                            <span className="inline-flex items-center gap-2">
-                                                <Play className="w-3.5 h-3.5" />
-                                                {disparandoSync === 'hoje'
-                                                    ? textoR4("Iniciando...")
-                                                    : textoR4("Sincronizar Hoje (Rápido)")}
-                                            </span>
-                                            <span className="text-[11px] font-mono">
-                                                {restanteHoje > 0
-                                                    ? formatarCronometro(restanteHoje)
-                                                    : textoR4("5 min trava")}
-                                            </span>
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            disabled={restanteSemana > 0 || disparandoSync !== null}
-                                            onClick={() => void dispararSincronizacao('semana')}
-                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between border transition ${
-                                                restanteSemana > 0
-                                                    ? `${clsSubCard} ${clsSubtexto} cursor-not-allowed`
-                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/40 text-[#0B5C63] dark:text-[#25A4AF] hover:text-white cursor-pointer'
-                                            }`}
-                                        >
-                                            <span className="inline-flex items-center gap-2">
-                                                <Play className="w-3.5 h-3.5" />
-                                                {disparandoSync === 'semana'
-                                                    ? textoR4("Iniciando...")
-                                                    : textoR4("Sincronizar Semana (7d)")}
-                                            </span>
-                                            <span className="text-[11px] font-mono">
-                                                {restanteSemana > 0
-                                                    ? formatarCronometro(restanteSemana)
-                                                    : textoR4("30 min trava")}
-                                            </span>
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            disabled={restanteMes > 0 || disparandoSync !== null}
-                                            onClick={() => void dispararSincronizacao('mes')}
-                                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between border transition ${
-                                                restanteMes > 0
-                                                    ? `${clsSubCard} ${clsSubtexto} cursor-not-allowed`
-                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/40 text-[#0B5C63] dark:text-[#25A4AF] hover:text-white cursor-pointer'
-                                            }`}
-                                        >
-                                            <span className="inline-flex items-center gap-2">
-                                                <Play className="w-3.5 h-3.5" />
-                                                {disparandoSync === 'mes'
-                                                    ? textoR4("Iniciando...")
-                                                    : textoR4("Sincronizar Mês (30d)")}
-                                            </span>
-                                            <span className="text-[11px] font-mono">
-                                                {restanteMes > 0
-                                                    ? formatarCronometro(restanteMes)
-                                                    : textoR4("1h trava")}
-                                            </span>
-                                        </button>
-                                    </div>
-
-                                    {feedbackSync && (
-                                        <div
-                                            className={`rounded-xl border p-3 text-xs flex items-start justify-between gap-2 ${
-                                                feedbackSync.tipo === 'sucesso'
-                                                    ? 'bg-emerald-500/15 border-emerald-600/40 text-emerald-800 dark:text-emerald-400'
-                                                    : 'bg-[#BE1E23]/15 border-[#BE1E23]/40 text-rose-800 dark:text-rose-400'
-                                            }`}
-                                        >
-                                            <span>{feedbackSync.texto}</span>
-                                            <button
-                                                type="button"
-                                                onClick={() => setFeedbackSync(null)}
-                                                className="cursor-pointer shrink-0"
-                                            >
-                                                <X className="w-3.5 h-3.5" />
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
 
                                 <div className={`border rounded-2xl p-5 space-y-3 ${clsCard}`}>
                                     <h2 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Resumo Operacional")}</h2>
@@ -1885,19 +1553,6 @@ export default function PainelAdmin({
                                             </p>
                                         </div>
 
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setFiltroStatus('todos');
-                                                setFiltroClinCare('pendentes');
-                                            }}
-                                            className={`border rounded-xl p-3.5 text-left transition cursor-pointer hover:border-[#C24124]/60 ${clsSubCard}`}
-                                        >
-                                            <p className={`text-[11px] font-semibold ${clsSubtexto}`}>{textoR4("Pendentes Clin Care")}</p>
-                                            <p className="text-2xl font-extrabold text-[#C24124] dark:text-[#D96B43] mt-0.5">
-                                                {pendentesClinCare}
-                                            </p>
-                                        </button>
                                     </div>
                                 </div>
                             </aside>

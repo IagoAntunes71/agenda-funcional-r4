@@ -63,6 +63,7 @@ interface AlunoCadastrado {
 
 interface ProximaAula {
   id: number;
+  aluno_id?: number;
   unidade_nome: string;
   professor_nome: string;
   materia: string;
@@ -150,6 +151,7 @@ export default function PaginaAgendamentoReforco() {
   const [exibirFormNovoAluno, setExibirFormNovoAluno] =
       useState<boolean>(false);
 
+  const [remarcarId, setRemarcarId] = useState<number | null>(null);
   const [proximasAulas, setProximasAulas] = useState<ProximaAula[]>([]);
   const [confirmandoCancelamentoId, setConfirmandoCancelamentoId] = useState<
       number | null
@@ -807,6 +809,7 @@ export default function PaginaAgendamentoReforco() {
     setEtapaLogin('telefone');
     setPinInput('');
     setConfirmarPinInput('');
+    setRemarcarId(null);
     setAlunos([]);
     setProximasAulas([]);
     setAlunoSelecionadoId(0);
@@ -943,7 +946,16 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
+  function iniciarRemarcacao(aula: ProximaAula) {
+    const aluno = alunos.find((item) => item.id === aula.aluno_id);
+    if (!aluno) return;
+    handleSelecionarAluno(aluno);
+    setRemarcarId(aula.id);
+    document.getElementById('grade-portal')?.scrollIntoView({ block: 'start' });
+  }
+
   function handleSelecionarAluno(al: AlunoCadastrado) {
+    setRemarcarId(null);
     setAlunoSelecionadoId(al.id);
     setExibirFormNovoAluno(false);
     setAlunoEditandoId(null);
@@ -1014,6 +1026,7 @@ export default function PaginaAgendamentoReforco() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           unidadeId,
+          remarcarId,
           professorId: selecaoSlot.professor.id,
           alunoId: alunoAtivo.id,
           materia: materiaAula,
@@ -1037,6 +1050,7 @@ export default function PaginaAgendamentoReforco() {
         return;
       }
 
+      setRemarcarId(null);
       setComprovante(json.agendamento);
       setSelecaoSlot(null);
       setObservacoes('');
@@ -2115,6 +2129,9 @@ export default function PaginaAgendamentoReforco() {
                                         escuro ? 'border-[#513932]' : 'border-stone-200'
                                     }`}
                                 >
+                                  {aula.pode_cancelar && sistemaAberto && alunos.some((aluno) => aluno.id === aula.aluno_id) &&
+                                      <button type="button" className="mr-3 text-xs font-semibold underline"
+                                          onClick={() => iniciarRemarcacao(aula)}>Remarcar aula</button>}
                                   {!aula.pode_cancelar ? (
                                       <p className="text-[11px] font-medium text-rose-400">{textoR4("Prazo de 2h encerrado: cancelamento gratuito indisponível (taxa da aula aplicável). Contate a secretaria R4.")}</p>
                                   ) : pedindoConfirmacao ? (
@@ -2181,7 +2198,11 @@ export default function PaginaAgendamentoReforco() {
                                 className={`border rounded-2xl p-5 space-y-5 ${clsCard}`}
                             >
                               <div className="space-y-2">
-                                <label
+                                {remarcarId !== null && <p className="mb-2 text-sm" role="status">
+                                    Escolha o novo horário. A aula atual fica reservada até você confirmar.
+                                    <button type="button" className="ml-2 underline" onClick={() => { setRemarcarId(null); setSelecaoSlot(null); }}>Sair da remarcação</button>
+                                  </p>}
+                                  <label id="grade-portal"
                                     className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
                                 >
                                   <MapPin className="w-3.5 h-3.5 text-[#1496A1]" />{' ' + textoR4("1. Escolha a Unidade R4")}</label>

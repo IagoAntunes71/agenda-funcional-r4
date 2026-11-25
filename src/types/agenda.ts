@@ -1,14 +1,13 @@
 export interface Unidade {
     id: number;
     nome: string;
-    clin_care_id: string;
     ativa: boolean;
 }
 
 export interface Professor {
     id: number;
     nome: string;
-    clin_care_id: string | null;
+    grupo_professor: string | null;
     unidade_id: number;
     materias: string[];
     hora_inicio: string;
@@ -43,6 +42,5 @@ export interface Agendamento {
     serie_aluno: string;
     observacoes?: string;
     status: 'confirmado' | 'cancelado' | 'concluido';
-    sincronizado_clincare: boolean;
     criado_em: string;
 }

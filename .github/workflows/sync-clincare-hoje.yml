@@ -2,9 +2,9 @@ name: Sincronizar clin.care — Dia Atual (Rápido)
 
 on:
   workflow_dispatch:
-  schedule:
-    # A cada 30 min entre 07:00 e 22:00 (horário de Salvador/Bahia, UTC-3)
-    - cron: '*/30 10-23,0-1 * * *'
+#   schedule:
+#     # A cada 30 min entre 07:00 e 22:00 (horário de Salvador/Bahia, UTC-3)
+#     - cron: '*/30 10-23,0-1 * * *'
 
 concurrency:
   group: sync-clincare-hoje

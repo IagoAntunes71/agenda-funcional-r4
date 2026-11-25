@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, type Locator, type Page } from 'playwright';
 import { realizarLogin } from './login-clincare';
-import { FORMATO_ALUNOS_CLINCARE, inferirColegioClinCare, inferirSerieClinCare, padronizarColegioClinCare, validarAlunoClinCare, type AlunoClinCare as Aluno, type ResponsavelClinCare as Responsavel } from '../src/lib/importacao-alunos-clincare';
+import { FORMATO_ALUNOS_CLINCARE, inferirColegioClinCare, inferirSerieClinCare, padronizarColegioClinCare, validarAlunoClinCare, type AlunoClinCare as Aluno, type ResponsavelClinCare as Responsavel } from './importacao-alunos-clincare';
 
 dotenv.config({ path: '.env.local', quiet: true });
 

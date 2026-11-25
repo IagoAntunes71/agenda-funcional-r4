@@ -38,7 +38,6 @@ const nomesCampos: Record<string, string> = {
     professor_id: 'Professor', unidade_id: 'Unidade', aluno_id: 'Aluno', materia: 'Matéria',
     data: 'Data', hora_inicio: 'Início', hora_fim: 'Término', duracao_minutos: 'Duração',
     observacoes: 'Observações', feedback_professor: 'Feedback', status: 'Status',
-    lancado_clincare: 'Lançamento no ClinCare', clincare_reserva_status: 'Fila do ClinCare',
     notificado_whatsapp: 'Notificação por WhatsApp', excluido_em: 'Exclusão',
     aluno_nome: 'Nome do aluno', responsavel_nome: 'Responsável', aluno_telefone: 'Telefone',
     colegio_nome: 'Colégio', serie: 'Série',

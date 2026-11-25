@@ -104,7 +104,7 @@ export function intervalosSeSobrepoem(
 }
 
 export function obterSlotsDisponiveisProfessor(
-    bloqueiosClinCare: IntervaloOcupado[],
+    bloqueiosInternos: IntervaloOcupado[],
     agendamentosLocais: IntervaloOcupado[] = [],
     profConfig?: ConfiguracaoProfessorHorario
 ): { todosSlots: SlotAula[]; slotsDisponiveis: SlotAula[] } {
@@ -112,7 +112,7 @@ export function obterSlotsDisponiveisProfessor(
         ? gerarTodosSlotsProfessor(profConfig)
         : SLOTS_FIXOS_100_MIN;
 
-    const ocupados = [...bloqueiosClinCare, ...agendamentosLocais];
+    const ocupados = [...bloqueiosInternos, ...agendamentosLocais];
 
     const slotsDisponiveis = todosSlots.filter((slot) => {
         const temConflito = ocupados.some((bl) =>

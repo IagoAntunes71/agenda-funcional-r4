@@ -36,7 +36,6 @@ interface AgendamentoRecente {
     serie: string | null;
     observacoes: string | null;
     notificado_whatsapp: boolean;
-    lancado_clincare: boolean;
 }
 
 function tocarCampainhaAlerta() {
@@ -266,21 +265,6 @@ export default function AdminWhatsApp() {
         }
     }
 
-    async function handleMarcarClinCare(agendamentoId: number, lancado: boolean) {
-        const res = await fetch('/api/admin/whatsapp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                acao: 'marcarLancadoClinCare',
-                agendamentoId,
-                lancado,
-            }),
-        });
-        const json = await res.json();
-        if (res.ok) {
-            setRecentes(json.recentes || []);
-        }
-    }
 
     async function handleReenviar(agendamentoId: number) {
         setFeedback(null);
@@ -307,7 +291,6 @@ export default function AdminWhatsApp() {
         }
     }
 
-    const pendentesClinCare = recentes.filter((r) => !r.lancado_clincare).length;
 
     return (
         <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
@@ -316,10 +299,6 @@ export default function AdminWhatsApp() {
                     <h2 className="text-lg font-bold text-white">{textoR4("Avisos, Códigos OTP & Integração WhatsApp")}</h2>
                     <p className="text-xs text-slate-400">{textoR4("Configure o envio automático de confirmações, validação de cadastro e recuperação de PIN.")}</p>
                 </div>
-                {pendentesClinCare > 0 && (
-                    <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold">
-            {pendentesClinCare}{' ' + textoR4("aula(s) pendente(s) de lançar no Clin Care")}</span>
-                )}
             </div>
 
             {novoAvisoVisual && (
@@ -683,7 +662,7 @@ export default function AdminWhatsApp() {
             </form>
 
             <div className="space-y-3 pt-2 border-t border-slate-800">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">{textoR4("Últimos Agendamentos (Controle de Lançamento no Clin Care)")}</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">{textoR4("Últimos Agendamentos")}</h3>
 
                 {carregando ? (
                     <p className="text-xs text-slate-400">{textoR4("Carregando agendamentos...")}</p>
@@ -694,11 +673,7 @@ export default function AdminWhatsApp() {
                         {recentes.map((ag) => (
                             <div
                                 key={ag.id}
-                                className={`rounded-xl border p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
-                                    ag.lancado_clincare
-                                        ? 'bg-slate-950/60 border-slate-800/80 opacity-75'
-                                        : 'bg-slate-950 border-amber-500/40'
-                                }`}
+                                className="rounded-xl border border-slate-800 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-950"
                             >
                                 <div className="space-y-1 text-xs">
                                     <div className="flex flex-wrap items-center gap-2">
@@ -732,21 +707,6 @@ export default function AdminWhatsApp() {
                                         >{textoR4("Reenviar via API")}</button>
                                     )}
 
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            handleMarcarClinCare(ag.id, !ag.lancado_clincare)
-                                        }
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                                            ag.lancado_clincare
-                                                ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300'
-                                                : 'bg-amber-600 hover:bg-amber-500 text-white'
-                                        }`}
-                                    >
-                                        {ag.lancado_clincare
-                                            ? textoR4("✓ Lançado no Clin Care")
-                                            : textoR4("Marcar como lançado no Clin Care")}
-                                    </button>
                                 </div>
                             </div>
                         ))}

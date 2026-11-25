@@ -2,9 +2,9 @@ name: Sincronizar clin.care — Mês Completo (30 dias)
 
 on:
   workflow_dispatch:
-  schedule:
-    # Diariamente às 03:00 da madrugada (horário de Salvador/Bahia, UTC-3)
-    - cron: '0 6 * * *'
+#   schedule:
+#     # Diariamente às 03:00 da madrugada (horário de Salvador/Bahia, UTC-3)
+#     - cron: '0 6 * * *'
 
 concurrency:
   group: sync-clincare-mes

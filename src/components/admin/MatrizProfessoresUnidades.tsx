@@ -9,7 +9,6 @@ import {
     Loader2,
     RefreshCw,
     Search,
-    Sparkles,
     Users,
 } from 'lucide-react';
 import { TemaClasses } from './types';
@@ -21,7 +20,7 @@ interface UnidadeItem {
 
 interface ProfessorAgrupado {
     chave: string;
-    clin_care_id: string | null;
+    grupo_professor: string | null;
     nome: string;
     unidades_ids: number[];
     materias: string[];
@@ -50,7 +49,6 @@ export default function MatrizProfessoresUnidades({
         'ativos'
     );
     const [salvandoChave, setSalvandoChave] = useState<string | null>(null);
-    const [mesclando, setMesclando] = useState(false);
     const [feedback, setFeedback] = useState<{
         tipo: 'sucesso' | 'erro';
         texto: string;
@@ -131,29 +129,6 @@ export default function MatrizProfessoresUnidades({
         }
     }
 
-    async function handleMesclarDuplicados() {
-        setMesclando(true);
-        setFeedback(null);
-        try {
-            const res = await fetch('/api/admin/professores-unidades', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ acao: 'mesclarDuplicados' }),
-            });
-            const json = await res.json();
-            if (res.ok) {
-                setProfessores(json.professores || []);
-                setFeedback({
-                    tipo: 'sucesso',
-                    texto: 'Cadastros duplicados do mesmo professor foram unificados.',
-                });
-                if (onAlteradoAction) await onAlteradoAction();
-            }
-        } finally {
-            setMesclando(false);
-        }
-    }
-
     const professoresFiltrados = useMemo(() => {
         const termo = busca.trim().toLowerCase();
         return professores.filter((p) => {
@@ -195,17 +170,7 @@ export default function MatrizProfessoresUnidades({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => void handleMesclarDuplicados()}
-                        disabled={mesclando}
-                        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${clsSubCard} ${clsTitulo} hover:border-[#0E7C86]`}
-                    >
-                        {mesclando ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                        )}{textoR4("Unificar Duplicados")}</button>
+                    
 
                     <button
                         type="button"

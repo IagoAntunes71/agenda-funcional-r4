@@ -72,11 +72,11 @@ function obterHojeISO() {
 
 
 function correspondeProfessor(
-    item: { professor_id: number | null; professor_clin_care_id?: string | null },
+    item: { professor_id: number | null; professor_grupo_professor?: string | null },
     professor: ProfessorAdmin,
 ) {
     return item.professor_id === professor.id ||
-        Boolean(professor.clin_care_id && item.professor_clin_care_id === professor.clin_care_id);
+        Boolean(professor.grupo_professor && item.professor_grupo_professor === professor.grupo_professor);
 }
 
 function formatarDiaCurtoPT(dataISO: string): string {
@@ -350,7 +350,7 @@ export default function AbaMapaDia({
         const professoresDoProprioPerfil = ehProfessor && professorSemana
             ? professores.filter((p) => correspondeProfessor({
                 professor_id: professorSemana.id,
-                professor_clin_care_id: professorSemana.clin_care_id,
+                professor_grupo_professor: professorSemana.grupo_professor,
             }, p))
             : [];
         const dias = semana
@@ -924,10 +924,10 @@ export default function AbaMapaDia({
                                         <button type="button" key={bloqueio.id + '-' + inicio} className={styles.bloqueio} disabled={bloqueio.origem !== 'manual'}
                                             style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
                                                 left: `${faixa / totalFaixas * 100}%`, width: `${100 / totalFaixas}%` }}
-                                            title={`${bloqueio.origem === 'manual' ? formatarMotivoBloqueio(bloqueio.motivo) : 'Bloqueio Clin Care'} · ${minutosParaHora(inicio)}–${minutosParaHora(fim)}`}
+                                            title={`${bloqueio.origem === 'manual' ? formatarMotivoBloqueio(bloqueio.motivo) : 'Bloqueio de agenda'} · ${minutosParaHora(inicio)}–${minutosParaHora(fim)}`}
                                             onClick={() => abrirDetalhesBloqueio(bloqueio, prof.nome)}>
                                             <span><Ban />{minutosParaHora(inicio)}–{minutosParaHora(fim)}</span>
-                                            <strong>{bloqueio.origem === 'manual' ? formatarMotivoBloqueio(bloqueio.motivo) : 'Bloqueio Clin Care'}</strong>
+                                            <strong>{bloqueio.origem === 'manual' ? formatarMotivoBloqueio(bloqueio.motivo) : 'Bloqueio de agenda'}</strong>
                                         </button>
                                     ))}
                                     {aulasExibidas.map(({ aula, inicio, fim, faixa, totalFaixas }) => {

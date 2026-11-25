@@ -14,7 +14,6 @@ async function carregarPainelWhatsApp() {
     const config = await obterConfigWhatsApp();
 
     await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS notificado_whatsapp BOOLEAN DEFAULT false`;
-    await sql`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS lancado_clincare BOOLEAN DEFAULT false`;
 
     const recentes = await sql`
     SELECT
@@ -31,8 +30,7 @@ async function carregarPainelWhatsApp() {
       a.colegio_nome,
       a.serie,
       a.observacoes,
-      COALESCE(a.notificado_whatsapp, false) AS notificado_whatsapp,
-      COALESCE(a.lancado_clincare, false) AS lancado_clincare
+      COALESCE(a.notificado_whatsapp, false) AS notificado_whatsapp
     FROM agendamentos a
     LEFT JOIN unidades u ON u.id = a.unidade_id
     LEFT JOIN professores p ON p.id = a.professor_id
@@ -256,20 +254,6 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ sucesso: true, ...dados });
         }
 
-        if (acao === 'marcarLancadoClinCare') {
-            const agendamentoId = Number(body?.agendamentoId || 0);
-            const lancado = Boolean(body?.lancado);
-
-            await garantirHistoricoAgendamento();
-            await sql.transaction([
-                sql`SELECT set_config('r4.ator_agenda', ${sessao.nome}, true)`,
-                sql`UPDATE agendamentos SET lancado_clincare = ${lancado}
-                    WHERE id = ${agendamentoId} AND excluido_em IS NULL`,
-            ]);
-
-            const dados = await carregarPainelWhatsApp();
-            return NextResponse.json({ sucesso: true, ...dados });
-        }
 
         return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });
     } catch (error) {

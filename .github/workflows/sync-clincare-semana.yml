@@ -2,10 +2,10 @@ name: Sincronizar clin.care — Semana (7 dias)
 
 on:
   workflow_dispatch:
-  schedule:
-    # 08:00, 13:00 e 17:30 (horário de Salvador/Bahia, UTC-3)
-    - cron: '0 11,16 * * *'
-    - cron: '30 20 * * *'
+#   schedule:
+#     # 08:00, 13:00 e 17:30 (horário de Salvador/Bahia, UTC-3)
+#     - cron: '0 11,16 * * *'
+#     - cron: '30 20 * * *'
 
 concurrency:
   group: sync-clincare-semana

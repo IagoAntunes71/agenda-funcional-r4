@@ -29,7 +29,7 @@ export async function PATCH(req: NextRequest) {
                 SELECT al.id FROM alunos al JOIN agendamentos a ON a.aluno_id = al.id
                 JOIN professores p ON p.id = a.professor_id JOIN professores v ON v.id = ${sessao.professor_id}
                 WHERE al.id = ${Number(body?.id) || 0} AND a.status IN ('realizado','concluido')
-                    AND a.excluido_em IS NULL AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+                    AND a.excluido_em IS NULL AND (v.id = p.id OR nullif(v.grupo_professor,'') = nullif(p.grupo_professor,''))
                 LIMIT 1
             `;
             if (!aluno || acao === 'editar_responsavel') return NextResponse.json({ error: 'Aluno fora do seu acesso.' }, { status: 403 });
@@ -289,7 +289,7 @@ export async function DELETE(req: NextRequest) {
         const id = Number(searchParams.get('id') || 0);
 
         await prepararCadastroAlunoR4();
-        const [importado] = await sql`SELECT id FROM alunos WHERE clin_care_aluno_id IS NOT NULL
+        const [importado] = await sql`SELECT id FROM alunos WHERE contato_importado <> ''
             AND ((${responsavelId} > 0 AND responsavel_id = ${responsavelId}) OR (${id} > 0 AND id = ${id})) LIMIT 1`;
         if (importado) return NextResponse.json({
             error: 'Este cadastro está integrado à agenda. Use a opção de inativação na ficha do aluno.',

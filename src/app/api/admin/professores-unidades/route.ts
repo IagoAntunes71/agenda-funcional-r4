@@ -5,7 +5,7 @@ import { verificarAdminAutenticado } from '@/lib/admin-auth';
 interface ProfessorDbRow {
     id: number;
     nome: string;
-    clin_care_id: string | null;
+    grupo_professor: string | null;
     unidade_id: number;
     materias: string[] | null;
     materias_series: Record<string, string[]> | null;
@@ -18,58 +18,10 @@ interface ProfessorDbRow {
 }
 
 async function garantirEstruturaProfessores() {
-    await sql`
-        ALTER TABLE professores
-        DROP CONSTRAINT IF EXISTS professores_clin_care_id_key
-    `;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_fim TIME`;
     await sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS materias_series JSONB DEFAULT '{}'::jsonb`;
-}
-
-async function mesclarDuplicadosInterno() {
-    await garantirEstruturaProfessores();
-
-    await sql`
-        UPDATE agendamentos a
-        SET professor_id = keep.min_id
-        FROM professores p
-        JOIN (
-            SELECT clin_care_id, MIN(id) AS min_id
-            FROM professores
-            WHERE clin_care_id IS NOT NULL
-            GROUP BY clin_care_id
-        ) keep ON keep.clin_care_id = p.clin_care_id
-        WHERE a.professor_id = p.id
-          AND p.id <> keep.min_id
-    `;
-
-    await sql`
-        DELETE FROM bloqueios_clincare
-        WHERE professor_id IN (
-            SELECT p.id
-            FROM professores p
-            WHERE p.clin_care_id IS NOT NULL
-              AND p.id NOT IN (
-                  SELECT MIN(id)
-                  FROM professores
-                  WHERE clin_care_id IS NOT NULL
-                  GROUP BY clin_care_id
-              )
-        )
-    `;
-
-    await sql`
-        DELETE FROM professores
-        WHERE clin_care_id IS NOT NULL
-          AND id NOT IN (
-              SELECT MIN(id)
-              FROM professores
-              WHERE clin_care_id IS NOT NULL
-              GROUP BY clin_care_id
-          )
-    `;
 }
 
 async function carregarDadosAgrupados() {
@@ -84,7 +36,7 @@ async function carregarDadosAgrupados() {
         SELECT
             id,
             nome,
-            clin_care_id,
+            grupo_professor,
             unidade_id,
             materias,
             to_char(hora_inicio, 'HH24:MI') AS hora_inicio,
@@ -98,7 +50,7 @@ async function carregarDadosAgrupados() {
         string,
         {
             chave: string;
-            clin_care_id: string | null;
+            grupo_professor: string | null;
             nome: string;
             unidades_ids: number[];
             materias: string[];
@@ -110,15 +62,15 @@ async function carregarDadosAgrupados() {
     >();
 
     for (const r of rows) {
-        const chave = r.clin_care_id
-            ? `cc:${r.clin_care_id}`
+        const chave = r.grupo_professor
+            ? `grupo:${r.grupo_professor}`
             : `nm:${r.nome.trim().toLowerCase()}`;
 
         const atual = mapa.get(chave);
         if (!atual) {
             mapa.set(chave, {
                 chave,
-                clin_care_id: r.clin_care_id,
+                grupo_professor: r.grupo_professor,
                 nome: r.nome,
                 unidades_ids: [r.unidade_id],
                 materias: Array.isArray(r.materias) ? r.materias : [],
@@ -174,12 +126,6 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const acao = String(body?.acao || '');
 
-        if (acao === 'mesclarDuplicados') {
-            await mesclarDuplicadosInterno();
-            const dados = await carregarDadosAgrupados();
-            return NextResponse.json({ sucesso: true, ...dados });
-        }
-
         if (acao === 'atualizarUnidades') {
             const registrosIds: number[] = Array.isArray(body?.registrosIds)
                 ? body.registrosIds.map(Number).filter(Boolean)
@@ -196,11 +142,11 @@ export async function POST(req: NextRequest) {
             }
 
             const iniciais = (await sql`
-                SELECT id, clin_care_id
+                SELECT id, grupo_professor
                 FROM professores
                 WHERE id = ANY(${registrosIds}::int[])
                 ORDER BY id ASC
-            `) as { id: number; clin_care_id: string | null }[];
+            `) as { id: number; grupo_professor: string | null }[];
 
             if (iniciais.length === 0) {
                 return NextResponse.json(
@@ -209,15 +155,15 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            const clinCareId = iniciais.find((r) => r.clin_care_id)?.clin_care_id || null;
+            const grupoProfessor = iniciais.find((r) => r.grupo_professor)?.grupo_professor || null;
 
             const baseRows = (
-                clinCareId
+                grupoProfessor
                     ? await sql`
                         SELECT
                             id,
                             nome,
-                            clin_care_id,
+                            grupo_professor,
                             unidade_id,
                             materias,
                             materias_series,
@@ -229,14 +175,14 @@ export async function POST(req: NextRequest) {
                             ativo
                         FROM professores
                         WHERE id = ANY(${registrosIds}::int[])
-                           OR clin_care_id = ${clinCareId}
+                           OR grupo_professor = ${grupoProfessor}
                         ORDER BY id ASC
                     `
                     : await sql`
                         SELECT
                             id,
                             nome,
-                            clin_care_id,
+                            grupo_professor,
                             unidade_id,
                             materias,
                             materias_series,
@@ -295,7 +241,7 @@ export async function POST(req: NextRequest) {
                     WHERE professor_id = ANY(${idsParaExcluir}::int[])
                 `;
                 await sql`
-                    DELETE FROM bloqueios_clincare
+                    DELETE FROM r4_bloqueios_agenda
                     WHERE professor_id = ANY(${idsParaExcluir}::int[])
                 `;
                 await sql`
@@ -323,7 +269,7 @@ export async function POST(req: NextRequest) {
                 await sql`
                     INSERT INTO professores (
                         nome,
-                        clin_care_id,
+                        grupo_professor,
                         unidade_id,
                         materias,
                         materias_series,
@@ -336,7 +282,7 @@ export async function POST(req: NextRequest) {
                     )
                     VALUES (
                         ${modelo.nome},
-                        ${modelo.clin_care_id},
+                        ${modelo.grupo_professor},
                         ${novaUnidadeId},
                         ${materiasModelo}::text[],
                         ${materiasSeriesJson}::jsonb,

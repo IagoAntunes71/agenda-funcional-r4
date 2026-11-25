@@ -5,7 +5,7 @@ export async function GET() {
     try {
         const [unidades, professores, datasLiberadas] = await Promise.all([
             sql`
-        SELECT id, nome, clin_care_id, ativa
+        SELECT id, nome, ativa
         FROM unidades
         WHERE ativa = true
         ORDER BY nome ASC
@@ -14,7 +14,6 @@ export async function GET() {
         SELECT
           id,
           nome,
-          clin_care_id,
           unidade_id,
           materias,
           to_char(hora_inicio, 'HH24:MI') AS hora_inicio,

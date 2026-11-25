@@ -11,14 +11,13 @@ import { MapaMateriasSeries } from '@/lib/cliente-helpers';
 export interface UnidadeAdmin {
     id: number;
     nome: string;
-    clin_care_id: string;
     ativa: boolean;
 }
 
 export interface ProfessorAdmin {
     id: number;
     nome: string;
-    clin_care_id: string | null;
+    grupo_professor: string | null;
     unidade_id: number;
     unidade_nome: string;
     materias: string[];
@@ -72,7 +71,7 @@ export interface AgendamentoAdmin {
     unidade_nome: string;
     professor_id: number;
     professor_nome: string;
-    professor_clin_care_id?: string | null;
+    professor_grupo_professor?: string | null;
     materia: string;
     data: string;
     hora_inicio: string;
@@ -90,17 +89,14 @@ export interface AgendamentoAdmin {
     criado_por_nome?: string | null;
     origem?: string;
     status: StatusAulaR4 | 'concluido';
-    sincronizado_clincare: boolean;
     criado_em_formatado: string;
-    clincare_reserva_status?: string;
-    clincare_reserva_erro?: string | null;
 }
 
 export interface BloqueioAdmin {
     id: number;
     professor_id: number | null;
     unidade_id?: number | null;
-    professor_clin_care_id: string | null;
+    professor_grupo_professor: string | null;
     data: string;
     hora_inicio: string;
     hora_fim: string;
@@ -110,11 +106,6 @@ export interface BloqueioAdmin {
     criado_por_nome?: string | null;
 }
 
-export interface CooldownsSync {
-    hoje: string | null;
-    semana: string | null;
-    mes: string | null;
-}
 
 export interface PerfilAdmin {
     id: number;

@@ -40,13 +40,13 @@ export async function GET(req: NextRequest) {
                     FROM agendamentos a JOIN professores p ON p.id = a.professor_id
                     WHERE a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
                       AND a.data >= ${inicio}::date AND a.data < ${inicio}::date + interval '1 month' AND a.data <= ${hoje}::date
-                      AND coalesce(nullif(p.clin_care_id, ''), 'r4-' || p.id::text) = ${chaveMeta}
+                      AND coalesce(nullif(p.grupo_professor, ''), 'r4-' || p.id::text) = ${chaveMeta}
                     ORDER BY a.data DESC, a.id DESC
                 `;
                 return NextResponse.json({ aulas }, { headers: { 'Cache-Control': 'private, no-store' } });
             }
             const metas = await sql`
-                SELECT coalesce(nullif(p.clin_care_id, ''), 'r4-' || p.id::text) AS chave,
+                SELECT coalesce(nullif(p.grupo_professor, ''), 'r4-' || p.id::text) AS chave,
                     min(p.nome) AS professor, count(*)::int AS total,
                     count(*) FILTER (WHERE nullif(trim(a.feedback_professor), '') IS NOT NULL)::int AS feitos,
                     count(*) FILTER (WHERE nullif(trim(a.feedback_professor), '') IS NULL
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
                 WHERE a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
                   AND a.data >= ${inicio}::date AND a.data < ${inicio}::date + interval '1 month' AND a.data <= ${hoje}::date
                   AND (NOT ${soProprio} OR EXISTS (SELECT 1 FROM professores v WHERE v.id = ${sessao.professor_id}
-                    AND (v.id = p.id OR nullif(v.clin_care_id, '') = nullif(p.clin_care_id, ''))))
+                    AND (v.id = p.id OR nullif(v.grupo_professor, '') = nullif(p.grupo_professor, ''))))
                 GROUP BY 1 ORDER BY min(p.nome)
             `;
             return NextResponse.json({ metas });
@@ -126,13 +126,13 @@ export async function GET(req: NextRequest) {
                 JOIN professores v ON v.id = ${sessao.professor_id}
                 WHERE anterior.aluno_id = a.aluno_id AND anterior.excluido_em IS NULL
                   AND anterior.status IN ('realizado', 'concluido')
-                  AND (v.id = p2.id OR nullif(v.clin_care_id,'') = nullif(p2.clin_care_id,''))
+                  AND (v.id = p2.id OR nullif(v.grupo_professor,'') = nullif(p2.grupo_professor,''))
               ) OR (${sessao.role === 'professor'} AND a.aluno_id IS NULL AND EXISTS (
                 SELECT 1 FROM professores v WHERE v.id = ${sessao.professor_id}
-                AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+                AND (v.id = p.id OR nullif(v.grupo_professor,'') = nullif(p.grupo_professor,''))
               )))
               AND (NOT ${soProprio} OR EXISTS (SELECT 1 FROM professores v WHERE v.id = ${sessao.professor_id}
-                AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))))
+                AND (v.id = p.id OR nullif(v.grupo_professor,'') = nullif(p.grupo_professor,''))))
             ), financeiro AS (
                 SELECT *,
                     CASE WHEN (previsao OR status IN ('realizado','concluido','desmarcado_com_cobranca'))
@@ -190,8 +190,8 @@ export async function GET(req: NextRequest) {
         const bloqueios = recepcao && params.get('bloqueios') === '1' && limite === 51 && !deslocamento ? await sql`
             SELECT DISTINCT b.data::text AS data, b.hora_inicio::text AS inicio, b.hora_fim::text AS fim,
                 p.nome AS professor, u.nome AS unidade,
-                CASE WHEN to_jsonb(b)->>'origem' = 'manual' THEN b.motivo ELSE 'Bloqueio Clin Care' END AS motivo
-            FROM bloqueios_clincare b JOIN professores p ON p.id = b.professor_id JOIN unidades u ON u.id = p.unidade_id
+                b.motivo AS motivo
+            FROM r4_bloqueios_agenda b JOIN professores p ON p.id = b.professor_id JOIN unidades u ON u.id = p.unidade_id
             WHERE b.data BETWEEN coalesce(nullif(${de},'')::date, ${inicio}::date)
                 AND coalesce(nullif(${ate},'')::date, (${inicio}::date + interval '1 month - 1 day')::date)
                 AND (${unidade} = 0 OR p.unidade_id = ${unidade})
@@ -245,7 +245,7 @@ export async function PATCH(req: Request) {
                 SELECT 1 FROM agendamentos a JOIN professores p ON p.id = a.professor_id
                 JOIN professores v ON v.id = ${sessao.professor_id}
                 WHERE a.aluno_id = al.id AND a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
-                    AND (v.id = p.id OR nullif(v.clin_care_id,'') = nullif(p.clin_care_id,''))
+                    AND (v.id = p.id OR nullif(v.grupo_professor,'') = nullif(p.grupo_professor,''))
             ))
         `;
         if (!acesso) return erro('Aluno não disponível para seu perfil.', 404);

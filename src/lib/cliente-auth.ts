@@ -1,3 +1,4 @@
+import { garantirHistoricoAgendamento } from './agendamento-historico';
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db';
@@ -632,6 +633,7 @@ export async function buscarFamiliaPorTelefone(telefoneBruto: string): Promise<{
 
     const resp = respRows[0] || null;
 
+    await garantirHistoricoAgendamento();
     const registros = (await sql`
     SELECT
       al.id,
@@ -646,15 +648,18 @@ export async function buscarFamiliaPorTelefone(telefoneBruto: string): Promise<{
       (
         SELECT COUNT(*)::int
         FROM agendamentos ag
-        WHERE ag.status = 'confirmado'
-          AND ag.data >= (now() AT TIME ZONE 'America/Bahia')::date
+        WHERE coalesce(ag.status, 'confirmado') IN ('agendado','confirmado')
+          AND ag.excluido_em IS NULL
+          AND ((ag.data + coalesce(ag.hora_inicio, ag.horario, '14:10'::time))
+            AT TIME ZONE 'America/Bahia') > now()
           AND (
             ag.aluno_id = al.id
-            OR regexp_replace(
-              regexp_replace(COALESCE(ag.aluno_telefone, ag.whatsapp_responsavel, ''), '\D', '', 'g'),
-              '^55(?=\d{10,11}$)',
-              ''
-            ) = ANY(${variantes}::text[])
+            OR (ag.aluno_id IS NULL
+              AND lower(trim(coalesce(ag.aluno_nome, ag.nome_aluno, ''))) = lower(trim(al.nome_aluno))
+              AND regexp_replace(
+                regexp_replace(COALESCE(ag.aluno_telefone, ag.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
+                '^55(?=[0-9]{10,11}$)', ''
+              ) = ANY(${variantes}::text[]))
           )
       ) AS agendamentos_futuros
     FROM alunos al
