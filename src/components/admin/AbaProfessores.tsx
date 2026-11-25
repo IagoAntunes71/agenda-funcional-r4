@@ -407,7 +407,7 @@ export default function AbaProfessores({ unidades, professores, agendamentos, es
     const [pendente, setPendente] = useState(false);
     const [busca, setBusca] = useState('');
     const [unidade, setUnidade] = useState('todas');
-    const [status, setStatus] = useState('todos');
+    const [status, setStatus] = useState('ativos');
     const [mensagem, setMensagem] = useState<{ erro: boolean; texto: string }>();
     const unidadesAtivas = unidades.filter((u) => u.ativa !== false);
     const grupos = useMemo(() => {

@@ -74,7 +74,7 @@ export default function ModalNovoAgendamentoR4({
     const [duracaoHoras, setDuracaoHoras] = useState<number>(1);
     const [duracaoMinutos, setDuracaoMinutos] = useState<number>(40);
     const [recorrencia, setRecorrencia] = useState<number>(1);
-    const [statusInicial, setStatusInicial] = useState<'agendado' | 'confirmado'>('confirmado');
+    const [statusInicial, setStatusInicial] = useState<'agendado' | 'confirmado'>('agendado');
     const [observacoes, setObservacoes] = useState<string>('');
 
     const [buscaAluno, setBuscaAluno] = useState<string>('');
@@ -444,7 +444,7 @@ export default function ModalNovoAgendamentoR4({
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Matéria / Serviço *")}</label>
+                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Matéria")}</label>
                                     <select
                                         required
                                         value={materia}

@@ -1176,7 +1176,7 @@ export default function PainelAdmin({
                                 : 'max-w-[1440px]'
                         } mx-auto flex flex-wrap items-center justify-between gap-4`}
                     >
-                        <div className="flex items-center gap-3 sm:gap-6">
+                        <div className="flex items-center gap-3 sm:gap-5">
                             {inicio && <button
                                 type="button"
                                 onClick={() => setMenuMobileAberto(true)}
