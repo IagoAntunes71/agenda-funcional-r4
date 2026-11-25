@@ -898,88 +898,15 @@ export default function PainelAdmin({
     }
 
     function renderItemMenu(item: (typeof itensVisiveis)[number], recolhida: boolean) {
-        const ativo = aba === item.id;
-        if (recolhida) {
-            return (
-                <Link
-                    key={item.id}
-                    href={enderecoAdmin(item.id)}
-                    aria-current={ativo ? 'page' : undefined}
-                    title={textoR4(item.rotulo)}
-                    className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer ${
-                        ativo
-                            ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
-                            : escuro
-                                ? 'text-stone-400 hover:bg-[#181E26] hover:text-white'
-                                : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
-                    }`}
-                >
-                    {item.icone}
-                </Link>
-            );
-        }
-
-        return (
-            <Link
-                key={item.id}
-                href={enderecoAdmin(item.id)}
-                    aria-current={ativo ? 'page' : undefined}
-                onClick={() => setMenuMobileAberto(false)}
-                className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl transition cursor-pointer group ${
-                    ativo
-                        ? escuro
-                            ? 'bg-[#0E7C86]/20 text-white border border-[#0E7C86]/50'
-                            : 'bg-[#0E7C86]/15 text-[#094D54] border border-[#0E7C86]/40 font-bold'
-                        : escuro
-                            ? 'text-stone-400 hover:bg-[#181E26] hover:text-stone-100 border border-transparent'
-                            : 'text-slate-700 hover:bg-slate-200/75 hover:text-slate-950 border border-transparent'
-                }`}
-            >
-                <div className="flex items-center gap-2.5 min-w-0">
-                    <span
-                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition ${
-                            ativo
-                                ? 'r4-acao shadow-sm shadow-[#0E7C86]/40'
-                                : escuro
-                                    ? 'bg-[#251b19] text-stone-400 group-hover:text-white border border-[#513932]'
-                                    : 'bg-slate-200/90 text-slate-700 group-hover:text-[#0E7C86] border border-slate-300'
-                        }`}
-                    >
-                        {item.icone}
-                    </span>
-                    <div className="text-left truncate">
-                        <p className="text-xs font-bold leading-tight truncate">
-                            {textoR4(item.rotulo)}
-                        </p>
-                        <p
-                            className={`text-[10px] truncate ${
-                                ativo
-                                    ? escuro
-                                        ? 'text-[#39B8C4]'
-                                        : 'text-[#0B5C63] font-semibold'
-                                    : clsSubtexto
-                            }`}
-                        >
-                            {textoR4(item.subtitulo)}
-                        </p>
-                    </div>
-                </div>
-
-                {typeof item.badge === 'number' && (
-                    <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                            ativo
-                                ? 'r4-acao'
-                                : escuro
-                                    ? 'bg-[#251b19] text-stone-300 border border-[#513932]'
-                                    : 'bg-slate-200 text-slate-800 border border-slate-300'
-                        }`}
-                    >
-                        {item.badge}
-                    </span>
-                )}
-            </Link>
-        );
+        return <Link key={item.id} href={enderecoAdmin(item.id)} aria-current={aba === item.id ? 'page' : undefined}
+            title={recolhida ? textoR4(item.rotulo) : undefined} onClick={() => setMenuMobileAberto(false)}
+            className="r4-sidebar-item" data-recolhido={recolhida}>
+            <span className="r4-sidebar-icone">{item.icone}</span>
+            {!recolhida && <>
+                <span className="r4-sidebar-rotulo"><strong>{textoR4(item.rotulo)}</strong><small>{textoR4(item.subtitulo)}</small></span>
+                {typeof item.badge === 'number' && <span className="r4-sidebar-contagem">{item.badge}</span>}
+            </>}
+        </Link>;
     }
 
     function renderConteudoSidebar(recolhida = false) {
@@ -990,7 +917,7 @@ export default function PainelAdmin({
                 }`}
             >
                 <div className={recolhida ? 'space-y-4 w-full flex flex-col items-center' : 'space-y-6'}>
-                    <div className="flex items-center justify-between w-full">
+                    <div className="r4-sidebar-marca flex items-center justify-between w-full">
                         {recolhida ? (
                             <button
                                 type="button"
@@ -1002,7 +929,7 @@ export default function PainelAdmin({
                             >{textoR4("R4")}</button>
                         ) : (
                             <Link href="/admin" aria-label={textoR4("Voltar ao painel R4")}>
-                                <LogoR4 temaEscuro={escuro} subtitulo={textoR4("Painel Administrativo")} />
+                                <LogoR4 temaEscuro subtitulo={textoR4("Painel Administrativo")} />
                             </Link>
                         )}
                         <button
@@ -1035,7 +962,7 @@ export default function PainelAdmin({
                             )}
                         </button>
                     ) : (
-                        <div className={`border rounded-2xl p-3 space-y-2.5 ${clsSubCard}`}>
+                        <div className={`r4-sidebar-perfil border rounded-xl p-3 space-y-2.5 ${clsSubCard}`}>
                             <div className="flex items-center gap-3">
                                 <button
                                     type="button"
@@ -1175,7 +1102,7 @@ export default function PainelAdmin({
     }
 
     return (
-        <div className="r4-admin min-h-screen flex transition-colors" data-tema={escuro ? 'escuro' : 'claro'} style={variaveisCoresR4(paleta[tema])}>
+        <div className="r4-admin min-h-screen flex transition-colors" data-tema={escuro ? 'escuro' : 'claro'} data-visao-geral={inicio || undefined} style={variaveisCoresR4(paleta[tema])}>
             <input
                 ref={inputFotoRapidaRef}
                 type="file"

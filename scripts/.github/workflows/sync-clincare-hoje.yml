@@ -1,0 +1,52 @@
+name: Sincronizar clin.care — Dia Atual (Rápido)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # A cada 30 min entre 07:00 e 22:00 (horário de Salvador/Bahia, UTC-3)
+    - cron: '*/30 10-23,0-1 * * *'
+
+concurrency:
+  group: sync-clincare-hoje
+  cancel-in-progress: true
+
+jobs:
+  sincronizar-hoje:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Cache do navegador Playwright
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Instalar dependências
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Instalar Chromium (somente se não estiver em cache)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Instalar libs de sistema do Chromium (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Executar sincronização do dia atual e amanhã
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CLINCARE_URL: ${{ secrets.CLINCARE_URL }}
+          CLINCARE_EMAIL: ${{ secrets.CLINCARE_EMAIL }}
+          CLINCARE_PASSWORD: ${{ secrets.CLINCARE_PASSWORD }}
+          SYNC_MODO: hoje
+        run: npx tsx scripts/sincronizar-clincare.ts --modo=hoje

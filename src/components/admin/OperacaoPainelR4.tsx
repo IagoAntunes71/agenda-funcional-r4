@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useLayoutR4 } from './EditorLayoutR4';
 import MetaFeedbackR4 from './MetaFeedbackR4';
+import MetaFeedbackDashboardR4 from './MetaFeedbackDashboardR4';
 import Link from 'next/link';
 import { CORES_STATUS_R4, OPERACAO_PADRAO, PERMISSOES_R4, podeOperacao, type OperacaoR4, type PermissaoR4, type PerfilOperacao } from '@/lib/operacao-r4';
 import { LISTA_STATUS_AULA_R4, obterMetaStatusR4 } from '@/lib/agenda-status-r4';
@@ -185,11 +186,12 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
         {!atual && <p role="status">Carregando…</p>}
         {atual?.erro && <p role="alert">{atual.erro} <button type="button" className="underline" onClick={() => setAtualizar((v) => v + 1)}>Tentar novamente</button></p>}
         {atual?.metas?.length === 0 && <p>Nenhuma aula realizada neste mês.</p>}
-        {atual?.metas && <div className={compacto ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3" : "grid gap-4"}>
-        {atual.metas.slice(0, compacto ? 3 : undefined).map((meta) => (
-            <MetaFeedbackR4 key={meta.chave} professor={meta.professor} feitos={meta.feitos} total={meta.total} vencidos={meta.vencidos} compacto={compacto}
-                itemLayout={compacto ? editorLayout?.item('meta_' + encodeURIComponent(meta.chave), 'metas', meta.professor) : undefined} />
-        ))}
+        {atual?.metas && <div className={compacto ? "grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3" : "grid gap-4"}>
+        {atual.metas.slice(0, compacto ? 3 : undefined).map((meta) => compacto && perfil === 'admin' ? (
+            <MetaFeedbackDashboardR4 key={meta.chave + ':' + mes} {...meta} mes={mes}
+                itemLayout={editorLayout?.item('meta_' + encodeURIComponent(meta.chave), 'metas', meta.professor)} />
+        ) : <MetaFeedbackR4 key={meta.chave} professor={meta.professor} feitos={meta.feitos} total={meta.total}
+            vencidos={meta.vencidos} compacto={compacto} />)}
         </div>}
         {compacto && <Link href="/admin/metas" className="underline text-sm">Abrir metas de feedback</Link>}
         {financeiro && atual?.somas && <div className={`${caixa} grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm`}>

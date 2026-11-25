@@ -253,22 +253,28 @@ export async function GET(req: NextRequest) {
             sql`
                 WITH semana AS (
                     SELECT date_trunc('week', now() AT TIME ZONE 'America/Bahia')::date AS inicio
+                ), dias AS (
+                    SELECT s.inicio, s.inicio + d.numero AS data,
+                        count(a.id)::int AS total,
+                        count(*) FILTER (WHERE a.id IS NOT NULL AND coalesce(a.status, 'confirmado') IN ('agendado', 'confirmado'))::int AS marcadas,
+                        count(*) FILTER (WHERE a.status IN ('realizado', 'concluido'))::int AS realizadas,
+                        count(*) FILTER (WHERE a.status IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca'))::int AS desmarcadas
+                    FROM semana s CROSS JOIN generate_series(0, 6) AS d(numero)
+                    LEFT JOIN agendamentos a ON a.data = s.inicio + d.numero AND a.excluido_em IS NULL
+                        AND (${sessao.role !== 'professor'} OR EXISTS (
+                            SELECT 1 FROM professores vinculado
+                            JOIN professores destino ON destino.id = a.professor_id
+                            WHERE vinculado.id = ${sessao.professor_id}
+                                AND (vinculado.id = destino.id OR vinculado.clin_care_id = destino.clin_care_id)
+                        ))
+                    GROUP BY s.inicio, d.numero
                 )
-                SELECT to_char(s.inicio, 'YYYY-MM-DD') AS inicio,
-                    to_char(s.inicio + 6, 'YYYY-MM-DD') AS fim,
-                    count(a.id)::int AS total,
-                    count(*) FILTER (WHERE a.id IS NOT NULL AND coalesce(a.status, 'confirmado') IN ('agendado', 'confirmado'))::int AS marcadas,
-                    count(*) FILTER (WHERE a.status IN ('realizado', 'concluido'))::int AS realizadas,
-                    count(*) FILTER (WHERE a.status IN ('cancelado', 'desmarcado_com_cobranca', 'desmarcado_sem_cobranca'))::int AS desmarcadas
-                FROM semana s
-                LEFT JOIN agendamentos a ON a.data BETWEEN s.inicio AND s.inicio + 6 AND a.excluido_em IS NULL
-                    AND (${sessao.role !== 'professor'} OR EXISTS (
-                        SELECT 1 FROM professores vinculado
-                        JOIN professores destino ON destino.id = a.professor_id
-                        WHERE vinculado.id = ${sessao.professor_id}
-                            AND (vinculado.id = destino.id OR vinculado.clin_care_id = destino.clin_care_id)
-                    ))
-                GROUP BY s.inicio
+                SELECT to_char(inicio, 'YYYY-MM-DD') AS inicio, to_char(inicio + 6, 'YYYY-MM-DD') AS fim,
+                    sum(total)::int AS total, sum(marcadas)::int AS marcadas, sum(realizadas)::int AS realizadas,
+                    sum(desmarcadas)::int AS desmarcadas,
+                    jsonb_agg(jsonb_build_object('data', to_char(data, 'YYYY-MM-DD'), 'total', total, 'marcadas', marcadas,
+                        'realizadas', realizadas, 'desmarcadas', desmarcadas) ORDER BY data) AS dias
+                FROM dias GROUP BY inicio
             `,
         ]);
 

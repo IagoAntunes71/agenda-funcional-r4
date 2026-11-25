@@ -28,6 +28,23 @@ export async function GET(req: NextRequest) {
             (painel === 'alunos' && !podeOperacao(cfg, sessao.role, 'outrasAgendas'));
         await garantirHistoricoAgendamento();
         if (painel === 'metas') {
+            const chaveMeta = req.nextUrl.searchParams.get('chaveMeta');
+            if (chaveMeta !== null) {
+                if (sessao.role !== 'admin') return erro('Não autorizado.', 403);
+                if (!chaveMeta || chaveMeta.length > 160) return erro('Professor inválido.', 400);
+                const aulas = await sql`
+                    SELECT a.id, to_char(a.data, 'YYYY-MM-DD') AS data,
+                        coalesce(nullif(a.aluno_nome,''), a.nome_aluno, 'Aluno') AS aluno,
+                        a.materia, nullif(trim(a.feedback_professor), '') AS feedback,
+                        (${cfg.prazoFeedback}::int IS NOT NULL AND ${hoje}::date > a.data + ${cfg.prazoFeedback}::int) AS vencido
+                    FROM agendamentos a JOIN professores p ON p.id = a.professor_id
+                    WHERE a.excluido_em IS NULL AND a.status IN ('realizado','concluido')
+                      AND a.data >= ${inicio}::date AND a.data < ${inicio}::date + interval '1 month' AND a.data <= ${hoje}::date
+                      AND coalesce(nullif(p.clin_care_id, ''), 'r4-' || p.id::text) = ${chaveMeta}
+                    ORDER BY a.data DESC, a.id DESC
+                `;
+                return NextResponse.json({ aulas }, { headers: { 'Cache-Control': 'private, no-store' } });
+            }
             const metas = await sql`
                 SELECT coalesce(nullif(p.clin_care_id, ''), 'r4-' || p.id::text) AS chave,
                     min(p.nome) AS professor, count(*)::int AS total,

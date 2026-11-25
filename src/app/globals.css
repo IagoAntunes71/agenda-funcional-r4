@@ -94,3 +94,35 @@ body {
   outline-offset: 3px;
 }
 .r4-admin-topo { box-shadow: none; }
+
+.r4-admin[data-visao-geral][data-tema='claro'] { background: #f4f6f9; }
+.r4-admin[data-visao-geral][data-tema='claro'] .r4-admin-topo { background: #fff; border-color: #e0e6ef; }
+.r4-admin[data-visao-geral] .r4-admin-sidebar {
+  --r4-leitura: #e7edf7;
+  --r4-painel: #182c49;
+  --r4-base: #0b1e3b;
+  --r4-borda: #2c4160;
+  --r4-principal: #51e0d5;
+  color: #e7edf7;
+  background: #0b1e3b;
+  border-color: #203653;
+}
+.r4-admin[data-visao-geral][data-tema='escuro'] .r4-admin-sidebar { background: #0f172a; }
+.r4-sidebar-marca { padding-block: 5px 9px; border-bottom: 1px solid #ffffff20; }
+.r4-sidebar-perfil { background: #ffffff08; border-color: #ffffff20; }
+.r4-sidebar-perfil .r4-subtexto { color: #c1cde0; }
+.r4-sidebar-item {
+  display: flex; align-items: center; gap: 9px; padding: 6px 8px; min-height: 36px; border-radius: 8px;
+  color: #d1ddef; border: 1px solid transparent; transition: background .16s ease,border-color .16s ease,color .16s ease;
+}
+.r4-sidebar-item[data-recolhido='true'] { width: 39px; justify-content: center; padding: 5px; margin-inline: auto; }
+.r4-sidebar-item:hover,.r4-sidebar-item[aria-current='page'] { color: #fff; background: #51e0d519; border-color: #51e0d544; }
+.r4-sidebar-icone { display: grid; place-items: center; width: 23px; flex: none; color: #a1b3ce; }
+.r4-sidebar-item:hover .r4-sidebar-icone,.r4-sidebar-item[aria-current='page'] .r4-sidebar-icone { color: #51e0d5; }
+.r4-sidebar-rotulo { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.r4-sidebar-rotulo strong,.r4-sidebar-rotulo small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r4-sidebar-rotulo strong { font-size: 12px; font-weight: 680; }
+.r4-sidebar-rotulo small { font-size: 10px; color: #aabbd3; }
+.r4-sidebar-contagem { color: #c2e7e7; padding: 1px 5px; border-radius: 5px; background: #ffffff12; font-size: 10px; }
+.r4-admin[data-visao-geral] .r4-admin-sidebar :is(a[title]:not(.r4-sidebar-item),button[title]) { color: #d8e5f5; }
+.r4-admin[data-visao-geral] .r4-admin-sidebar :is(a[title]:not(.r4-sidebar-item),button[title]):hover { background-color: #51e0d519; }

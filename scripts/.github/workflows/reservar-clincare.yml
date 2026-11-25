@@ -1,0 +1,51 @@
+name: Reservar Horário clin.care (RESERVADO APP)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: reservar-clincare-fila
+  cancel-in-progress: false
+
+jobs:
+  reservar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Cache do navegador Playwright
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Instalar dependências
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Instalar Chromium (somente se não estiver em cache)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Instalar libs de sistema do Chromium (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Processar fila de reservas no clin.care
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CLINCARE_URL: ${{ secrets.CLINCARE_URL }}
+          CLINCARE_EMAIL: ${{ secrets.CLINCARE_EMAIL }}
+          CLINCARE_PASSWORD: ${{ secrets.CLINCARE_PASSWORD }}
+          CLINCARE_SERVICO_PADRAO: ${{ secrets.CLINCARE_SERVICO_PADRAO }}
+          CLINCARE_SALA_PADRAO: ${{ secrets.CLINCARE_SALA_PADRAO }}
+          SYNC_MODO: reservas
+        run: npx tsx scripts/sincronizar-clincare.ts --modo=reservas
