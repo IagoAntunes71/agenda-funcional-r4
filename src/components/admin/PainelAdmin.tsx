@@ -146,7 +146,7 @@ export default function PainelAdmin({
     const inicio = aba === 'inicio';
     const mapa = aba === 'mapa';
     const admin = perfilAtual.role === 'admin';
-    const editorLayout = useEditorLayoutR4(autenticado && inicio && perfilAtual.role !== 'professor', admin);
+    const editorLayout = useEditorLayoutR4(autenticado && inicio && perfilAtual.role !== 'professor', admin, tema);
     const professor = perfilAtual.role === 'professor';
     const mesConsulta = professor ? mesProfessor : '';
     const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
@@ -210,6 +210,11 @@ export default function PainelAdmin({
     }, []);
 
     function alternarTema() {
+        if (editorLayout.ocupado) return;
+        if (editorLayout.ativo) {
+            if (!window.confirm('Trocar de tema e descartar as alterações ainda não salvas?')) return;
+            editorLayout.fechar();
+        }
         setTema((prev) => {
             const proximo = prev === 'escuro' ? 'claro' : 'escuro';
             window.localStorage.setItem('r4_admin_tema', proximo);

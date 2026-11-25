@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { garantirTabelaAdmins, lerSessaoAdmin } from '@/lib/admin-auth';
 import { sql } from '@/lib/db';
-import { PAGINA_LAYOUT_ADMIN, validarLayoutAdmin } from '@/lib/layout-admin';
+import { adaptarLayoutAnterior, PAGINA_LAYOUT_ADMIN, temaLayoutValido, validarLayoutAdmin } from '@/lib/layout-admin';
 
 let preparo: Promise<unknown> | undefined;
 
@@ -20,10 +20,17 @@ export async function GET(req: NextRequest) {
     if (req.nextUrl.searchParams.get('pagina') !== PAGINA_LAYOUT_ADMIN) {
         return NextResponse.json({ error: 'Página inválida.' }, { status: 400 });
     }
+    const tema = req.nextUrl.searchParams.get('tema') ?? 'claro';
+    if (!temaLayoutValido(tema)) return NextResponse.json({ error: 'Tema inválido.' }, { status: 400 });
+    const chave = PAGINA_LAYOUT_ADMIN + ':' + tema;
     try {
         await preparar();
-        const [registro] = await sql`SELECT layout FROM layouts_admin_r4 WHERE pagina = ${PAGINA_LAYOUT_ADMIN}`;
-        return NextResponse.json({ layout: validarLayoutAdmin(registro?.layout) ?? {} }, {
+        const [registro] = await sql`SELECT pagina, layout FROM layouts_admin_r4
+            WHERE pagina IN (${chave}, ${PAGINA_LAYOUT_ADMIN})
+            ORDER BY (pagina = ${chave}) DESC LIMIT 1`;
+        const validado = validarLayoutAdmin(registro?.layout) ?? {};
+        const layout = registro?.pagina === PAGINA_LAYOUT_ADMIN ? adaptarLayoutAnterior(validado, tema) : validado;
+        return NextResponse.json({ layout }, {
             headers: { 'Cache-Control': 'private, no-store' },
         });
     } catch {
@@ -38,7 +45,8 @@ export async function PUT(req: NextRequest) {
 
     const corpo = await req.json().catch(() => null);
     const layout = validarLayoutAdmin(corpo?.layout);
-    if (!layout || corpo?.pagina !== PAGINA_LAYOUT_ADMIN) {
+    const tema = corpo?.tema ?? 'claro';
+    if (!layout || !temaLayoutValido(tema) || corpo?.pagina !== PAGINA_LAYOUT_ADMIN) {
         return NextResponse.json({ error: 'Configuração de layout inválida.' }, { status: 400 });
     }
     try {
@@ -48,12 +56,9 @@ export async function PUT(req: NextRequest) {
             if (!conta) return NextResponse.json({ error: 'Permissão de administrador necessária.' }, { status: 403 });
         }
         await preparar();
-        if (Object.keys(layout).length) {
-            await sql`INSERT INTO layouts_admin_r4 (pagina, layout) VALUES (${PAGINA_LAYOUT_ADMIN}, ${JSON.stringify(layout)}::jsonb)
-                ON CONFLICT (pagina) DO UPDATE SET layout = excluded.layout, atualizado_em = now()`;
-        } else {
-            await sql`DELETE FROM layouts_admin_r4 WHERE pagina = ${PAGINA_LAYOUT_ADMIN}`;
-        }
+        const chave = PAGINA_LAYOUT_ADMIN + ':' + tema;
+        await sql`INSERT INTO layouts_admin_r4 (pagina, layout) VALUES (${chave}, ${JSON.stringify(layout)}::jsonb)
+            ON CONFLICT (pagina) DO UPDATE SET layout = excluded.layout, atualizado_em = now()`;
         return NextResponse.json({ layout });
     } catch {
         return NextResponse.json({ error: 'Não foi possível salvar o layout.' }, { status: 500 });

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import { limitarOffsetLayout, PAGINA_LAYOUT_ADMIN, type LayoutAdmin, type PosicaoLayout, type CampoTextoLayout, type TextoLayout } from '@/lib/layout-admin';
+import type { TemaR4 } from '@/lib/cores-r4';
 import { PainelPropriedadesLayoutR4 } from './PropriedadesLayoutR4';
 import css from './EditorLayoutR4.module.css';
 
@@ -17,8 +18,9 @@ function irmaos(elemento: HTMLElement) {
         .sort((a,b) => Number(getComputedStyle(a).order) - Number(getComputedStyle(b).order));
 }
 
-export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
-    const [salvo, setSalvo] = useState<LayoutAdmin>({});
+export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean, tema: TemaR4) {
+    const [layoutsSalvos, setLayoutsSalvos] = useState<Partial<Record<TemaR4, LayoutAdmin>>>({});
+    const salvo = layoutsSalvos[tema];
     const [rascunho, setRascunho] = useState<LayoutAdmin | null>(null);
     const [novoTexto, setNovoTexto] = useState(false);
     const [posicionarTexto, setPosicionarTexto] = useState<string | TextoLayout | null>(null);
@@ -28,25 +30,28 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
     const [destino, setDestino] = useState<string | undefined>();
     const [modo, setModo] = useState<'ordem' | 'pixels'>('ordem');
     const [ocupado, setOcupado] = useState(false);
-    const [pronto, setPronto] = useState(false);
-    const [mensagem, setMensagem] = useState('');
+    const pronto = salvo !== undefined;
+    const [retorno, setRetorno] = useState<{ tema: TemaR4; texto: string }>();
+    const mensagem = retorno?.tema === tema ? retorno.texto : '';
+    const nomeTema = tema === 'claro' ? 'Claro' : 'Escuro';
+    const setMensagem = (texto: string) => setRetorno({ tema, texto });
     const [consulta, setConsulta] = useState(0);
     const gesto = useRef<{ item: HTMLElement; x: number; y: number; ox: number; oy: number; pixels: boolean; moveu: boolean } | null>(null);
     const ativo = podeEditar && rascunho !== null && visivel;
-    const layout = ativo ? rascunho : salvo;
+    const layout = ativo ? rascunho : salvo ?? {};
 
     useEffect(() => {
         if (!visivel) return;
         const pedido = new AbortController();
-        fetch(endpoint, { cache: 'no-store', signal: pedido.signal })
+        fetch(endpoint + '&tema=' + tema, { cache: 'no-store', signal: pedido.signal })
             .then(async (res) => {
                 if (!res.ok) throw new Error();
                 const dados = await res.json();
-                if (!pedido.signal.aborted) { setSalvo(dados.layout); setPronto(true); }
+                if (!pedido.signal.aborted) { setLayoutsSalvos((atual) => ({ ...atual, [tema]: dados.layout })); }
             })
-            .catch(() => { if (!pedido.signal.aborted) setMensagem('Não foi possível carregar o layout.'); });
+            .catch(() => { if (!pedido.signal.aborted) setRetorno({ tema, texto: 'Não foi possível carregar o layout.' }); });
         return () => pedido.abort();
-    }, [visivel, consulta]);
+    }, [visivel, consulta, tema]);
 
     function atualizarItem(id: string, campos: Partial<PosicaoLayout>) {
         setRascunho((atual) => atual && ({ ...atual, [id]: { ...(atual[id] ?? padrao), ...campos } }));
@@ -125,13 +130,13 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
         try {
             const res = await fetch(endpoint, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pagina: PAGINA_LAYOUT_ADMIN, layout: novo }),
+                body: JSON.stringify({ pagina: PAGINA_LAYOUT_ADMIN, tema, layout: novo }),
             });
             const dados = await res.json();
             if (!res.ok) throw new Error(dados.error || 'Não foi possível salvar o layout.');
-            setSalvo(dados.layout);
+            setLayoutsSalvos((atual) => ({ ...atual, [tema]: dados.layout }));
             fechar();
-            setMensagem(Object.keys(novo).length ? 'Layout salvo.' : 'Layout padrão restaurado.');
+            setMensagem(Object.keys(novo).length ? 'Layout salvo no tema ' + nomeTema.toLowerCase() + '.' : 'Padrão restaurado no tema ' + nomeTema.toLowerCase() + '.');
         } catch (erro) {
             setMensagem(erro instanceof Error ? erro.message : 'Não foi possível salvar o layout.');
         } finally { setOcupado(false); }
@@ -236,13 +241,13 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
     }
 
     return {
-        item, ativo, pronto, ocupado, mensagem, selecionado, modo, setModo, layout, mover,
+        item, ativo, pronto, ocupado, mensagem, nomeTema, selecionado, modo, setModo, layout, mover,
         novoCard, setNovoCard, novoTexto, setNovoTexto, posicionarTexto, setPosicionarTexto, colocarTexto, campoTexto, setCampoTexto, atualizarItem, atualizarTexto, remover,
         adicionar(id: string, posicao: PosicaoLayout) {
             atualizarItem(id, posicao);
             setNovoCard(false);
         },
-        iniciar: () => { if (pronto && podeEditar) { setRascunho(salvo); setMensagem(''); } },
+        iniciar: () => { if (salvo && podeEditar) { setRascunho(salvo); setMensagem(''); } },
         fechar, gravar,
         tentar: () => { setMensagem(''); setConsulta((v) => v + 1); },
         trocar(direcao: number) {
@@ -261,6 +266,7 @@ export const useLayoutR4 = () => useContext(LayoutR4Context);
 export function BotoesLayoutR4({ editor }: { editor: Editor }) {
     return <div className={css.botoes}>
         {editor.ativo ? <>
+            <span className="font-semibold">Editando tema {editor.nomeTema.toLowerCase()}</span>
             <button type="button" disabled={editor.ocupado} onClick={() => { editor.setNovoTexto(false); editor.setNovoCard(true); }}>+ Adicionar Card</button>
             <button type="button" disabled={editor.ocupado} onClick={() => {
                 editor.setNovoCard(false); editor.setPosicionarTexto(null); editor.setNovoTexto(true);
@@ -268,7 +274,7 @@ export function BotoesLayoutR4({ editor }: { editor: Editor }) {
             <button type="button" className={css.salvar} disabled={editor.ocupado} onClick={() => void editor.gravar(editor.layout)}>Salvar Layout</button>
             <button type="button" disabled={editor.ocupado} onClick={editor.fechar}>Cancelar</button>
             <button type="button" disabled={editor.ocupado} onClick={() => {
-                if (window.confirm('Restaurar o layout padrão para todos os usuários?')) void editor.gravar({});
+                if (window.confirm('Restaurar o layout padrão do tema ' + editor.nomeTema.toLowerCase() + '?')) void editor.gravar({});
             }}>Resetar Padrão</button>
         </> : <button type="button" disabled={!editor.pronto && !editor.mensagem}
             onClick={editor.pronto ? editor.iniciar : editor.tentar}>{editor.pronto || !editor.mensagem ? 'Editar Layout' : 'Recarregar layout'}</button>}

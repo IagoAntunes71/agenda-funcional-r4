@@ -1,3 +1,4 @@
+import type { TemaR4 } from './cores-r4';
 import { MODULOS_ADMIN, type ModuloAdmin } from './admin-navegacao';
 
 export const PAGINA_LAYOUT_ADMIN = 'dashboard_visao_geral';
@@ -96,4 +97,19 @@ export function validarLayoutAdmin(valor: unknown): LayoutAdmin | null {
             card: card ? { grupo: card.grupo, tipo: card.tipo } : undefined, textos: textos === undefined ? undefined : textosValidados };
     }
     return layout;
+}
+
+export function temaLayoutValido(valor: unknown): valor is TemaR4 {
+    return valor === 'claro' || valor === 'escuro';
+}
+
+export function adaptarLayoutAnterior(layout: LayoutAdmin, tema: TemaR4): LayoutAdmin {
+    if (tema === 'claro') return layout;
+    return Object.fromEntries(Object.entries(layout).map(([id, item]) => [id, {
+        ...item,
+        superficie: undefined, fundo: undefined, corTexto: undefined, corIcone: undefined,
+        textos: item.textos && Object.fromEntries(Object.entries(item.textos).map(([campo, estilo]) =>
+            [campo, { ...estilo, cor: undefined }]
+        )),
+    }]));
 }
