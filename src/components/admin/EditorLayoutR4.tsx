@@ -1,7 +1,8 @@
 'use client';
 
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
-import { limitarOffsetLayout, PAGINA_LAYOUT_ADMIN, type LayoutAdmin } from '@/lib/layout-admin';
+import { limitarOffsetLayout, PAGINA_LAYOUT_ADMIN, type LayoutAdmin, type PosicaoLayout, type CampoTextoLayout, type TextoLayout } from '@/lib/layout-admin';
+import { PainelPropriedadesLayoutR4 } from './PropriedadesLayoutR4';
 import css from './EditorLayoutR4.module.css';
 
 const endpoint = '/api/admin/layout?pagina=' + PAGINA_LAYOUT_ADMIN;
@@ -19,6 +20,8 @@ function irmaos(elemento: HTMLElement) {
 export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
     const [salvo, setSalvo] = useState<LayoutAdmin>({});
     const [rascunho, setRascunho] = useState<LayoutAdmin | null>(null);
+    const [novoCard, setNovoCard] = useState(false);
+    const [campoTexto, setCampoTexto] = useState<CampoTextoLayout | undefined>();
     const [selecionado, setSelecionado] = useState<HTMLElement | null>(null);
     const [destino, setDestino] = useState<string | undefined>();
     const [modo, setModo] = useState<'ordem' | 'pixels'>('ordem');
@@ -42,6 +45,39 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
             .catch(() => { if (!pedido.signal.aborted) setMensagem('Não foi possível carregar o layout.'); });
         return () => pedido.abort();
     }, [visivel, consulta]);
+
+    function atualizarItem(id: string, campos: Partial<PosicaoLayout>) {
+        setRascunho((atual) => atual && ({ ...atual, [id]: { ...(atual[id] ?? padrao), ...campos } }));
+    }
+
+    function atualizarTexto(id: string, campo: CampoTextoLayout, campos: Partial<TextoLayout>) {
+        setRascunho((atual) => {
+            if (!atual) return atual;
+            const posicao = atual[id] ?? padrao;
+            return { ...atual, [id]: { ...posicao, textos: {
+                ...posicao.textos, [campo]: { ...posicao.textos?.[campo], ...campos },
+            } } };
+        });
+    }
+
+    function remover(id: string, rotulo: string) {
+        if (!window.confirm('Remover “' + rotulo + '” da Visão geral?')) return;
+        setRascunho((atual) => {
+            if (!atual) return atual;
+            if (!atual[id]?.card) return { ...atual, [id]: { ...(atual[id] ?? padrao), oculto: true } };
+            const restante = { ...atual };
+            delete restante[id];
+            return restante;
+        });
+        setSelecionado(null);
+        setCampoTexto(undefined);
+    }
+
+    function selecionar(elemento: HTMLElement, campo?: CampoTextoLayout) {
+        setSelecionado(elemento);
+        setCampoTexto(campo);
+        setNovoCard(false);
+    }
 
     function mover(id: string, x: number, y: number) {
         setRascunho((anterior) => anterior && ({
@@ -70,6 +106,8 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
     function fechar() {
         setRascunho(null);
         setSelecionado(null);
+        setNovoCard(false);
+        setCampoTexto(undefined);
         setDestino(undefined);
         setModo('ordem');
         gesto.current = null;
@@ -99,32 +137,44 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
             const alvo = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(`[data-r4-layout-grupo="${grupo}"]`);
             return alvo && alvo !== e.currentTarget && alvo.parentElement === e.currentTarget.parentElement ? alvo : undefined;
         }
-        const pos = layout[id] ?? padrao;
+        const pos: PosicaoLayout = layout[id] ?? padrao;
         function pertence(e: PointerEvent<HTMLElement>) {
             return (e.target as Element).closest(seletor) === e.currentTarget;
         }
         return {
-            'data-r4-layout-id': id, 'data-r4-layout-grupo': grupo, 'data-r4-layout-rotulo': rotulo,
+            'data-r4-layout-id': id, 'data-r4-layout-oculto': pos.oculto || undefined,
+            'data-r4-layout-largura': pos.largura, 'data-r4-layout-espaco': pos.espacamento,
+            'data-r4-layout-superficie': pos.superficie, 'data-r4-layout-tem-texto': Boolean(pos.corTexto) || undefined,
+            'data-r4-layout-tem-icone': Boolean(pos.corIcone) || undefined, 'data-r4-layout-grupo': grupo, 'data-r4-layout-rotulo': rotulo,
             'data-r4-layout-editando': ativo || undefined,
             'data-r4-layout-selecionado': ativo && selecionado?.dataset.r4LayoutId === id || undefined,
             'data-r4-layout-destino': ativo && destino === id || undefined,
             style: {
                 order: pos.order ?? 1000,
+                '--r4-item-fundo': pos.fundo || 'var(--r4-painel)',
+                '--r4-item-texto': pos.corTexto || 'currentColor',
+                '--r4-item-icone': pos.corIcone || 'currentColor',
                 '--r4-translate': pos.offsetX || pos.offsetY ? pos.offsetX + 'px ' + pos.offsetY + 'px' : 'none',
             } as CSSProperties,
             tabIndex: ativo ? 0 : undefined,
             onFocus: ativo ? (e: React.FocusEvent<HTMLElement>) => {
-                if (e.currentTarget === e.target) setSelecionado(e.currentTarget);
+                if (e.currentTarget === e.target) selecionar(e.currentTarget);
             } : undefined,
             onClickCapture: ativo ? (e: React.MouseEvent<HTMLElement>) => {
-                const alvo = (e.target as Element).closest<HTMLElement>(seletor);
-                if (alvo) { e.preventDefault(); e.stopPropagation(); setSelecionado(alvo); }
+                const origem = e.target as Element;
+                if (origem.closest('[data-r4-layout-inline]')) return;
+                const alvo = origem.closest<HTMLElement>(seletor);
+                const texto = origem.closest<HTMLElement>('[data-r4-layout-campo]');
+                if (alvo) {
+                    e.preventDefault(); e.stopPropagation();
+                    selecionar(alvo, texto?.dataset.r4LayoutCampo as CampoTextoLayout | undefined);
+                }
             } : undefined,
             onDragStart: ativo ? (e: React.DragEvent<HTMLElement>) => e.preventDefault() : undefined,
             onPointerDown: ativo ? (e: PointerEvent<HTMLElement>) => {
-                if (ocupado || e.button !== 0 || !e.isPrimary || !pertence(e)) return;
+                if (ocupado || e.button !== 0 || !e.isPrimary || !pertence(e) || (e.target as Element).closest('[data-r4-layout-campo]')) return;
                 const pixels = (modo === 'pixels' || e.shiftKey) && desktop();
-                setSelecionado(e.currentTarget);
+                selecionar(e.currentTarget);
                 gesto.current = { item: e.currentTarget, x: e.clientX, y: e.clientY, ox: pos.offsetX, oy: pos.offsetY, pixels, moveu: false };
                 e.currentTarget.setPointerCapture(e.pointerId);
             } : undefined,
@@ -159,6 +209,11 @@ export function useEditorLayoutR4(visivel: boolean, podeEditar: boolean) {
 
     return {
         item, ativo, pronto, ocupado, mensagem, selecionado, modo, setModo, layout, mover,
+        novoCard, setNovoCard, campoTexto, setCampoTexto, atualizarItem, atualizarTexto, remover,
+        adicionar(id: string, posicao: PosicaoLayout) {
+            atualizarItem(id, posicao);
+            setNovoCard(false);
+        },
         iniciar: () => { if (pronto && podeEditar) { setRascunho(salvo); setMensagem(''); } },
         fechar, gravar,
         tentar: () => { setMensagem(''); setConsulta((v) => v + 1); },
@@ -178,6 +233,7 @@ export const useLayoutR4 = () => useContext(LayoutR4Context);
 export function BotoesLayoutR4({ editor }: { editor: Editor }) {
     return <div className={css.botoes}>
         {editor.ativo ? <>
+            <button type="button" disabled={editor.ocupado} onClick={() => editor.setNovoCard(true)}>+ Adicionar Card</button>
             <button type="button" className={css.salvar} disabled={editor.ocupado} onClick={() => void editor.gravar(editor.layout)}>Salvar Layout</button>
             <button type="button" disabled={editor.ocupado} onClick={editor.fechar}>Cancelar</button>
             <button type="button" disabled={editor.ocupado} onClick={() => {
@@ -193,7 +249,9 @@ export function BarraLayoutR4({ editor }: { editor: Editor }) {
     if (!editor.ativo) return null;
     const id = editor.selecionado?.isConnected ? editor.selecionado.dataset.r4LayoutId : undefined;
     const posicao = id ? editor.layout[id] ?? padrao : padrao;
-    return <div className={css.barra} role="region" aria-label="Editor de layout">
+    return <>
+    <PainelPropriedadesLayoutR4 editor={editor} id={id} />
+    <div className={css.barra} role="region" aria-label="Editor de layout">
         <button type="button" aria-pressed={editor.modo === 'ordem'} onClick={() => editor.setModo('ordem')}>Reordenar</button>
         <button type="button" className={css.desktop} aria-pressed={editor.modo === 'pixels'} onClick={() => editor.setModo('pixels')}>Mover em pixels</button>
         {id ? <>
@@ -207,5 +265,5 @@ export function BarraLayoutR4({ editor }: { editor: Editor }) {
                 <output aria-label="Deslocamento">X {posicao.offsetX} · Y {posicao.offsetY}</output>
             </div>
         </> : <span>Selecione ou arraste um item para editar.</span>}
-    </div>;
+    </div></>;
 }

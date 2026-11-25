@@ -4,7 +4,7 @@ import './globals.css';
 import { ProvedorCoresR4 } from '@/components/CoresInterfaceR4';
 import { ProvedorTextosR4 } from '@/components/TextosInterfaceR4';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ['latin'], variable: '--r4-fonte-painel' });
 
 export const metadata: Metadata = {
   title: 'Agenda de Reforço Escolar',
@@ -29,7 +29,7 @@ export default function RootLayout({
 }>) {
   return (
       <html lang="pt-BR">
-      <body className={`${inter.className} bg-slate-950 text-slate-100 antialiased`}>
+      <body className={`${inter.className} ${inter.variable} bg-slate-950 text-slate-100 antialiased`}>
       <ProvedorCoresR4><ProvedorTextosR4>{children}</ProvedorTextosR4></ProvedorCoresR4>
       </body>
       </html>

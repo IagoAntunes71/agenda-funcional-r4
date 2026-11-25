@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { formatarDataBR, obterIniciais } from './types';
+import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import type { useEditorLayoutR4 } from './EditorLayoutR4';
 import css from './MetaFeedbackDashboardR4.module.css';
 
@@ -14,6 +15,7 @@ type Props = {
 
 export default function MetaFeedbackDashboardR4({ chave, mes, professor, feitos, total, vencidos, itemLayout }: Props) {
     const id = useId();
+    const layoutId = 'meta_' + encodeURIComponent(chave);
     const [aberto, setAberto] = useState(false);
     const [filtro, setFiltro] = useState<'faltantes' | 'feitos'>('faltantes');
     const [revisao, setRevisao] = useState(0);
@@ -42,21 +44,23 @@ export default function MetaFeedbackDashboardR4({ chave, mes, professor, feitos,
     return <article className={css.card} {...itemLayout}>
         <header className={css.identidade}>
             <span aria-hidden="true">{obterIniciais(professor)}</span>
-            <h3>{professor}</h3>
+            <h3><TextoLayoutR4 id={layoutId} campo="titulo" texto={professor} /></h3>
             <small data-status={percentual === 100 ? 'completa' : vencidos > 0 ? 'atraso' : 'andamento'}>{status}</small>
         </header>
         <div className={css.progresso}>
-            <span>Progresso do mês</span><strong>{percentual}%</strong>
+            <span><TextoLayoutR4 id={layoutId} campo="rotulo" texto="Progresso do mês" /></span><strong>{percentual}%</strong>
             <progress aria-label={'Progresso de ' + professor} max={100} value={percentual}
                 data-faixa={percentual >= 85 ? 'alta' : percentual >= 50 ? 'media' : 'baixa'} />
         </div>
         <dl className={css.numeros}>
-            <div><dt>Feitos</dt><dd>{feitos}</dd></div>
-            <div><dt>Faltantes</dt><dd>{faltam}</dd></div>
-            <div><dt>Vencidos</dt><dd>{vencidos}</dd></div>
+            <div><dt><TextoLayoutR4 id={layoutId} campo="feitos" texto="Feitos" /></dt><dd>{feitos}</dd></div>
+            <div><dt><TextoLayoutR4 id={layoutId} campo="faltantes" texto="Faltantes" /></dt><dd>{faltam}</dd></div>
+            <div><dt><TextoLayoutR4 id={layoutId} campo="vencidos" texto="Vencidos" /></dt><dd>{vencidos}</dd></div>
         </dl>
-        <button type="button" className={css.abrir} aria-expanded={aberto} aria-controls={aberto ? id : undefined}
-            onClick={() => setAberto(!aberto)}>Ver feedbacks <ChevronDown size={14} /></button>
+        {itemLayout?.['data-r4-layout-editando']
+            ? <div className={css.abrir}><TextoLayoutR4 id={layoutId} campo="descricao" texto="Ver feedbacks" /></div>
+            : <button type="button" className={css.abrir} aria-expanded={aberto} aria-controls={aberto ? id : undefined}
+                onClick={() => setAberto(!aberto)}><TextoLayoutR4 id={layoutId} campo="descricao" texto="Ver feedbacks" /> <ChevronDown size={14} /></button>}
         {aberto && <div id={id} className={css.detalhes}>
             <div className={css.filtros} role="group" aria-label="Filtrar feedbacks">
                 <button type="button" aria-pressed={filtro === 'faltantes'} onClick={() => setFiltro('faltantes')}>Faltantes ({faltam})</button>

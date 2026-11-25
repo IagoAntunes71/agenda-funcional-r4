@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { SessaoAdmin } from '@/lib/admin-auth';
 import { enderecoAdmin, MODULOS_GESTAO, MODULOS_PORTAL, podeAcessarModulo } from '@/lib/admin-navegacao';
+import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import { BarraLayoutR4, BotoesLayoutR4, LayoutR4Context, useEditorLayoutR4 } from './EditorLayoutR4';
 import InicioAdminR4, { type ResumoSemana } from './InicioAdminR4';
 import {
@@ -1294,7 +1295,7 @@ export default function PainelAdmin({
                             <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
                                 modulos={itensVisiveis.filter((item) => item.id !== 'inicio' && (item.id === 'portal' || !MODULOS_PORTAL.includes(item.id)))} escuro={escuro}>
                                 {admin && <section className="space-y-2" {...editorLayout.item('bloco_feedback', 'secoes', 'Metas de feedback')}>
-                                    <h2 className="text-base font-bold">Metas de feedback</h2>
+                                    <h2 className="text-base font-bold"><TextoLayoutR4 id="bloco_feedback" campo="titulo" texto="Metas de feedback" /></h2>
                                     <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} compacto />
                                 </section>}
                             </InicioAdminR4>
