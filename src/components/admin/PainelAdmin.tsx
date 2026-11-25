@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { SessaoAdmin } from '@/lib/admin-auth';
 import { enderecoAdmin, MODULOS_GESTAO, MODULOS_PORTAL, podeAcessarModulo } from '@/lib/admin-navegacao';
+import { BarraLayoutR4, BotoesLayoutR4, LayoutR4Context, useEditorLayoutR4 } from './EditorLayoutR4';
 import InicioAdminR4, { type ResumoSemana } from './InicioAdminR4';
 import {
     ArrowLeft,
@@ -145,6 +146,7 @@ export default function PainelAdmin({
     const inicio = aba === 'inicio';
     const mapa = aba === 'mapa';
     const admin = perfilAtual.role === 'admin';
+    const editorLayout = useEditorLayoutR4(autenticado && inicio && perfilAtual.role !== 'professor', admin);
     const professor = perfilAtual.role === 'professor';
     const mesConsulta = professor ? mesProfessor : '';
     const [perfisAdmin, setPerfisAdmin] = useState<PerfilAdmin[]>([]);
@@ -1347,6 +1349,7 @@ export default function PainelAdmin({
                                     </>
                                 )}
                             </button>
+                            {inicio && admin && <BotoesLayoutR4 editor={editorLayout} />}
                         </div>
                     </div>
                 </header>
@@ -1360,14 +1363,16 @@ export default function PainelAdmin({
                     } w-full mx-auto transition-all`}
                 >
                     {aba === 'inicio' && (
-                        <div className="space-y-5">
-                        <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
-                            modulos={itensVisiveis.filter((item) => item.id !== 'inicio' && (item.id === 'portal' || !MODULOS_PORTAL.includes(item.id)))} escuro={escuro} />
-                        {perfilAtual.role !== 'atendimento' && <section className="space-y-2">
-                            <h2 className="text-base font-bold">Metas de feedback</h2>
-                            <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} compacto />
-                        </section>}
-                        </div>
+                        <LayoutR4Context.Provider value={editorLayout}>
+                            <InicioAdminR4 perfil={perfilAtual} unidades={unidades} resumo={resumoSemana}
+                                modulos={itensVisiveis.filter((item) => item.id !== 'inicio' && (item.id === 'portal' || !MODULOS_PORTAL.includes(item.id)))} escuro={escuro}>
+                                {admin && <section className="space-y-2" {...editorLayout.item('bloco_feedback', 'secoes', 'Metas de feedback')}>
+                                    <h2 className="text-base font-bold">Metas de feedback</h2>
+                                    <RelatorioOperacaoR4 painel="metas" perfil={perfilAtual.role} compacto />
+                                </section>}
+                            </InicioAdminR4>
+                            {admin && <BarraLayoutR4 editor={editorLayout} />}
+                        </LayoutR4Context.Provider>
                     )}
                     {noPortal && admin && <nav aria-label="Portal do Aluno" className="flex flex-wrap gap-1 border-b border-[var(--r4-borda)] pb-2 mb-5">
                         {itensPortal.map((item) => <Link key={item.id} href={enderecoAdmin(item.id)}

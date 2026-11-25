@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useLayoutR4 } from './EditorLayoutR4';
 import MetaFeedbackR4 from './MetaFeedbackR4';
 import Link from 'next/link';
 import { CORES_STATUS_R4, OPERACAO_PADRAO, PERMISSOES_R4, podeOperacao, type OperacaoR4, type PermissaoR4, type PerfilOperacao } from '@/lib/operacao-r4';
@@ -141,6 +142,7 @@ type Linha = { id: number; aluno_id?: number; plano?: string; orientacoes?: stri
 export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = false }: {
     painel: 'recepcao' | 'alunos' | 'metas'; perfil: PerfilOperacao; unidades?: UnidadeAdmin[]; compacto?: boolean;
 }) {
+    const editorLayout = useLayoutR4();
     const { cfg } = useOperacaoR4();
     const [mes, setMes] = useState(() => obterAgoraBahia().dataISO.slice(0, 7));
     const [busca, setBusca] = useState('');
@@ -185,7 +187,8 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
         {atual?.metas?.length === 0 && <p>Nenhuma aula realizada neste mês.</p>}
         {atual?.metas && <div className={compacto ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3" : "grid gap-4"}>
         {atual.metas.slice(0, compacto ? 3 : undefined).map((meta) => (
-            <MetaFeedbackR4 key={meta.chave} professor={meta.professor} feitos={meta.feitos} total={meta.total} vencidos={meta.vencidos} compacto={compacto} />
+            <MetaFeedbackR4 key={meta.chave} professor={meta.professor} feitos={meta.feitos} total={meta.total} vencidos={meta.vencidos} compacto={compacto}
+                itemLayout={compacto ? editorLayout?.item('meta_' + encodeURIComponent(meta.chave), 'metas', meta.professor) : undefined} />
         ))}
         </div>}
         {compacto && <Link href="/admin/metas" className="underline text-sm">Abrir metas de feedback</Link>}

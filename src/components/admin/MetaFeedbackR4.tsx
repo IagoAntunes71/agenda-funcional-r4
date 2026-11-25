@@ -1,3 +1,4 @@
+import type { useEditorLayoutR4 } from './EditorLayoutR4';
 import type { CSSProperties } from 'react';
 import { CheckCircle2, Clock3, Flag } from 'lucide-react';
 import { obterIniciais } from './types';
@@ -8,13 +9,14 @@ const marcos = [
     [55, 'Já foi mais da metade'], [70, 'Bom'], [85, 'Muito bom'], [100, 'Excelente professor'],
 ] as const;
 
-export default function MetaFeedbackR4({ professor, feitos, total, vencidos, compacto = false }: {
+export default function MetaFeedbackR4({ professor, feitos, total, vencidos, compacto = false, itemLayout }: {
     professor: string; feitos: number; total: number; vencidos: number; compacto?: boolean;
+    itemLayout?: ReturnType<ReturnType<typeof useEditorLayoutR4>['item']>;
 }) {
     const percentual = total > 0 ? Math.min(100, Math.max(0, feitos / total * 100)) : 0;
     const rotulo = marcos.reduce<string>((atual, [marca, nome]) => percentual >= marca ? nome : atual, marcos[0][1]);
     const exibicao = Math.floor(percentual);
-    return <article className={css.meta} data-compacto={compacto}>
+    return <article className={css.meta} data-compacto={compacto} {...itemLayout}>
         <div className={css.cabecalho}>
             <div className={css.identidade}>
                 

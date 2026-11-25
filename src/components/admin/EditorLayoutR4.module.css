@@ -1,0 +1,25 @@
+.botoes, .barra, .barra .desktop { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.botoes button, .barra button { border: 1px solid var(--r4-borda); border-radius: 8px; padding: 6px 9px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.botoes button:disabled, .barra button:disabled { opacity: .6; cursor: default; }
+.botoes span { font-size: 12px; }
+.salvar { background: #137454; color: #fff; }
+.barra {
+    position: fixed; z-index: 45; inset: auto max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) auto;
+    max-width: calc(100vw - 24px); background: var(--r4-painel); color: var(--r4-leitura);
+    border: 1px solid var(--r4-borda); border-radius: 12px; padding: 9px; font-size: 12px;
+    box-shadow: 0 3px 16px #0003;
+}
+.barra button[aria-pressed='true'] { background: var(--r4-botao); color: var(--r4-botao-texto); }
+:global([data-r4-layout-editando]) { cursor: grab; touch-action: none; user-select: none; }
+:global([data-r4-layout-editando] *) { cursor: inherit; }
+:global([data-r4-layout-editando]:hover:not(:has([data-r4-layout-editando]:hover))), :global([data-r4-layout-selecionado]) {
+    outline: 1px dashed var(--r4-principal); outline-offset: -2px;
+}
+:global([data-r4-layout-destino]) { outline: 2px dashed var(--r4-principal); outline-offset: -3px; }
+:global([data-r4-layout-editando]:active) { cursor: grabbing; }
+@media (min-width: 1024px) {
+    :global([data-r4-layout-id]) { translate: var(--r4-translate, none); }
+}
+@media (max-width: 1023px) {
+    .barra .desktop { display: none; }
+}
