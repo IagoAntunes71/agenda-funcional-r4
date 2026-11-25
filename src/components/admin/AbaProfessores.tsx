@@ -3,15 +3,18 @@ import { useLayoutR4 } from './EditorLayoutR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { obterMetaStatusR4 } from '@/lib/agenda-status-r4';
+import css from './AbaProfessores.module.css';
 import {
+    ArrowLeft,
+    ArrowRight,
     Check,
-    Edit3,
     Plus,
-    Save,
     Search,
     Sun,
-    UserPlus,
     X,
 } from 'lucide-react';
 import {
@@ -24,7 +27,7 @@ import {
     resumirSeriesCurto,
 } from '@/lib/cliente-helpers';
 import { gerarTodosSlotsProfessor } from '@/lib/horarios-reforco';
-import { ProfessorAdmin, TemaClasses, UnidadeAdmin } from './types';
+import { formatarDataBR, obterIniciais, type AgendamentoAdmin, type ProfessorAdmin, type TemaClasses, type UnidadeAdmin } from './types';
 
 function extrairListaMaterias(texto: string): string[] {
     return Array.from(
@@ -223,676 +226,316 @@ function SeletorSeriesPorMateria({
     );
 }
 
-export default function AbaProfessores({
-                                           unidades,
-                                           professores,
-                                           escuro,
-                                           classes,
-                                           onRecarregarDadosAction,
-                                       }: {
-    unidades: UnidadeAdmin[];
-    professores: ProfessorAdmin[];
-    escuro: boolean;
-    classes: TemaClasses;
-    onRecarregarDadosAction: () => Promise<void>;
+type Rascunho = {
+    nome: string;
+    clin_care_id: string;
+    unidades_ids: number[];
+    materias: string;
+    materias_series: MapaMateriasSeries;
+    manha_ativo: boolean;
+    manha_inicio: string;
+    manha_fim: string;
+    hora_inicio: string;
+    hora_fim: string;
+};
+
+const rota = '/admin/professores';
+const chaveProfessor = (p: ProfessorAdmin) => p.clin_care_id ? 'cc:' + p.clin_care_id : 'nm:' + p.nome.trim().toLowerCase();
+
+async function gravarProfessor(metodo: 'POST' | 'PATCH', payload: object) {
+    const resposta = await fetch('/api/admin/professores', {
+        method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    if (!resposta.ok) {
+        const dados = await resposta.json().catch(() => null);
+        throw new Error(dados?.error || 'Não foi possível salvar o professor.');
+    }
+}
+
+function FormularioProfessor({ professor, unidades, escuro, classes, aoSalvar, formId, pendente, setPendente }: {
+    professor?: ProfessorAgrupadoLista; unidades: UnidadeAdmin[]; escuro: boolean; classes: TemaClasses;
+    aoSalvar: (dados: Rascunho) => Promise<void>; formId: string; pendente: boolean; setPendente: (valor: boolean) => void;
 }) {
-    const textoR4 = useTextoR4();
-    const { clsCard, clsSubCard, clsInput, clsTitulo, clsSubtexto } = classes;
+    const t = useTextoR4();
+    const { clsInput, clsSubCard } = classes;
+    const [erro, setErro] = useState('');
+    const [dados, setDados] = useState<Rascunho>(() => ({
+        nome: professor?.nome ?? '', clin_care_id: professor?.clin_care_id ?? '',
+        unidades_ids: professor?.unidades_ids ?? (unidades[0] ? [unidades[0].id] : []),
+        materias: professor?.materias?.join(', ') ?? '', materias_series: professor?.materias_series ?? {},
+        manha_ativo: Boolean(professor?.manha_ativo), manha_inicio: professor?.manha_inicio || '08:00',
+        manha_fim: professor?.manha_fim || '11:20', hora_inicio: professor?.hora_inicio || '14:10',
+        hora_fim: professor?.hora_fim || '20:50',
+    }));
+    function mudar<K extends keyof Rascunho>(campo: K, valor: Rascunho[K]) {
+        setDados((atual) => ({ ...atual, [campo]: valor }));
+    }
+    const slots = gerarTodosSlotsProfessor(dados);
+    async function salvar(e: FormEvent) {
+        e.preventDefault();
+        if (pendente) return;
+        if (!dados.nome.trim() || !dados.materias.trim() || !dados.unidades_ids.length) {
+            setErro('Preencha nome e matérias e selecione pelo menos uma unidade.');
+            return;
+        }
+        setErro('');
+        setPendente(true);
+        try {
+            await gravarProfessor(professor ? 'PATCH' : 'POST', {
+                ...dados, id: professor?.id, unidade_id: dados.unidades_ids[0],
+            });
+            await aoSalvar(dados);
+        } catch (falha) {
+            setErro(falha instanceof Error ? falha.message : 'Não foi possível salvar o professor.');
+        } finally {
+            setPendente(false);
+        }
+    }
+    const input = 'w-full rounded-lg border px-3 py-2 ' + clsInput;
+    const campo = 'grid gap-1 text-sm';
+    return <form id={formId} onSubmit={salvar}>
+        <fieldset disabled={pendente} className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+                <label className={campo}>{t('Nome *')}<input className={input} required value={dados.nome} onChange={(e) => mudar('nome', e.target.value)} /></label>
+                <label className={campo}>{t('ID Clin Care')}<input className={input} value={dados.clin_care_id} onChange={(e) => mudar('clin_care_id', e.target.value)} /></label>
+            </div>
+            <div className={'grid gap-2 rounded-xl border p-3 ' + clsSubCard}>
+                <strong className="text-sm">{t('Unidades de Atendimento *')}</strong>
+                <div className="flex flex-wrap gap-2">{unidades.map((unidade) => {
+                    const marcada = dados.unidades_ids.includes(unidade.id);
+                    return <button type="button" key={unidade.id} aria-pressed={marcada}
+                        className={css.botao + (marcada ? ' r4-acao' : '')}
+                        onClick={() => mudar('unidades_ids', marcada
+                            ? dados.unidades_ids.length === 1 ? dados.unidades_ids : dados.unidades_ids.filter((id) => id !== unidade.id)
+                            : [...dados.unidades_ids, unidade.id])}>
+                        {marcada && <Check size={14} />}{unidade.nome}
+                    </button>;
+                })}</div>
+            </div>
+            <label className={campo}>{t('Matérias (separadas por vírgula) *')}
+                <input className={input} required value={dados.materias} onChange={(e) => mudar('materias', e.target.value)} />
+            </label>
+            <SeletorSeriesPorMateria materiasTexto={dados.materias} mapaAtual={dados.materias_series}
+                onChangeMapa={(mapa) => mudar('materias_series', mapa)} escuro={escuro} />
+            <label className="flex items-center gap-2 text-sm font-semibold">
+                <input type="checkbox" checked={dados.manha_ativo} onChange={(e) => mudar('manha_ativo', e.target.checked)} />
+                <Sun size={16} />{t('Liberar manhã (turnos de 100 min)')}
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+                {([
+                    ['manha_inicio', 'Início Manhã'], ['manha_fim', 'Fim Manhã'],
+                    ['hora_inicio', 'Início Tarde'], ['hora_fim', 'Fim Tarde'],
+                ] as const).filter(([id]) => !id.startsWith('manha') || dados.manha_ativo).map(([id, rotulo]) =>
+                    <label key={id} className={campo}>{t(rotulo)}
+                        <input type="time" className={input} value={dados[id]} onChange={(e) => mudar(id, e.target.value)} />
+                    </label>)}
+            </div>
+            {slots.length > 0 && <p className={'rounded-xl border p-3 text-sm ' + clsSubCard} aria-live="polite">
+                <strong>Turnos ({slots.length})</strong> · {slots.map((slot) => slot.label).join(' • ')}
+            </p>}
+        </fieldset>
+        {erro && <p role="alert" className={css.erro}>{erro}</p>}
+    </form>;
+}
 
-    const [buscaProf, setBuscaProf] = useState('');
-    const [filtroUnidadeLista, setFiltroUnidadeLista] = useState('todas');
+function CartaoProfessor({ professor: p }: { professor: ProfessorAgrupadoLista }) {
+    const materias = p.materias ?? [];
+    const turno = `Tarde/Noite: ${p.hora_inicio} às ${p.hora_fim} (${gerarTodosSlotsProfessor(p).length} turnos)`;
+    return <Link href={rota + '?professor=' + p.id} className={css.card}>
+        <div className={css.identidade}>
+            <span className={css.avatar} aria-hidden="true">{obterIniciais(p.nome)}</span>
+            <div className="min-w-0"><strong className={css.linha} title={p.nome}>{p.nome}</strong>
+                <small className={css.linha} title={p.unidades_nomes.join(' · ')}>{p.unidades_nomes.join(' · ')}</small>
+            </div>
+            <span className={css.status} data-ativo={p.ativo}>{p.ativo ? 'Ativo' : 'Pausado'}</span>
+        </div>
+        <div className={css.tags}>
+            {materias.slice(0, 3).map((materia) => {
+                const chave = Object.keys(p.materias_series ?? {}).find((nome) => nome.trim().toLowerCase() === materia.toLowerCase());
+                const serie = resumirSeriesCurto(chave ? p.materias_series?.[chave] ?? [] : []);
+                return <span key={materia} title={materia + ' · ' + serie}>{materia} · {serie}</span>;
+            })}
+            {materias.length > 3 && <span>+{materias.length - 3} mais</span>}
+            {!materias.length && <small>Sem matérias cadastradas</small>}
+        </div>
+        <footer className={css.rodape}>
+            <small className={css.linha} title={turno}>{turno}</small>
+            <span>Abrir perfil <ArrowRight size={14} aria-hidden="true" /></span>
+        </footer>
+    </Link>;
+}
 
-    const [profNome, setProfNome] = useState('');
-    const [profClinCareId, setProfClinCareId] = useState('');
-    const [profUnidadesIds, setProfUnidadesIds] = useState<number[]>(() =>
-        unidades[0]?.id ? [unidades[0].id] : []
-    );
-    const [profMaterias, setProfMaterias] = useState('');
-    const [profMateriasSeries, setProfMateriasSeries] =
-        useState<MapaMateriasSeries>({});
-    const [profManhaAtivo, setProfManhaAtivo] = useState(false);
-    const [profManhaInicio, setProfManhaInicio] = useState('08:00');
-    const [profManhaFim, setProfManhaFim] = useState('11:20');
-    const [profInicio, setProfInicio] = useState('14:10');
-    const [profFim, setProfFim] = useState('20:50');
-    const [cadastrandoProf, setCadastrandoProf] = useState(false);
+function VinculosProfessor({ registros, agendamentos, unidades }: {
+    registros: ProfessorAdmin[]; agendamentos: AgendamentoAdmin[]; unidades: UnidadeAdmin[];
+}) {
+    const ids = new Set(registros.map((p) => p.id));
+    const aulas = agendamentos.filter((aula) => ids.has(aula.professor_id) && !aula.excluido_em);
+    return <div className="grid gap-5">
+        <section className={css.painel}>
+            <h3 className="font-bold">Exibição por unidade</h3>
+            <ul className={css.registros}>{registros.map((p) => {
+                const unidadeAtiva = unidades.some((u) => u.id === p.unidade_id && u.ativa !== false);
+                return <li key={p.id}><strong>{p.unidade_nome}</strong>
+                    <span>Portal do Aluno · {p.ativo && unidadeAtiva ? 'Habilitado' : 'Indisponível'}</span>
+                    <span>Mapa do Dia · {!p.ativo ? 'Pausado' : unidadeAtiva ? 'Elegível na grade' : 'Unidade inativa'}</span>
+                </li>;
+            })}</ul>
+        </section>
+        <section className={css.painel}>
+            <h3 className="font-bold">Agendamentos carregados ({aulas.length})</h3>
+            <p className="text-sm opacity-80">Resumo dos até 250 agendamentos carregados no painel administrativo.</p>
+            {aulas.length ? <ul className={css.registros}>{aulas.map((aula) => <li key={aula.id}>
+                <strong>{aula.nome_aluno}</strong><span>{aula.materia} · {aula.unidade_nome}</span>
+                <span>{formatarDataBR(aula.data)} · {aula.hora_inicio || aula.horario} · {obterMetaStatusR4(aula.status).rotulo}</span>
+            </li>)}</ul> : <p className="mt-3 text-sm">Nenhum agendamento vinculado nos dados carregados.</p>}
+        </section>
+    </div>;
+}
 
-    const [editProfId, setEditProfId] = useState<number | null>(null);
-    const [editProfNome, setEditProfNome] = useState('');
-    const [editProfClinCareId, setEditProfClinCareId] = useState('');
-    const [editProfUnidadesIds, setEditProfUnidadesIds] = useState<number[]>([]);
-    const [editProfMaterias, setEditProfMaterias] = useState('');
-    const [editProfMateriasSeries, setEditProfMateriasSeries] =
-        useState<MapaMateriasSeries>({});
-    const [editProfManhaAtivo, setEditProfManhaAtivo] = useState(false);
-    const [editProfManhaInicio, setEditProfManhaInicio] = useState('08:00');
-    const [editProfManhaFim, setEditProfManhaFim] = useState('11:20');
-    const [editProfInicio, setEditProfInicio] = useState('14:10');
-    const [editProfFim, setEditProfFim] = useState('20:50');
-    const [salvandoProf, setSalvandoProf] = useState(false);
-
-    const unidadesAtivas = useMemo(
-        () => unidades.filter((u) => u.ativa !== false),
-        [unidades]
-    );
-
-    const unidadesNovoEfetivas = useMemo(() => {
-        if (profUnidadesIds.length > 0) return profUnidadesIds;
-        return unidadesAtivas[0]?.id ? [unidadesAtivas[0].id] : [];
-    }, [profUnidadesIds, unidadesAtivas]);
-
-    const professoresAgrupados = useMemo(() => {
+export default function AbaProfessores({ unidades, professores, agendamentos, escuro, classes, onRecarregarDadosAction }: {
+    unidades: UnidadeAdmin[]; professores: ProfessorAdmin[]; agendamentos: AgendamentoAdmin[];
+    escuro: boolean; classes: TemaClasses; onRecarregarDadosAction: () => Promise<void>;
+}) {
+    const t = useTextoR4();
+    const layout = useLayoutR4();
+    const params = useSearchParams();
+    const router = useRouter();
+    const id = Number(params.get('professor'));
+    const vinculos = params.get('secao') === 'vinculos';
+    const modal = useRef<HTMLDialogElement>(null);
+    const [novo, setNovo] = useState(false);
+    const [pendente, setPendente] = useState(false);
+    const [busca, setBusca] = useState('');
+    const [unidade, setUnidade] = useState('todas');
+    const [status, setStatus] = useState('todos');
+    const [mensagem, setMensagem] = useState<{ erro: boolean; texto: string }>();
+    const unidadesAtivas = unidades.filter((u) => u.ativa !== false);
+    const grupos = useMemo(() => {
         const mapa = new Map<string, ProfessorAgrupadoLista>();
         for (const p of professores) {
-            const chave = p.clin_care_id
-                ? `cc:${p.clin_care_id}`
-                : `nm:${p.nome.trim().toLowerCase()}`;
-
-            const existente = mapa.get(chave);
-            if (!existente) {
-                mapa.set(chave, {
-                    ...p,
-                    unidades_ids: [p.unidade_id],
-                    unidades_nomes: [p.unidade_nome],
-                });
+            const chave = chaveProfessor(p);
+            const atual = mapa.get(chave);
+            if (!atual) {
+                mapa.set(chave, { ...p, unidades_ids: [p.unidade_id], unidades_nomes: [p.unidade_nome] });
             } else {
-                if (!existente.unidades_ids.includes(p.unidade_id)) {
-                    existente.unidades_ids.push(p.unidade_id);
-                    existente.unidades_nomes.push(p.unidade_nome);
+                if (!atual.unidades_ids.includes(p.unidade_id)) {
+                    atual.unidades_ids.push(p.unidade_id);
+                    atual.unidades_nomes.push(p.unidade_nome);
                 }
-                existente.ativo = existente.ativo || p.ativo;
+                atual.ativo ||= p.ativo;
             }
         }
-        return Array.from(mapa.values()).sort((a, b) =>
-            a.nome.localeCompare(b.nome, 'pt-BR')
-        );
+        return [...mapa.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     }, [professores]);
-
-    const professoresFiltrados = useMemo(() => {
-        const termo = buscaProf.trim().toLowerCase();
-        return professoresAgrupados.filter((p) => {
-            if (filtroUnidadeLista !== 'todas') {
-                const uid = Number(filtroUnidadeLista);
-                if (!p.unidades_ids.includes(uid)) return false;
-            }
-            if (termo) {
-                const bateNome = p.nome.toLowerCase().includes(termo);
-                const bateMat = (p.materias || []).some((m) =>
-                    m.toLowerCase().includes(termo)
-                );
-                if (!bateNome && !bateMat) return false;
-            }
-            return true;
-        });
-    }, [professoresAgrupados, buscaProf, filtroUnidadeLista]);
-
-    function alternarUnidadeNovo(uid: number) {
-        setProfUnidadesIds((prev) => {
-            const base =
-                prev.length > 0
-                    ? prev
-                    : unidadesAtivas[0]?.id
-                        ? [unidadesAtivas[0].id]
-                        : [];
-            if (base.includes(uid)) {
-                return base.length > 1 ? base.filter((id) => id !== uid) : base;
-            }
-            return [...base, uid];
-        });
+    const termo = busca.trim().toLocaleLowerCase('pt-BR');
+    const filtrados = grupos.filter((p) => (unidade === 'todas' || p.unidades_ids.includes(Number(unidade))) &&
+        (status === 'todos' || p.ativo === (status === 'ativos')) &&
+        [p.nome, ...(p.materias ?? [])].some((nome) => nome.toLocaleLowerCase('pt-BR').includes(termo)));
+    const registro = professores.find((p) => p.id === id);
+    const professor = registro && grupos.find((p) => chaveProfessor(p) === chaveProfessor(registro));
+    const registros = professor ? professores.filter((p) => chaveProfessor(p) === chaveProfessor(professor)) : [];
+    const perfil = rota + '?professor=' + id;
+    const [versaoForm, setVersaoForm] = useState(0);
+    function fecharModal() {
+        modal.current?.close();
+        setNovo(false);
     }
-
-    function alternarUnidadeEdicao(uid: number) {
-        setEditProfUnidadesIds((prev) => {
-            if (prev.includes(uid)) {
-                return prev.length > 1 ? prev.filter((id) => id !== uid) : prev;
-            }
-            return [...prev, uid];
-        });
-    }
-
-    async function handleAdicionarProfessor(e: React.FormEvent) {
-        e.preventDefault();
-        if (
-            !profNome.trim() ||
-            !profMaterias.trim() ||
-            unidadesNovoEfetivas.length === 0
-        ) {
-            return;
-        }
-        setCadastrandoProf(true);
+    async function alternar(p: ProfessorAgrupadoLista) {
+        setPendente(true);
+        setMensagem(undefined);
         try {
-            await fetch('/api/admin/professores', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    nome: profNome,
-                    clin_care_id: profClinCareId,
-                    unidade_id: unidadesNovoEfetivas[0],
-                    unidades_ids: unidadesNovoEfetivas,
-                    materias: profMaterias,
-                    materias_series: profMateriasSeries,
-                    manha_ativo: profManhaAtivo,
-                    manha_inicio: profManhaInicio,
-                    manha_fim: profManhaFim,
-                    hora_inicio: profInicio,
-                    hora_fim: profFim,
-                }),
-            });
-            setProfNome('');
-            setProfClinCareId('');
-            setProfMaterias('');
-            setProfMateriasSeries({});
-            setProfManhaAtivo(false);
+            await gravarProfessor('PATCH', { id: p.id, ativo: !p.ativo });
             await onRecarregarDadosAction();
-        } finally {
-            setCadastrandoProf(false);
-        }
+        } catch (falha) {
+            setMensagem({ erro: true, texto: falha instanceof Error ? falha.message : 'Não foi possível atualizar o status.' });
+        } finally { setPendente(false); }
     }
 
-    function iniciarEdicaoProfessor(p: ProfessorAgrupadoLista) {
-        setEditProfId(p.id);
-        setEditProfNome(p.nome);
-        setEditProfClinCareId(p.clin_care_id || '');
-        setEditProfUnidadesIds(
-            p.unidades_ids.length > 0 ? [...p.unidades_ids] : [p.unidade_id]
-        );
-        setEditProfMaterias((p.materias || []).join(', '));
-        setEditProfMateriasSeries(p.materias_series || {});
-        setEditProfManhaAtivo(Boolean(p.manha_ativo));
-        setEditProfManhaInicio(p.manha_inicio || '08:00');
-        setEditProfManhaFim(p.manha_fim || '11:20');
-        setEditProfInicio(p.hora_inicio || '14:10');
-        setEditProfFim(p.hora_fim || '20:50');
-    }
-
-    async function salvarEdicaoProfessor(e: React.FormEvent) {
-        e.preventDefault();
-        if (
-            !editProfId ||
-            !editProfNome.trim() ||
-            !editProfMaterias.trim() ||
-            editProfUnidadesIds.length === 0
-        ) {
-            return;
-        }
-        setSalvandoProf(true);
-        try {
-            await fetch('/api/admin/professores', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: editProfId,
-                    nome: editProfNome,
-                    clin_care_id: editProfClinCareId,
-                    unidade_id: editProfUnidadesIds[0],
-                    unidades_ids: editProfUnidadesIds,
-                    materias: editProfMaterias,
-                    materias_series: editProfMateriasSeries,
-                    manha_ativo: editProfManhaAtivo,
-                    manha_inicio: editProfManhaInicio,
-                    manha_fim: editProfManhaFim,
-                    hora_inicio: editProfInicio,
-                    hora_fim: editProfFim,
-                }),
-            });
-            setEditProfId(null);
-            await onRecarregarDadosAction();
-        } finally {
-            setSalvandoProf(false);
-        }
-    }
-
-    async function alternarProfessor(id: number, ativo: boolean) {
-        await fetch('/api/admin/professores', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, ativo }),
-        });
-        await onRecarregarDadosAction();
-    }
-
-    const previewSlotsNovoProf = gerarTodosSlotsProfessor({
-        manha_ativo: profManhaAtivo,
-        manha_inicio: profManhaInicio,
-        manha_fim: profManhaFim,
-        hora_inicio: profInicio,
-        hora_fim: profFim,
-    });
-
-    const layout = useLayoutR4();
-    return (
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start" data-r4-layout-grid="colunas-12">
-            <form
-                onSubmit={(e) => void handleAdicionarProfessor(e)}
-                {...layout?.item("cadastro", "colunas", "Cadastrar professor")} className={`lg:col-span-5 border rounded-2xl p-6 space-y-4 ${clsCard}`}
-            >
-                <h3
-                    className={`text-sm font-bold flex items-center gap-2 ${clsTitulo}`}
-                >
-                    <UserPlus className="w-4 h-4 text-[#1496A1]" />{textoR4("Cadastrar Professor")}</h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="sm:col-span-2">
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Nome *")}</label>
-                        <input
-                            type="text"
-                            required
-                            placeholder={textoR4("Ex: Fernanda Lima")}
-                            value={profNome}
-                            onChange={(e) => setProfNome(e.target.value)}
-                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
-                        />
-                    </div>
-
-                    <div>
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("ID Clin Care")}</label>
-                        <input
-                            type="text"
-                            placeholder={textoR4("Ex: 142")}
-                            value={profClinCareId}
-                            onChange={(e) => setProfClinCareId(e.target.value)}
-                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
-                        />
-                    </div>
+    if (id) return <div className="grid gap-4">
+        <Link href={rota} className={css.voltar} onClick={() => setMensagem(undefined)}><ArrowLeft size={16} /> Equipe de Professores</Link>
+        {!professor ? <p role="status">Professor indisponível.</p> : <>
+            <header className={css.painel + ' ' + css.perfil} {...layout?.item('professor_perfil', 'perfil', 'Cabeçalho do professor')}>
+                <span className={css.avatar} aria-hidden="true">{obterIniciais(professor.nome)}</span>
+                <div className="min-w-0 flex-1">
+                    <h2 className="text-xl font-bold">{professor.nome}</h2>
+                    <p className="text-sm">ID Clin Care · {professor.clin_care_id || 'Não informado'}</p>
+                    <p className="text-sm">{professor.unidades_nomes.join(' · ')}</p>
                 </div>
-
-                <div className={`border rounded-xl p-3 space-y-2 ${clsSubCard}`}>
-                    <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-[#1496A1]">{textoR4("Unidades de Atendimento *")}</label>
-                        <span className={`text-[11px] ${clsSubtexto}`}>{textoR4("Clique para marcar 1 ou mais")}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        {unidadesAtivas.map((u) => {
-                            const selecionada = unidadesNovoEfetivas.includes(u.id);
-                            return (
-                                <button
-                                    key={u.id}
-                                    type="button"
-                                    onClick={() => alternarUnidadeNovo(u.id)}
-                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                                        selecionada
-                                            ? 'bg-[#0E7C86] border-[#1496A1] text-white'
-                                            : `${clsCard} ${clsSubtexto} hover:border-[#0E7C86]`
-                                    }`}
-                                >
-                                    {selecionada && <Check className="w-3.5 h-3.5" />}
-                                    {u.nome}
-                                </button>
-                            );
-                        })}
-                    </div>
+                <div className="flex flex-wrap gap-2">
+                    <button type="button" className={css.botao} aria-pressed={professor.ativo} disabled={pendente}
+                        onClick={() => void alternar(professor)}>{professor.ativo ? 'Ativo · Pausar' : 'Pausado · Ativar'}</button>
+                    {!vinculos && <button type="submit" form="editar-professor" className={css.botao + ' r4-acao'} disabled={pendente}>Salvar Alterações</button>}
                 </div>
-
-                <div>
-                    <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Matérias (separadas por vírgula) *")}</label>
-                    <input
-                        type="text"
-                        required
-                        placeholder={textoR4("Ex: Matemática, Geografia")}
-                        value={profMaterias}
-                        onChange={(e) => setProfMaterias(e.target.value)}
-                        className={`w-full border rounded-xl px-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
-                    />
-                </div>
-
-                <SeletorSeriesPorMateria
-                    materiasTexto={profMaterias}
-                    mapaAtual={profMateriasSeries}
-                    onChangeMapa={setProfMateriasSeries}
-                    escuro={escuro}
-                />
-
-                <div className={`border rounded-xl p-3.5 space-y-3 ${clsSubCard}`}>
-                    <label className="flex items-center gap-2.5 text-xs font-semibold text-[#D96B43] cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={profManhaAtivo}
-                            onChange={(e) => setProfManhaAtivo(e.target.checked)}
-                        />
-                        <Sun className="w-4 h-4" />{textoR4("Liberar manhã (turnos de 100 min)")}</label>
-
-                    {profManhaAtivo && (
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label
-                                    className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                >{textoR4("Início Manhã")}</label>
-                                <input
-                                    type="time"
-                                    value={profManhaInicio}
-                                    onChange={(e) => setProfManhaInicio(e.target.value)}
-                                    className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
-                                />
-                            </div>
-                            <div>
-                                <label
-                                    className={`block text-[11px] mb-1 ${clsSubtexto}`}
-                                >{textoR4("Fim Manhã")}</label>
-                                <input
-                                    type="time"
-                                    value={profManhaFim}
-                                    onChange={(e) => setProfManhaFim(e.target.value)}
-                                    className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
-                                />
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                    <div>
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Início Tarde")}</label>
-                        <input
-                            type="time"
-                            value={profInicio}
-                            onChange={(e) => setProfInicio(e.target.value)}
-                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
-                        />
-                    </div>
-                    <div>
-                        <label className={`block text-xs mb-1 ${clsSubtexto}`}>{textoR4("Fim Tarde")}</label>
-                        <input
-                            type="time"
-                            value={profFim}
-                            onChange={(e) => setProfFim(e.target.value)}
-                            className={`w-full border rounded-xl px-3.5 py-2.5 text-sm ${clsInput}`}
-                        />
-                    </div>
-                </div>
-
-                {previewSlotsNovoProf.length > 0 && (
-                    <div
-                        className={`text-[11px] border rounded-xl p-2.5 ${clsSubCard} ${clsSubtexto}`}
-                    >
-                        <strong className="text-[#1496A1]">{textoR4("Turnos (")}{previewSlotsNovoProf.length}):
-                        </strong>{' '}
-                        {previewSlotsNovoProf.map((s) => s.label).join(' • ')}
-                    </div>
-                )}
-
-                <button
-                    type="submit"
-                    disabled={cadastrandoProf}
-                    className="w-full py-3 px-4 r4-acao disabled:opacity-50  font-semibold rounded-xl text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
-                >
-                    <Plus className="w-4 h-4" />
-                    {cadastrandoProf ? textoR4("Cadastrando...") : textoR4("Cadastrar Professor")}
-                </button>
-            </form>
-
-            <div
-                {...layout?.item("lista", "colunas", "Lista de professores")} className={`lg:col-span-7 border rounded-2xl p-6 space-y-4 ${clsCard}`}
-            >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Professores Cadastrados (")}{professoresFiltrados.length})
-                    </h3>
-
-                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                        <div className="relative flex-1 sm:w-52">
-                            <Search
-                                className={`w-3.5 h-3.5 absolute left-3 top-2.5 ${clsSubtexto}`}
-                            />
-                            <input
-                                type="text"
-                                value={buscaProf}
-                                onChange={(e) => setBuscaProf(e.target.value)}
-                                placeholder={textoR4("Buscar professor ou matéria...")}
-                                className={`w-full border rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none ${clsInput}`}
-                            />
-                        </div>
-
-                        <select
-                            value={filtroUnidadeLista}
-                            onChange={(e) => setFiltroUnidadeLista(e.target.value)}
-                            className={`border rounded-xl px-3 py-1.5 text-xs focus:outline-none ${clsInput}`}
-                        >
-                            <option value="todas">{textoR4("Todas unidades")}</option>
-                            {unidadesAtivas.map((u) => (
-                                <option key={u.id} value={String(u.id)}>
-                                    {u.nome}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-
-                <div className="space-y-2.5 max-h-[760px] overflow-y-auto pr-1">
-                    {professoresFiltrados.map((p) => {
-                        const editandoEste = editProfId === p.id;
-                        const slotsProf = gerarTodosSlotsProfessor(p);
-                        const mapaSeries = p.materias_series || {};
-
-                        if (editandoEste) {
-                            return (
-                                <form
-                                    key={p.id}
-                                    onSubmit={(e) => void salvarEdicaoProfessor(e)}
-                                    className={`border border-[#0E7C86] rounded-xl p-4 space-y-3 ${clsSubCard}`}
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs font-bold uppercase text-[#1496A1]">{textoR4("Editando Professor(a)")}</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setEditProfId(null)}
-                                            className={`cursor-pointer ${clsSubtexto}`}
-                                        >
-                                            <X className="w-4 h-4" />
-                                        </button>
-                                    </div>
-
-                                    <input
-                                        type="text"
-                                        required
-                                        value={editProfNome}
-                                        onChange={(e) => setEditProfNome(e.target.value)}
-                                        className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
-                                    />
-
-                                    <div
-                                        className={`border rounded-xl p-2.5 space-y-2 ${clsCard}`}
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[11px] font-bold text-[#1496A1]">{textoR4("Unidades habilitadas (selecione 1 ou mais)")}</span>
-                                            <span className={`text-[10px] ${clsSubtexto}`}>
-                                                {editProfUnidadesIds.length}{' ' + textoR4("selecionada(s)")}</span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {unidadesAtivas.map((u) => {
-                                                const marcada = editProfUnidadesIds.includes(
-                                                    u.id
-                                                );
-                                                return (
-                                                    <button
-                                                        key={u.id}
-                                                        type="button"
-                                                        onClick={() =>
-                                                            alternarUnidadeEdicao(u.id)
-                                                        }
-                                                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                                                            marcada
-                                                                ? 'bg-[#0E7C86] border-[#1496A1] text-white'
-                                                                : `${clsSubCard} ${clsSubtexto} hover:border-[#0E7C86]`
-                                                        }`}
-                                                    >
-                                                        {marcada && (
-                                                            <Check className="w-3.5 h-3.5" />
-                                                        )}
-                                                        {u.nome}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    <input
-                                        type="text"
-                                        required
-                                        value={editProfMaterias}
-                                        onChange={(e) =>
-                                            setEditProfMaterias(e.target.value)
-                                        }
-                                        className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
-                                    />
-
-                                    <SeletorSeriesPorMateria
-                                        materiasTexto={editProfMaterias}
-                                        mapaAtual={editProfMateriasSeries}
-                                        onChangeMapa={setEditProfMateriasSeries}
-                                        escuro={escuro}
-                                    />
-
-                                    <div
-                                        className={`border rounded-xl p-2.5 space-y-2 ${clsCard}`}
-                                    >
-                                        <label className="flex items-center gap-2 text-xs font-semibold text-[#D96B43] cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={editProfManhaAtivo}
-                                                onChange={(e) =>
-                                                    setEditProfManhaAtivo(e.target.checked)
-                                                }
-                                            />
-                                            <Sun className="w-3.5 h-3.5" />{textoR4("Liberar aulas pela manhã (100 min)")}</label>
-
-                                        {editProfManhaAtivo && (
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <input
-                                                    type="time"
-                                                    value={editProfManhaInicio}
-                                                    onChange={(e) =>
-                                                        setEditProfManhaInicio(e.target.value)
-                                                    }
-                                                    className={`w-full border rounded-lg px-2.5 py-1.5 text-xs ${clsInput}`}
-                                                />
-                                                <input
-                                                    type="time"
-                                                    value={editProfManhaFim}
-                                                    onChange={(e) =>
-                                                        setEditProfManhaFim(e.target.value)
-                                                    }
-                                                    className={`w-full border rounded-lg px-2.5 py-1.5 text-xs ${clsInput}`}
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <input
-                                            type="text"
-                                            placeholder={textoR4("ID Clin Care")}
-                                            value={editProfClinCareId}
-                                            onChange={(e) =>
-                                                setEditProfClinCareId(e.target.value)
-                                            }
-                                            className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
-                                        />
-                                        <input
-                                            type="time"
-                                            value={editProfInicio}
-                                            onChange={(e) =>
-                                                setEditProfInicio(e.target.value)
-                                            }
-                                            className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
-                                        />
-                                        <input
-                                            type="time"
-                                            value={editProfFim}
-                                            onChange={(e) => setEditProfFim(e.target.value)}
-                                            className={`w-full border rounded-lg px-3 py-2 text-xs ${clsInput}`}
-                                        />
-                                    </div>
-
-                                    <div className="flex justify-end gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setEditProfId(null)}
-                                            className={`px-3 py-1.5 rounded-lg border text-xs cursor-pointer ${clsCard}`}
-                                        >{textoR4("Cancelar")}</button>
-                                        <button
-                                            type="submit"
-                                            disabled={salvandoProf}
-                                            className="px-3.5 py-1.5 rounded-lg bg-[#0E7C86] text-xs font-semibold text-white inline-flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                            <Save className="w-3.5 h-3.5" />
-                                            {salvandoProf ? textoR4("Salvando...") : textoR4("Salvar")}
-                                        </button>
-                                    </div>
-                                </form>
-                            );
+            </header>
+            <nav className="flex flex-wrap gap-2" aria-label="Seções do professor">
+                <Link className={css.botao} href={perfil} aria-current={!vinculos ? 'page' : undefined}
+                    {...layout?.item('professor_dados', 'abas_professor', 'Dados e grade de horários')}>Dados e grade de horários</Link>
+                <Link className={css.botao} href={perfil + '&secao=vinculos'} aria-current={vinculos ? 'page' : undefined}
+                    {...layout?.item('professor_vinculos', 'abas_professor', 'Vínculos e agendamentos')}>Vínculos e agendamentos</Link>
+            </nav>
+            {mensagem && <p role={mensagem.erro ? 'alert' : 'status'}>{mensagem.texto}</p>}
+            <div hidden={vinculos} className={css.painel} {...layout?.item("professor_formulario", "dados_professor", "Dados e grade de horários")}>
+                <FormularioProfessor key={professor.id + ':' + versaoForm} professor={professor} unidades={unidadesAtivas}
+                    escuro={escuro} classes={classes} formId="editar-professor" pendente={pendente} setPendente={setPendente}
+                    aoSalvar={async (dados) => {
+                        // A edição pode remover a unidade do ID atual. A API mantém o menor ID elegível.
+                        const ordenados = [...registros].sort((a, b) => a.id - b.id);
+                        const mantidos = new Map<number, number>();
+                        for (const p of ordenados) {
+                            if (dados.unidades_ids.includes(p.unidade_id) && !mantidos.has(p.unidade_id)) {
+                                mantidos.set(p.unidade_id, p.id);
+                            }
                         }
-
-                        return (
-                            <div
-                                key={p.id}
-                                className={`flex flex-wrap items-center justify-between gap-3 border rounded-xl p-3.5 ${clsSubCard}`}
-                            >
-                                <div className="space-y-1">
-                                    <p className={`font-bold text-sm ${clsTitulo}`}>
-                                        {p.nome}{' '}
-                                        <span className="text-xs font-medium text-[#1496A1]">
-                                            • {p.unidades_nomes.join(' • ')}
-                                        </span>
-                                    </p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {(p.materias || []).map((mat) => {
-                                            const chave = Object.keys(mapaSeries).find(
-                                                (k) =>
-                                                    k.trim().toLowerCase() ===
-                                                    mat.toLowerCase()
-                                            );
-                                            const seriesMat = chave ? mapaSeries[chave] : [];
-                                            const restrito = seriesMat.length > 0;
-
-                                            return (
-                                                <span
-                                                    key={mat}
-                                                    className={`text-[11px] px-2 py-0.5 rounded-md border ${
-                                                        restrito
-                                                            ? 'bg-[#0E7C86]/15 border-[#0E7C86]/40 text-[#25A4AF]'
-                                                            : `${clsCard} ${clsSubtexto}`
-                                                    }`}
-                                                >
-                                                    <strong>{mat}</strong>:{' '}
-                                                    {resumirSeriesCurto(seriesMat)}
-                                                </span>
-                                            );
-                                        })}
-                                    </div>
-                                    <p className={`text-[11px] ${clsSubtexto}`}>
-                                        {p.manha_ativo && (
-                                            <span className="text-[#D96B43] font-medium">{textoR4("Manhã:") + ' '}{p.manha_inicio}{' ' + textoR4("às") + ' '}{p.manha_fim} •{' '}
-                                            </span>
-                                        )}{textoR4("Tarde/Noite:") + ' '}{p.hora_inicio}{' ' + textoR4("às") + ' '}{p.hora_fim} (
-                                        {slotsProf.length}{' ' + textoR4("turnos)")}</p>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => iniciarEdicaoProfessor(p)}
-                                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer ${clsCard}`}
-                                    >
-                                        <Edit3 className="w-3.5 h-3.5" />{' ' + textoR4("Editar")}</button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            void alternarProfessor(p.id, !p.ativo)
-                                        }
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
-                                            p.ativo
-                                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/35'
-                                                : 'bg-stone-500/20 text-stone-400'
-                                        }`}
-                                    >
-                                        {p.ativo ? textoR4("Ativo") : textoR4("Pausado")}
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                        const proximoId = [...mantidos.values()].includes(id)
+                            ? id : mantidos.values().next().value ?? ordenados[0]?.id ?? id;
+                        await onRecarregarDadosAction();
+                        if (proximoId !== id) router.replace(rota + '?professor=' + proximoId);
+                        setVersaoForm((valor) => valor + 1);
+                        setMensagem({ erro: false, texto: 'Alterações salvas.' });
+                    }} />
             </div>
-        </section>
-    );
+            {vinculos && <VinculosProfessor registros={registros}
+                agendamentos={agendamentos} unidades={unidades} />}
+        </>}
+    </div>;
+
+    return <section className="grid gap-4" {...layout?.item('lista', 'colunas', 'Lista de professores')}>
+        <header className={css.painel + ' ' + css.toolbar} {...layout?.item("professores_filtros", "listagem_professores", "Filtros e ações")}>
+            <h2 className="font-bold">{t('Professores Cadastrados (')}{filtrados.length})</h2>
+            <div className={css.filtros}>
+                <label className={css.busca}><Search size={16} aria-hidden="true" />
+                    <input aria-label="Buscar professor ou matéria" type="search" placeholder={t('Buscar professor ou matéria...')}
+                        value={busca} onChange={(e) => setBusca(e.target.value)} /></label>
+                <select aria-label="Unidade" value={unidade} onChange={(e) => setUnidade(e.target.value)}>
+                    <option value="todas">{t('Todas unidades')}</option>
+                    {unidadesAtivas.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                </select>
+                <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+                    <option value="todos">Todos</option><option value="ativos">Ativos</option><option value="pausados">Pausados</option>
+                </select>
+                <button type="button" className={css.botao + ' r4-acao'} onClick={() => {
+                    setNovo(true);
+                    modal.current?.showModal();
+                }}><Plus size={16} /> Novo Professor</button>
+            </div>
+        </header>
+        {filtrados.length ? <div className={css.grade} {...layout?.item("professores_grade", "listagem_professores", "Cards de professores")}>{filtrados.map((p) => <CartaoProfessor key={p.id} professor={p} />)}</div> :
+            <p className={css.painel} role="status">Nenhum professor encontrado com esses filtros.</p>}
+        <dialog ref={modal} className={css.modal} aria-labelledby="novo-professor-titulo"
+            onCancel={(e) => { if (pendente) e.preventDefault(); }} onClose={() => setNovo(false)}>
+            <div className={css.topoModal}>
+                <h2 id="novo-professor-titulo" className="font-bold">Novo Professor</h2>
+                <button type="button" className={css.botao} aria-label="Fechar" onClick={fecharModal} disabled={pendente}><X size={17} /></button>
+            </div>
+            <div className={css.corpoModal}>{novo && <FormularioProfessor unidades={unidadesAtivas} escuro={escuro} classes={classes}
+                formId="novo-professor" pendente={pendente} setPendente={setPendente}
+                aoSalvar={async () => { await onRecarregarDadosAction(); fecharModal(); }} />}</div>
+            <footer className={css.acoesModal}>
+                <button type="button" className={css.botao} onClick={fecharModal} disabled={pendente}>Cancelar</button>
+                <button type="submit" form="novo-professor" className={css.botao + ' r4-acao'} disabled={pendente}>
+                    {pendente ? 'Cadastrando…' : 'Cadastrar Professor'}
+                </button>
+            </footer>
+        </dialog>
+    </section>;
 }

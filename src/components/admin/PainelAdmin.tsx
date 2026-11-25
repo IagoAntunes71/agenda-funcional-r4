@@ -1176,7 +1176,7 @@ export default function PainelAdmin({
                                 : 'max-w-[1440px]'
                         } mx-auto flex flex-wrap items-center justify-between gap-4`}
                     >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 sm:gap-6">
                             {inicio && <button
                                 type="button"
                                 onClick={() => setMenuMobileAberto(true)}
@@ -1297,6 +1297,7 @@ export default function PainelAdmin({
                         mapa
                             ? 'max-w-full px-3 sm:px-5 py-4'
                             : aba === 'recepcao' ? 'max-w-[1728px] px-4 sm:px-6 py-5'
+                            : aba === 'professores' ? 'max-w-full px-4 sm:px-8 py-6'
                             : 'max-w-[1440px] px-4 sm:px-8 py-6'
                     } w-full mx-auto transition-all`}
                 >
@@ -1954,6 +1955,7 @@ export default function PainelAdmin({
 
                     {aba === 'professores' && (admin ? (
                         <AbaProfessores
+                            agendamentos={agendamentos}
                             unidades={unidades}
                             professores={professores}
                             escuro={escuro}

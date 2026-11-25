@@ -313,17 +313,16 @@ export default function AbaAlunos({
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                     <div className="md:col-span-7">
                         <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Buscar por Responsável, Número de WhatsApp, Aluno ou Colégio")}</label>
-                        <div className="relative">
+                        <div className="flex items-center gap-2">
                             <Search
-                                className={`w-4 h-4 absolute left-3.5 top-3 ${clsSubtexto}`}
+                                className={`w-4 h-4 shrink-0 ${clsSubtexto}`}
                             />
                             <input
                                 type="text"
                                 value={buscaAluno}
                                 onChange={(e) => setBuscaAluno(e.target.value)}
                                 placeholder={textoR4("Digite nome do responsável, aluno ou telefone...")}
-                                style={{ paddingLeft: '40px' }}
-                                className={`w-full border rounded-xl pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
+                                className={`min-w-0 flex-1 pl-3 border rounded-xl pr-3.5 py-2.5 text-sm focus:outline-none ${clsInput}`}
                             />
                         </div>
                     </div>
