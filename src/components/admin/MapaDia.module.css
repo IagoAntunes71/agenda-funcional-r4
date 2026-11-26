@@ -334,3 +334,64 @@
     overflow-wrap: anywhere;
     font-size: 11px;
 }
+
+.mapa { gap: 8px; min-width: 0; }
+.scroll[data-expandido='true'] { max-height: max(300px, calc(100dvh - 220px)); }
+.grade { width: 100%; }
+.cabecalho { display: flex; flex-direction: column; justify-content: space-between; }
+.canto { justify-content: center; }
+.mapa .professor {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    gap: 3px;
+    padding: 6px 26px 5px;
+}
+.professor > div { width: 100%; }
+.professor .avatar { border-radius: 50%; }
+.ocultarProfessor, .recolherSemana {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--muted);
+    opacity: .55;
+}
+.recolherSemana { right: auto; left: 8px; }
+.ocultarProfessor svg, .recolherSemana svg { width: 14px; height: 14px; }
+.ocultarProfessor:is(:hover, :focus-visible), .recolherSemana:is(:hover, :focus-visible) {
+    opacity: 1;
+    color: var(--accent);
+    background: var(--wash);
+}
+.diasProfessor {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+}
+.diasProfessor span { padding: 5px 2px; }
+.diasProfessor span + span { border-inline-start: 1px solid var(--line); }
+.diasProfessor span[data-atual='true'] { background: var(--wash); color: var(--accent); font-weight: 700; }
+.mapa .aula {
+    min-height: 0;
+    padding: 4px 6px 4px 8px;
+    line-height: 13px;
+}
+.mapa .aula > * { flex-shrink: 0; min-width: 0; max-width: 100%; }
+.mapa .aula strong {
+    display: block;
+    margin: 0;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.mapa .aula[data-compacta='true'] > * { font-size: 11px; }
+.mapa .aula[data-compacta='true'] .aulaHora svg { width: 10px; height: 10px; }
+.mapa .aula[data-curta='true'] { padding-block: 1px; line-height: 11px; }

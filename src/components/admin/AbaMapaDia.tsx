@@ -42,6 +42,7 @@ import {
 import { filtrarMateriasVisiveis } from '@/lib/cliente-helpers';
 import { adicionarDiasISO, horaParaMinutos, minutosParaHora } from '@/lib/horarios-reforco';
 import {
+    alturaSlotMapa,
     distribuirSobreposicoes,
     intervaloAula,
     intervaloBloqueio,
@@ -209,8 +210,7 @@ export default function AbaMapaDia({
     const [semanaExpandida, setSemanaExpandida] = useState<number | null>(null);
     const [alturaTela, setAlturaTela] = useState(900);
     const mapaRef = useRef<HTMLElement>(null);
-    const alturaSlot = apresentacao ? Math.max(16, Math.min(36,
-        Math.floor((alturaTela - 200) / ((fimMapa - inicioMapa) / cfg.intervalo)))) : 36;
+    const alturaSlot = alturaSlotMapa(cfg.intervalo, apresentacao ? alturaTela : undefined, fimMapa - inicioMapa);
     const horariosGrade = Array.from({ length: (fimMapa - inicioMapa) / cfg.intervalo }, (_, i) => inicioMapa + i * cfg.intervalo);
     const alturaGrade = horariosGrade.length * alturaSlot;
     const posicao = (minuto: number) => (minuto - inicioMapa) * alturaSlot / cfg.intervalo;
@@ -416,13 +416,18 @@ export default function AbaMapaDia({
     const colunasVisiveis = semana ? colunasCalculadas : colunasCalculadas.filter(({ prof }) =>
         !ocultos.includes(prof.id) && (!somenteComAula || professoresComAula.has(prof.id)));
 
-    const idColunaLayout = (coluna: (typeof colunasVisiveis)[number]) =>
-        semana ? 'dia_' + new Date(coluna.data + 'T12:00:00Z').getUTCDay() :
-        coluna.prof.id === semanaExpandida ? 'professor_' + coluna.prof.id + '_dia_' +
-            new Date(coluna.data + 'T12:00:00Z').getUTCDay() : 'professor_' + coluna.prof.id;
-    const colunas = [...colunasVisiveis]
-        .filter((coluna) => !layout?.layout[idColunaLayout(coluna)]?.oculto)
-        .sort((a, b) => (layout?.layout[idColunaLayout(a)]?.order ?? 1000) - (layout?.layout[idColunaLayout(b)]?.order ?? 1000));
+    const gruposColunas = colunasVisiveis.reduce<{ id: string; dias: typeof colunasVisiveis }[]>((grupos, coluna) => {
+        const id = semana ? 'dia_' + new Date(coluna.data + 'T12:00:00Z').getUTCDay() : 'professor_' + coluna.prof.id;
+        const anterior = grupos.at(-1);
+        if (anterior?.id === id) anterior.dias.push(coluna);
+        else grupos.push({ id, dias: [coluna] });
+        return grupos;
+    }, []).filter(({ id }) => !layout?.layout[id]?.oculto)
+        .sort((a, b) => (layout?.layout[a.id]?.order ?? 1000) - (layout?.layout[b.id]?.order ?? 1000));
+    const colunas = gruposColunas.flatMap(({ dias }) => dias);
+    const temSemanaExpandida = gruposColunas.some(({ dias }) => dias.length > 1);
+    const larguraColunas = gruposColunas.map(({ dias }) => dias.length > 1 ? 'repeat(7, 112px)' :
+        temSemanaExpandida ? 'minmax(175px, 1fr)' : `minmax(${apresentacao ? 118 : semana ? 150 : 190}px, 1fr)`).join(' ');
 
     const resumoAulas = new Map(colunasVisiveis.flatMap((coluna) =>
         coluna.aulas.map(({ aula }) => [aula.id, aula] as const)));
@@ -856,7 +861,7 @@ export default function AbaMapaDia({
                             <input type="checkbox" checked={somenteComAula} onChange={(e) => setSomenteComAula(e.target.checked)} /> Só professores com aula
                         </label>}
                         {!semana && ocultos.length > 0 && <button type="button" className={styles.botao}
-                            onClick={() => setOcultos([])}>Restaurar colunas ({ocultos.length})</button>}
+                            onClick={() => setOcultos([])}>+ Mostrar professores ocultos ({ocultos.length})</button>}
                         <button type="button" className={styles.botao} onClick={() => void alternarApresentacao()}>
                             {apresentacao ? 'Sair da tela cheia' : 'Tela cheia'}
                         </button>
@@ -878,13 +883,15 @@ export default function AbaMapaDia({
                         className={styles.scroll} data-expandido={modoTelaCheia} data-arrastando={Boolean(aulaArrastando)}
                         tabIndex={0} aria-label={textoR4("Grade de horários")}>
                         <div className={styles.grade} style={{
-                            gridTemplateColumns: `64px repeat(${colunas.length}, minmax(${apresentacao ? 118 : semana ? 150 : 171}px, 1fr))`,
+                            gridTemplateColumns: `58px ${larguraColunas}`,
                         }}>
                             <div className={`${styles.cabecalho} ${styles.canto}`}>{textoR4("Horário")}</div>
-                            {colunas.map((coluna) => {
-                                const { chave, prof, data } = coluna;
-                                const props = layout?.item(idColunaLayout(coluna), 'mapa_colunas', semana ? formatarDiaCurtoPT(data) : prof.nome);
-                                return <div className={styles.cabecalho} key={chave} {...props} style={{ ...props?.style, order: undefined }}>
+                            {gruposColunas.map(({ id, dias }) => {
+                                const [{ prof, data }] = dias;
+                                const expandida = dias.length > 1;
+                                const props = layout?.item(id, 'mapa_colunas', semana ? formatarDiaCurtoPT(data) : prof.nome);
+                                return <div className={styles.cabecalho} key={id} {...props}
+                                    style={{ ...props?.style, order: undefined, gridColumn: `span ${dias.length}` }}>
                                     {semana ? (
                                         <div className={styles.professor}>
                                             <span className={styles.avatar}><Calendar /></span>
@@ -892,22 +899,35 @@ export default function AbaMapaDia({
                                         </div>
                                     ) : (
                                         <>
+                                            <button type="button" className={styles.ocultarProfessor} aria-label={`Ocultar ${prof.nome}`}
+                                                title="Ocultar professor da grade" onClick={() => {
+                                                    setOcultos((atuais) => [...atuais, prof.id]);
+                                                    if (expandida) setSemanaExpandida(null);
+                                                }}><X /></button>
                                             <div className={styles.professor}>
                                                 <span className={styles.avatar}>{obterIniciais(prof.nome)}</span>
                                                 <div>
                                                     <strong title={prof.nome}>{prof.nome}</strong>
-                                                    {todasUnidades && <small className={styles.unidadeProfessor}>{prof.unidade_nome}</small>}
+                                                    {prof.unidade_nome && <small className={styles.unidadeProfessor}>{prof.unidade_nome}</small>}
                                                     <small title={filtrarMateriasVisiveis(prof.materias).join(' · ')}>
                                                         {filtrarMateriasVisiveis(prof.materias).join(' · ') || '—'}
                                                     </small>
                                                 </div>
                                             </div>
-                                            <div className={styles.dataProfessor} data-individual={data !== dataGlobal}>
+                                            {expandida ? (
+                                                <>
+                                                    <button type="button" className={styles.recolherSemana} onClick={() => setSemanaExpandida(null)}
+                                                        aria-label={`Recolher semana de ${prof.nome}`} title="Recolher semana"><ChevronLeft /></button>
+                                                    <div className={styles.diasProfessor}>
+                                                        {dias.map((dia) => <span key={dia.chave} data-atual={dia.data === dataGlobal}>
+                                                            {formatarDiaCurtoPT(dia.data)}
+                                                        </span>)}
+                                                    </div>
+                                                </>
+                                            ) : <div className={styles.dataProfessor} data-individual={data !== dataGlobal}>
                                                 <button type="button" aria-label={`Semana de ${prof.nome}`} title="Expandir ou recolher semana"
                                                     aria-pressed={semanaExpandida === prof.id}
                                                     onClick={() => setSemanaExpandida((atual) => atual === prof.id ? null : prof.id)}><Calendar /></button>
-                                                <button type="button" aria-label={`Ocultar ${prof.nome}`} title="Ocultar coluna"
-                                                    onClick={() => setOcultos((atuais) => [...atuais, prof.id])}><X /></button>
                                                 <button type="button" aria-label={`Dia anterior para ${prof.nome}`}
                                                     onClick={() => alterarDataProfessor(prof.id, adicionarDiasISO(data, -1))}><ChevronLeft /></button>
                                                 <label className={styles.data}>
@@ -917,7 +937,7 @@ export default function AbaMapaDia({
                                                 </label>
                                                 <button type="button" aria-label={`Próximo dia para ${prof.nome}`}
                                                     onClick={() => alterarDataProfessor(prof.id, adicionarDiasISO(data, 1))}><ChevronRight /></button>
-                                            </div>
+                                            </div>}
                                         </>
                                     )}
                                 </div>;
@@ -975,7 +995,8 @@ export default function AbaMapaDia({
                                         const meta = obterMetaStatusR4(aula.status);
                                         return (
                                             <button type="button" key={aula.id} className={styles.aula}
-                                                title={`${aula.nome_aluno} · ${aula.materia} · ${formatarIntervaloCard(aula)}`}
+                                                title={`${aula.nome_aluno} · ${aula.materia} · ${formatarIntervaloCard(aula)} · ${aula.unidade_nome || ""} · ${meta.rotulo}`}
+                                                data-compacta={semana || prof.id === semanaExpandida} data-curta={fim - inicio < 45}
                                                 data-status={meta.valor} data-dividida={totalFaixas > 1} data-arrastando={aulaArrastando?.id === aula.id}
                                                 aria-label={`${aula.nome_aluno}, ${aula.materia}, ${formatarIntervaloCard(aula)}, ${textoR4(meta.rotulo)}`}
                                                 style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
