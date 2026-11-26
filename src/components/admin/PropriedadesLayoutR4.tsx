@@ -119,6 +119,14 @@ function Propriedades({ editor, id }: { editor: Editor; id: string }) {
                 <button key={fundo} type="button" style={{ background: fundo }} aria-label={'Fundo ' + fundo}
                     aria-pressed={pos.fundo === fundo} onClick={() => alterar({ fundo })} />)}</div>
         </>}
+        {id === 'bloco_feedback' && <>
+            <Cor titulo="Início do degradê" valor={pos.corBarraInicio}
+                fallback={editor.nomeTema === 'Escuro' ? '#9070ff' : '#6745ce'}
+                alterar={(corBarraInicio) => alterar({ corBarraInicio })} />
+            <Cor titulo="Fim do degradê" valor={pos.corBarraFim}
+                fallback={editor.nomeTema === 'Escuro' ? '#ff715c' : '#d84441'}
+                alterar={(corBarraFim) => alterar({ corBarraFim })} />
+        </>}
         <Cor titulo="Cor geral do card" valor={pos.corTexto} fallback="#0f172a" alterar={(corTexto) => alterar({ corTexto })} />
         <Cor titulo="Cor dos ícones" valor={pos.corIcone} fallback="#0e7c86" alterar={(corIcone) => alterar({ corIcone })} />
         {permiteDestino && <Opcoes titulo="Destino do atalho" valor={pos.modulo} opcoes={MODULOS_ADMIN}

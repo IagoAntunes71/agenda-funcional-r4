@@ -35,6 +35,8 @@ export type PosicaoLayout = {
     superficie?: typeof SUPERFICIES[number];
     fundo?: string;
     corTexto?: string;
+    corBarraInicio?: string;
+    corBarraFim?: string;
     corIcone?: string;
     modulo?: ModuloAdmin;
     icone?: typeof ICONES_CARDS[number];
@@ -69,13 +71,13 @@ export function validarLayoutAdmin(valor: unknown): LayoutAdmin | null {
     const layout: LayoutAdmin = {};
     for (const [id, item] of Object.entries(valor)) {
         if (!/^(bloco|semana|unidade|acao|atalho|meta|custom|texto)_[a-zA-Z0-9_%.-]{1,160}$/.test(id) || !objeto(item)) return null;
-        const { order, offsetX, offsetY, oculto, largura, espacamento, superficie, fundo, corTexto, corIcone, modulo, icone, card, textos, textoLivre } = item as Partial<PosicaoLayout>;
+        const { order, offsetX, offsetY, oculto, largura, espacamento, superficie, fundo, corTexto, corBarraInicio, corBarraFim, corIcone, modulo, icone, card, textos, textoLivre } = item as Partial<PosicaoLayout>;
         if (order !== undefined && (!Number.isSafeInteger(order) || order < 0 || order > 800)) return null;
         if (typeof offsetX !== 'number' || !Number.isSafeInteger(offsetX) || Math.abs(offsetX) > LIMITE_OFFSET_LAYOUT ||
             typeof offsetY !== 'number' || !Number.isSafeInteger(offsetY) || Math.abs(offsetY) > LIMITE_OFFSET_LAYOUT) return null;
         if ((oculto !== undefined && typeof oculto !== 'boolean') ||
             !opcional(largura, LARGURAS) || !opcional(espacamento, ESPACAMENTOS) || !opcional(superficie, SUPERFICIES) ||
-            !opcional(icone, ICONES_CARDS) || !cor(fundo) || !cor(corTexto) || !cor(corIcone) ||
+            !opcional(icone, ICONES_CARDS) || !cor(fundo) || !cor(corTexto) || !cor(corBarraInicio) || !cor(corBarraFim) || !cor(corIcone) ||
             (modulo !== undefined && !moduloLayout(modulo))) return null;
         if (id.startsWith('texto_') !== Boolean(textoLivre)) return null;
         if (textoLivre && (!objeto(textoLivre) || typeof textoLivre.alvo !== 'string' ||
@@ -95,7 +97,7 @@ export function validarLayoutAdmin(valor: unknown): LayoutAdmin | null {
                 textosValidados[campo as CampoTextoLayout] = { texto, fonte, tamanho, peso, cor: corTextoCampo };
             }
         }
-        layout[id] = { order, offsetX, offsetY, oculto, largura, espacamento, superficie, fundo, corTexto, corIcone, modulo, icone,
+        layout[id] = { order, offsetX, offsetY, oculto, largura, espacamento, superficie, fundo, corTexto, corBarraInicio, corBarraFim, corIcone, modulo, icone,
             textoLivre: textoLivre ? { alvo: textoLivre.alvo, x: textoLivre.x, y: textoLivre.y } : undefined,
             card: card ? { grupo: card.grupo, tipo: card.tipo } : undefined, textos: textos === undefined ? undefined : textosValidados };
     }

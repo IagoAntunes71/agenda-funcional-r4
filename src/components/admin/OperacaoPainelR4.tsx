@@ -175,6 +175,10 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
         const totais = atual?.metas?.reduce((acc, meta) => ({
             total: acc.total + meta.total, feitos: acc.feitos + meta.feitos, vencidos: acc.vencidos + meta.vencidos,
         }), { total: 0, feitos: 0, vencidos: 0 });
+        const { corBarraInicio, corBarraFim } = editorLayout?.layout.bloco_feedback ?? {};
+        const degrade = corBarraInicio || corBarraFim
+            ? `linear-gradient(90deg, ${corBarraInicio ?? 'var(--feedback-inicio)'}, ${corBarraFim ?? 'var(--feedback-fim)'})`
+            : undefined;
         const percentual = totais?.total ? Math.floor(100 * totais.feitos / totais.total) : 0;
         return <div className="grid gap-3">
             <article className={feedbackCss.card}>
@@ -189,8 +193,14 @@ export function RelatorioOperacaoR4({ painel, perfil, unidades = [], compacto = 
                     <div className={feedbackCss.progresso}>
                         <span><TextoLayoutR4 id="bloco_feedback" campo="rotulo" texto="Progresso do mês atual" /></span>
                         <strong>{percentual}%</strong>
-                        <progress aria-label="Progresso geral dos feedbacks" max={100} value={percentual}
-                            data-faixa={percentual >= 85 ? 'alta' : percentual >= 50 ? 'media' : 'baixa'} />
+                        <div className={feedbackCss.trilho} role="progressbar" aria-label="Progresso geral dos feedbacks"
+                            aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentual}>
+                            {percentual > 0 && <span className={feedbackCss.preenchimento}
+                                style={{ background: degrade, clipPath: `inset(0 ${100 - percentual}% 0 0 round 999px)` }} />}
+                        </div>
+                        <div className={feedbackCss.escala} aria-hidden="true">
+                            {[0, 20, 40, 60, 80, 100].map((marco) => <span key={marco}>{marco}%</span>)}
+                        </div>
                     </div>
                     <dl className={feedbackCss.numeros}>
                         <div><dt><TextoLayoutR4 id="bloco_feedback" campo="feitos" texto="Feitos" /></dt><dd>{totais.feitos}</dd></div>
