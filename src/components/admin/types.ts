@@ -16,6 +16,7 @@ export interface UnidadeAdmin {
 }
 
 export interface ProfessorAdmin {
+    foto_url?: string | null;
     id: number;
     nome: string;
     grupo_professor: string | null;

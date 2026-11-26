@@ -1,13 +1,14 @@
 'use client';
 import { useOperacaoR4 } from './OperacaoPainelR4';
+import { SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { podeOperacao } from '@/lib/operacao-r4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Ban, CalendarPlus, Check, Plus, Search, UserPlus, X } from 'lucide-react';
 import { RoleSistema } from '@/lib/admin-auth';
-import { materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
+import { materiasBase } from '@/lib/materia-aula';
 import { formatarDuracaoLabel } from '@/lib/agenda-status-r4';
 import {
     formatarDataBR,
@@ -75,9 +76,6 @@ export default function ModalNovoAgendamentoR4({
     const [duracaoHoras, setDuracaoHoras] = useState<number>(1);
     const [duracaoMinutos, setDuracaoMinutos] = useState<number>(40);
     const [recorrencia, setRecorrencia] = useState<number>(1);
-    const [statusInicial, setStatusInicial] = useState<'agendado' | 'confirmado'>('agendado');
-    const [observacoes, setObservacoes] = useState<string>('');
-
     const [buscaAluno, setBuscaAluno] = useState<string>('');
     const [alunoId, setAlunoId] = useState<number>(0);
     const [alunosAdicionais, setAlunosAdicionais] = useState<number[]>([]);
@@ -105,6 +103,29 @@ export default function ModalNovoAgendamentoR4({
     const [novoTelefone, setNovoTelefone] = useState<string>('');
     const [novoColegio, setNovoColegio] = useState<string>('');
     const [novoSerie, setNovoSerie] = useState<string>('');
+    const [listaAberta, setListaAberta] = useState(false);
+    const [opcaoAtiva, setOpcaoAtiva] = useState(0);
+    const listaId = useId();
+    const [colegios, setColegios] = useState<{ id: number; nome: string }[]>([]);
+    const [colegioId, setColegioId] = useState('');
+    const [criarColegio, setCriarColegio] = useState(false);
+    const [erroColegios, setErroColegios] = useState(false);
+
+    useEffect(() => {
+        if (!aberto || !cadastroRapido) return;
+        const pedido = new AbortController();
+        fetch('/api/admin/colegios?lista=agendamento', { signal: pedido.signal, cache: 'no-store' })
+            .then(async (resposta) => {
+                if (!resposta.ok) throw new Error('Colégios indisponíveis');
+                const dados = await resposta.json();
+                if (!pedido.signal.aborted) {
+                    setColegios(dados.colegios);
+                    setErroColegios(false);
+                }
+            }).catch(() => { if (!pedido.signal.aborted) setErroColegios(true); });
+        return () => pedido.abort();
+    }, [aberto, cadastroRapido]);
+
 
     const [tituloBloqueio, setTituloBloqueio] = useState<string>('Indisponível');
     const [descricaoBloqueio, setDescricaoBloqueio] = useState<string>('');
@@ -139,6 +160,7 @@ export default function ModalNovoAgendamentoR4({
             setDuracaoMinutos(40);
         }
         setRecorrencia(1);
+        setListaAberta(false);
         setAcompanhamento(false);
         setErro(null);
     }, [
@@ -170,16 +192,20 @@ export default function ModalNovoAgendamentoR4({
             normalizarDadoEscolar(aluno.colegio_nome) === normalizarDadoEscolar(alunoPrincipal.colegio_nome) &&
             normalizarDadoEscolar(aluno.serie) === normalizarDadoEscolar(alunoPrincipal.serie))
         : [];
-    const alunosFiltrados = buscaAluno.trim()
-        ? alunos
-            .filter(
-                (a) =>
-                    a.nome_aluno.toLowerCase().includes(buscaAluno.toLowerCase()) ||
-                    a.responsavel_nome.toLowerCase().includes(buscaAluno.toLowerCase()) ||
-                    a.telefone.includes(buscaAluno.replace(/\D/g, ''))
-            )
-            .slice(0, 8)
-        : alunos.slice(0, 8);
+    const termo = buscaAluno.trim().toLocaleLowerCase('pt-BR');
+    const telefoneBusca = termo.replace(/\D/g, '');
+    const alunosFiltrados = alunos.filter((aluno) => !termo ||
+        [aluno.nome_aluno, aluno.serie, aluno.colegio_nome, aluno.responsavel_nome]
+            .some((valor) => valor?.toLocaleLowerCase('pt-BR').includes(termo)) ||
+        (/^[+()\d\s-]+$/.test(termo) && telefoneBusca && aluno.telefone?.replace(/\D/g, '').includes(telefoneBusca)));
+
+    function selecionarAluno(id: number) {
+        setAlunoId(id);
+        setAlunosAdicionais([]);
+        setBuscaAluno('');
+        setOpcaoAtiva(0);
+        setListaAberta(!id);
+    }
 
     async function handleSalvar(e: React.FormEvent) {
         e.preventDefault();
@@ -194,6 +220,10 @@ export default function ModalNovoAgendamentoR4({
             return;
         }
 
+        if (modo === 'aula' && !cadastroRapido && !alunoId) {
+            setErro('Selecione um aluno da lista.');
+            return;
+        }
         setSalvando(true);
         try {
             const horaFormatada = `${hora}:${minuto}`;
@@ -231,7 +261,8 @@ export default function ModalNovoAgendamentoR4({
                                 nome_aluno: novoAlunoNome,
                                 responsavel_nome: novoRespNome,
                                 telefone: novoTelefone,
-                                colegio_nome: novoColegio,
+                                colegio_id: criarColegio ? null : Number(colegioId),
+                                novo_colegio: criarColegio ? novoColegio.trim() : null,
                                 serie: novoSerie,
                             }
                             : null,
@@ -239,8 +270,7 @@ export default function ModalNovoAgendamentoR4({
                         data,
                         hora_inicio: horaFormatada,
                         duracao_minutos: totalMinutos,
-                        observacoes,
-                        status: statusInicial,
+                        status: 'agendado',
                         acompanhamento,
                         recorrencia_semanas: recorrencia,
                     }),
@@ -262,7 +292,7 @@ export default function ModalNovoAgendamentoR4({
     return (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
             <div
-                className={`border rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto ${clsCard}`}
+                className={`border rounded-2xl max-w-xl w-full p-4 sm:p-5 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto ${clsCard}`}
             >
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
@@ -281,11 +311,7 @@ export default function ModalNovoAgendamentoR4({
                             <h2 className={`text-base font-bold ${clsTitulo}`}>
                                 {modo === 'bloqueio' ? textoR4("Bloqueio de Agenda") : textoR4("Nova Marcação R4")}
                             </h2>
-                            <p className={`text-[11px] ${clsSubtexto}`}>
-                                {modo === 'bloqueio'
-                                    ? textoR4("Bloqueia horários na grade e no portal do aluno")
-                                    : textoR4("Agendamento flexível (50 a 300 min • individual ou grupo)")}
-                            </p>
+
                         </div>
                     </div>
                     <button
@@ -330,7 +356,7 @@ export default function ModalNovoAgendamentoR4({
                     </div>
                 )}
 
-                <form onSubmit={(e) => void handleSalvar(e)} className="space-y-3.5">
+                <form onSubmit={(e) => void handleSalvar(e)} className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {!ehProfessor && (
                             <div>
@@ -400,32 +426,51 @@ export default function ModalNovoAgendamentoR4({
 
                                 {!cadastroRapido ? (
                                     <div className="space-y-2">
-                                        <div className="relative">
-                                            <Search
-                                                className={`w-3.5 h-3.5 absolute left-3 top-2.5 ${clsSubtexto}`}
-                                            />
-                                            <input
-                                                type="text"
-                                                value={buscaAluno}
-                                                onChange={(e) => setBuscaAluno(e.target.value)}
-                                                placeholder={textoR4("Buscar aluno por nome, responsável ou telefone...")}
-                                                className={`w-full border rounded-xl pl-8 pr-3 py-2 text-xs ${clsInput}`}
-                                            />
+                                        <div className="relative" onBlur={(e) => {
+                                            if (!e.currentTarget.contains(e.relatedTarget)) setListaAberta(false);
+                                        }}>
+                                            <Search aria-hidden className={`pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 ${clsSubtexto}`} />
+                                            <input role="combobox" aria-label="Pesquisar ou selecionar aluno"
+                                                aria-expanded={listaAberta} aria-controls={listaId} aria-autocomplete="list"
+                                                aria-activedescendant={listaAberta && alunosFiltrados[opcaoAtiva] ? listaId + '-' + opcaoAtiva : undefined}
+                                                autoComplete="off" placeholder="Pesquisar ou selecionar aluno..."
+                                                value={alunoPrincipal?.nome_aluno ?? buscaAluno}
+                                                onFocus={() => { if (!alunoId) setListaAberta(true); }}
+                                                onClick={() => { if (!alunoId) setListaAberta(true); }}
+                                                onChange={(e) => { selecionarAluno(0); setBuscaAluno(e.target.value); }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Escape') setListaAberta(false);
+                                                    if (!alunoId && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                                                        e.preventDefault();
+                                                        setListaAberta(true);
+                                                        const indice = Math.max(0, Math.min(alunosFiltrados.length - 1,
+                                                            opcaoAtiva + (e.key === 'ArrowDown' ? 1 : -1)));
+                                                        setOpcaoAtiva(indice);
+                                                        document.getElementById(listaId + '-' + indice)?.scrollIntoView({ block: 'nearest' });
+                                                    }
+                                                    if (e.key === 'Enter' && listaAberta) {
+                                                        e.preventDefault();
+                                                        const aluno = alunosFiltrados[opcaoAtiva];
+                                                        if (aluno) selecionarAluno(aluno.id);
+                                                    }
+                                                }}
+                                                className={`w-full rounded-xl border py-2 pl-8 pr-9 text-xs ${clsInput}`} />
+                                            {alunoPrincipal && <button type="button" aria-label="Trocar aluno"
+                                                className="absolute right-1 top-0.5 rounded-lg p-2" onClick={(e) => {
+                                                    selecionarAluno(0);
+                                                    e.currentTarget.parentElement?.querySelector('input')?.focus();
+                                                }}><X className="h-3.5 w-3.5" /></button>}
+                                            {listaAberta && <ul id={listaId} role="listbox"
+                                                className={`absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-auto rounded-xl border p-1 shadow-lg ${clsInput}`}>
+                                                {alunosFiltrados.length === 0 && <li className="px-3 py-2 text-xs">Nenhum aluno encontrado.</li>}
+                                                {alunosFiltrados.map((aluno, indice) => <li key={aluno.id} id={listaId + '-' + indice}
+                                                    role="option" aria-selected={indice === opcaoAtiva}
+                                                    className={`cursor-pointer rounded-lg px-3 py-2 text-xs hover:bg-sky-500/15 ${indice === opcaoAtiva ? 'bg-sky-500/15' : ''}`}
+                                                    onMouseDown={(e) => e.preventDefault()} onClick={() => selecionarAluno(aluno.id)}>
+                                                    {[aluno.nome_aluno, aluno.serie?.trim(), aluno.colegio_nome?.trim()].filter(Boolean).join(' — ')}
+                                                </li>)}
+                                            </ul>}
                                         </div>
-                                        <select
-                                            required
-                                            value={alunoId}
-                                            onChange={(e) => { setAlunoId(Number(e.target.value)); setAlunosAdicionais([]); }}
-                                            className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                        >
-                                            <option value={0}>{textoR4("Selecione o aluno...")}</option>
-                                            {alunosFiltrados.map((al) => (
-                                                <option key={al.id} value={al.id}>
-                                                    {al.nome_aluno} — {al.serie} ({al.colegio_nome}{textoR4(") • Resp.:")}{' '}
-                                                    {al.responsavel_nome || al.telefone_formatado}
-                                                </option>
-                                            ))}
-                                        </select>
                                         {colegas.length > 0 && <details className={`rounded-xl border p-3 text-xs ${clsInput}`}>
                                             <summary className="cursor-pointer font-semibold">Adicionar alunos ao grupo ({alunosAdicionais.length + 1}/4)</summary>
                                             <div className="mt-2 max-h-40 space-y-2 overflow-auto">
@@ -472,20 +517,27 @@ export default function ModalNovoAgendamentoR4({
                                             placeholder={textoR4("Nome do responsável")}
                                             className={`border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         />
-                                        <input
-                                            type="text"
-                                            value={novoSerie}
+                                        <select required aria-label="Série" value={novoSerie}
                                             onChange={(e) => setNovoSerie(e.target.value)}
-                                            placeholder={textoR4("Série (ex: 8º Ano)")}
-                                            className={`border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                        />
-                                        <input
-                                            type="text"
-                                            value={novoColegio}
-                                            onChange={(e) => setNovoColegio(e.target.value)}
-                                            placeholder={textoR4("Colégio")}
-                                            className={`sm:col-span-2 border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                        />
+                                            className={`rounded-xl border px-3 py-2 text-xs ${clsInput}`}>
+                                            <option value="">Selecione a série</option>
+                                            {SERIES_ESCOLARES.map((serie) => <option key={serie}>{serie}</option>)}
+                                        </select>
+                                        <div className="flex flex-wrap gap-2 sm:col-span-2">
+                                            {criarColegio ? <input required minLength={2} maxLength={180} aria-label="Nome do novo colégio"
+                                                value={novoColegio} onChange={(e) => setNovoColegio(e.target.value)} placeholder="Nome do novo colégio"
+                                                className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-xs ${clsInput}`} /> :
+                                                <select required aria-label="Colégio" value={colegioId} onChange={(e) => setColegioId(e.target.value)}
+                                                    className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-xs ${clsInput}`}>
+                                                    <option value="">Selecione o colégio</option>
+                                                    {colegios.map((colegio) => <option key={colegio.id} value={colegio.id}>{colegio.nome}</option>)}
+                                                </select>}
+                                            <button type="button" className="px-2 text-xs font-semibold text-[#1496A1]"
+                                                onClick={() => setCriarColegio(!criarColegio)}>
+                                                {criarColegio ? 'Usar colégio cadastrado' : '+ Novo colégio'}
+                                            </button>
+                                            {erroColegios && <p role="alert" className="w-full text-xs text-rose-500">Não foi possível carregar os colégios.</p>}
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -506,38 +558,10 @@ export default function ModalNovoAgendamentoR4({
                                             </option>
                                         ))}
                                     </select>
-                                    {materia && <p className={`text-[11px] mt-1 ${clsSubtexto}`}>{rotuloMateriaAula(materia, totalMinutos)}</p>}
                                 </div>
-
-                                <div>
-                                    {cfg.acompanhamento && <label className="flex items-center gap-2 text-xs mb-2">
-                                        <input type="checkbox" checked={acompanhamento} onChange={(e) => setAcompanhamento(e.target.checked)} /> Acompanhamento sem cobrança
-                                    </label>}
-                                    <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Status Inicial")}</label>
-                                    <select
-                                        value={statusInicial}
-                                        onChange={(e) =>
-                                            setStatusInicial(
-                                                e.target.value as 'agendado' | 'confirmado'
-                                            )
-                                        }
-                                        className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                    >
-                                        <option value="confirmado">{textoR4("Confirmado")}</option>
-                                        <option value="agendado">{textoR4("Agendado")}</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className={`block text-[11px] mb-1 ${clsSubtexto}`}>{textoR4("Assuntos / Conteúdo da Aula")}</label>
-                                <input
-                                    type="text"
-                                    value={observacoes}
-                                    onChange={(e) => setObservacoes(e.target.value)}
-                                    placeholder={textoR4("Ex: Equação do 2º grau, revisão prova trimestral...")}
-                                    className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
-                                />
+                                {cfg.acompanhamento && <label className="flex items-center gap-2 text-xs">
+                                    <input type="checkbox" checked={acompanhamento} onChange={(e) => setAcompanhamento(e.target.checked)} /> Acompanhamento sem cobrança
+                                </label>}
                             </div>
                         </>
                     ) : (
@@ -660,7 +684,7 @@ export default function ModalNovoAgendamentoR4({
                         </p>
                     )}
 
-                    <div className="flex justify-end gap-2 pt-2">
+                    <div className="grid grid-cols-2 gap-2 pt-2">
                         <button
                             type="button"
                             onClick={onFecharAction}
@@ -669,7 +693,7 @@ export default function ModalNovoAgendamentoR4({
                         <button
                             type="submit"
                             disabled={salvando}
-                            className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer shadow-md ${
+                            className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
                                 modo === 'bloqueio'
                                     ? 'bg-[#C24124] hover:bg-[#D14D30]'
                                     : 'bg-[#0E7C86] hover:bg-[#118E99]'

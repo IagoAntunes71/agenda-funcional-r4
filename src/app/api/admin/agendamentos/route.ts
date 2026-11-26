@@ -1,3 +1,5 @@
+import { SERIES_ESCOLARES } from '@/lib/cliente-helpers';
+import { garantirTabelasClientesEColegios } from '@/app/api/cliente/route';
 import { unidadeOnline } from '@/lib/unidade-online';
 import { lerOperacaoR4, professorDaAula } from '@/lib/operacao-r4-db';
 import { podeOperacao } from '@/lib/operacao-r4';
@@ -104,15 +106,33 @@ export async function POST(req: NextRequest) {
             nomeAluno = String(body.novo_aluno.nome_aluno).trim();
             nomeResponsavel = String(body.novo_aluno.responsavel_nome || '').trim();
             telefoneAluno = String(body.novo_aluno.telefone || '').trim();
-            colegioAluno = String(body.novo_aluno.colegio_nome || '').trim();
             serieAluno = String(body.novo_aluno.serie || '').trim();
-
-            const inseridos = (await sql`
-                INSERT INTO alunos (nome_aluno, responsavel_nome, telefone, telefone_formatado, colegio_nome, serie, ativo)
-                VALUES (${nomeAluno}, ${nomeResponsavel}, ${telefoneAluno.replace(/\D/g, '')}, ${telefoneAluno}, ${colegioAluno}, ${serieAluno}, true)
-                RETURNING id
-            `) as { id: number }[];
-            alunoId = inseridos[0]?.id || 0;
+            if (!nomeAluno || !SERIES_ESCOLARES.includes(serieAluno)) return erro('Informe o aluno e selecione uma série cadastrada.', 400);
+            const colegioId = Number(body.novo_aluno.colegio_id);
+            const nomeNovo = String(body.novo_aluno.novo_colegio || body.novo_aluno.colegio_nome || '').trim().replace(/\s+/g, ' ');
+            if (!idValido(colegioId) && (nomeNovo.length < 2 || nomeNovo.length > 180)) {
+                return erro('Selecione um colégio ou informe o nome do novo colégio.', 400);
+            }
+            await garantirTabelasClientesEColegios();
+            const [, linhas] = await sql.transaction([
+                sql`SELECT pg_advisory_xact_lock(840431, hashtext(lower(${nomeNovo})))`,
+                sql`WITH existente AS (
+                    SELECT id, nome FROM colegios
+                    WHERE (${idValido(colegioId)} AND id = ${idValido(colegioId) ? colegioId : null} AND aprovado)
+                       OR (NOT ${idValido(colegioId)} AND lower(trim(nome)) = lower(${nomeNovo}))
+                    ORDER BY aprovado DESC, id LIMIT 1
+                ), criado AS (
+                    INSERT INTO colegios (nome, aprovado)
+                    SELECT ${nomeNovo}, true WHERE NOT ${idValido(colegioId)} AND NOT EXISTS (SELECT 1 FROM existente)
+                    RETURNING id, nome
+                ), colegio AS (SELECT * FROM existente UNION ALL SELECT * FROM criado)
+                INSERT INTO alunos (nome_aluno, responsavel_nome, telefone, telefone_formatado, colegio_id, colegio_nome, serie, ativo)
+                SELECT ${nomeAluno}, ${nomeResponsavel}, ${telefoneAluno.replace(/\D/g, '')}, ${telefoneAluno}, id, nome, ${serieAluno}, true
+                FROM colegio RETURNING id, colegio_nome`,
+            ]);
+            if (!linhas[0]) return erro('Colégio indisponível. Atualize a lista e tente novamente.', 400);
+            alunoId = Number(linhas[0].id);
+            colegioAluno = String(linhas[0].colegio_nome);
         } else if (alunoId > 0) {
             const alunosDb = (await sql`
                 SELECT

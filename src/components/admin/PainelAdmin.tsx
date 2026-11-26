@@ -1071,7 +1071,7 @@ export default function PainelAdmin({
             )}
 
             <div className="flex-1 min-w-0 flex flex-col">
-                <header
+                {!mapa && <header
                     className="r4-admin-topo sticky top-0 z-30 border-b px-4 sm:px-6 py-2.5"
                 >
                     <div
@@ -1194,14 +1194,14 @@ export default function PainelAdmin({
                             {admin && <BotoesLayoutR4 editor={editorLayout} />}
                         </div>
                     </div>
-                </header>
+                </header>}
 
                 <LayoutR4Context.Provider value={editorLayout}>
                 <div ref={setPainelLayout} data-r4-posicionando-texto={!inicio && Boolean(editorLayout.posicionarTexto) || undefined}
                     onClickCapture={!inicio ? editorLayout.colocarTexto : undefined}
                     className={`${
                         mapa
-                            ? 'max-w-full px-1.5 sm:px-2 py-2'
+                            ? 'max-w-full px-1 py-1'
                             : aba === 'recepcao' ? 'max-w-[1728px] px-4 sm:px-6 py-5'
                             : aba === 'professores' ? 'max-w-full px-4 sm:px-8 py-6'
                             : 'max-w-[1440px] px-4 sm:px-8 py-6'

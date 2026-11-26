@@ -1,3 +1,5 @@
+import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
+import { podeOperacao } from '@/lib/operacao-r4';
 import { sugerirColegiosDuplicados, type CadastroColegioR4 } from '@/lib/colegios-r4';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
@@ -39,13 +41,24 @@ async function carregarColegiosAdmin() {
     };
 }
 
-export async function GET() {
-    if ((await lerSessaoAdmin())?.role !== 'admin') {
+export async function GET(req: NextRequest) {
+    const sessao = await lerSessaoAdmin();
+    const paraAgendamento = req.nextUrl.searchParams.get('lista') === 'agendamento';
+    if (!sessao || (!paraAgendamento && sessao.role !== 'admin')) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
     try {
         await garantirTabelasClientesEColegios();
+        if (paraAgendamento) {
+            const cfg = await lerOperacaoR4();
+            if (!podeOperacao(cfg, sessao.role, 'agenda') || !podeOperacao(cfg, sessao.role, 'editarAlunos') ||
+                (sessao.role === 'atendimento' && !cfg.recepcaoCadastra)) {
+                return NextResponse.json({ error: 'Sem acesso ao cadastro rápido.' }, { status: 403 });
+            }
+            const colegios = await sql`SELECT id, nome FROM colegios WHERE aprovado ORDER BY nome, id`;
+            return NextResponse.json({ colegios }, { headers: { 'Cache-Control': 'private, no-store' } });
+        }
         const dados = await carregarColegiosAdmin();
         return NextResponse.json(dados, {
             headers: { 'Cache-Control': 'no-store' },

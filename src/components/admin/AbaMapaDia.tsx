@@ -1,4 +1,5 @@
 'use client';
+import LogoR4 from '@/components/LogoR4';
 import { useLayoutR4 } from './EditorLayoutR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
@@ -765,6 +766,9 @@ export default function AbaMapaDia({
             <div className={styles.painel} {...layout?.item("mapa_filtros", "mapa_blocos", "Filtros do mapa")} hidden={apresentacao}>
                 <div className={styles.topo}>
                     <div className={styles.controles}>
+                        <Link href="/admin" aria-label="Voltar ao painel administrativo" className={styles.marca}>
+                            <LogoR4 temaEscuro={escuro} subtitulo="" />
+                        </Link>
                         <div className={styles.segmentado} role="group" aria-label={textoR4("Visualização")}>
                             <button type="button" aria-pressed={!semana} onClick={() => setModoVisualizacao('dia')}>{textoR4("Dia")}</button>
                             <button type="button" aria-pressed={semana} onClick={() => setModoVisualizacao('semana')}>{textoR4("Semana")}</button>
@@ -905,7 +909,11 @@ export default function AbaMapaDia({
                                                     if (expandida) setSemanaExpandida(null);
                                                 }}><X /></button>
                                             <div className={styles.professor}>
-                                                <span className={styles.avatar}>{obterIniciais(prof.nome)}</span>
+                                                <span className={styles.avatar}>
+                                                    {obterIniciais(prof.nome)}
+                                                    {prof.foto_url && <img key={prof.foto_url} src={prof.foto_url} alt="" loading="lazy"
+                                                        onError={(e) => { e.currentTarget.hidden = true; }} />}
+                                                </span>
                                                 <div>
                                                     <strong title={prof.nome}>{prof.nome}</strong>
                                                     {prof.unidade_nome && <small className={styles.unidadeProfessor}>{prof.unidade_nome}</small>}

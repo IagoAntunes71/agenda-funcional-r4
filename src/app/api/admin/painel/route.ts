@@ -4,7 +4,7 @@ import { podeOperacao } from '@/lib/operacao-r4';
 import { NextRequest, NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
 import { sql } from '@/lib/db';
-import { lerSessaoAdmin } from '@/lib/admin-auth';
+import { garantirTabelaAdmins, lerSessaoAdmin } from '@/lib/admin-auth';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 import { avaliarStatusChaveMestra } from '@/lib/horarios-reforco';
 import { garantirEstruturaContasResponsaveis } from '@/lib/cliente-auth';
@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
         const statusChaveMestra = avaliarStatusChaveMestra(modoChaveMestra);
 
         await garantirEstruturaContasResponsaveis();
+        await garantirTabelaAdmins();
         await Promise.all([
             sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_ativo BOOLEAN DEFAULT false`,
             sql`ALTER TABLE professores ADD COLUMN IF NOT EXISTS manha_inicio TIME`,
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest) {
           p.id,
           p.nome,
           p.grupo_professor,
+          foto_perfil.foto_url,
           p.unidade_id,
           u.nome AS unidade_nome,
           p.materias,
@@ -74,6 +76,13 @@ export async function GET(req: NextRequest) {
           p.ativo
         FROM professores p
         JOIN unidades u ON u.id = p.unidade_id
+        LEFT JOIN LATERAL (
+            SELECT a.foto_url FROM admins_sistema a
+            JOIN professores vinculado ON vinculado.id = a.professor_id
+            WHERE ${datasMapa.length > 0} AND a.role = 'professor' AND a.ativo AND nullif(trim(a.foto_url), '') IS NOT NULL
+                AND (vinculado.id = p.id OR nullif(vinculado.grupo_professor, '') = nullif(p.grupo_professor, ''))
+            ORDER BY (vinculado.id = p.id) DESC, a.id LIMIT 1
+        ) foto_perfil ON true
         ORDER BY u.nome ASC, p.nome ASC
       `,
             sql`

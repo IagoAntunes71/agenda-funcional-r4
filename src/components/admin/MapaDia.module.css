@@ -395,3 +395,12 @@
 .mapa .aula[data-compacta='true'] > * { font-size: 11px; }
 .mapa .aula[data-compacta='true'] .aulaHora svg { width: 10px; height: 10px; }
 .mapa .aula[data-curta='true'] { padding-block: 1px; line-height: 11px; }
+
+.marca { display: inline-flex; flex: none; align-items: center; padding-inline-end: 6px; }
+.marca img, .marca svg { width: 34px; height: 34px; }
+.marca p:empty { display: none; }
+.mapa .professor strong { font-size: 14px; }
+.professor .avatar { position: relative; overflow: hidden; width: 36px; height: 36px; }
+.professor .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mapa .scroll { max-height: max(260px, calc(100dvh - 174px)); }
+.mapa[data-apresentacao='true'] .scroll { max-height: calc(100dvh - 114px); }
