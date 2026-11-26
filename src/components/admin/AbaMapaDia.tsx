@@ -182,6 +182,7 @@ export default function AbaMapaDia({
                                        modoTelaCheia = false,
                                        onAlternarTelaCheiaAction,
                                        onRecarregarDadosAction,
+                                       onDatasMapaChange,
                                    }: {
     roleUsuario?: RoleSistema;
     professorTravadoId?: number | null;
@@ -194,6 +195,7 @@ export default function AbaMapaDia({
     classes: TemaClasses;
     modoTelaCheia?: boolean;
     onAlternarTelaCheiaAction?: () => void;
+    onDatasMapaChange: (datas: string) => void;
     onRecarregarDadosAction: () => Promise<void>;
 }) {
     const textoR4 = useTextoR4();
@@ -346,6 +348,9 @@ export default function AbaMapaDia({
         return Array.from({ length: 7 }, (_, idx) => adicionarDiasISO(segunda, idx));
     }, [dataGlobal]);
 
+    const datasConsulta = [...new Set(semana ? faixaDiasSemana : [dataGlobal, ...Object.values(datasPorProfessor)])].sort().join(',');
+    useEffect(() => { onDatasMapaChange(datasConsulta); }, [datasConsulta, onDatasMapaChange]);
+
     const colunasCalculadas = useMemo(() => {
         const professoresDoProprioPerfil = ehProfessor && professorSemana
             ? professores.filter((p) => correspondeProfessor({
@@ -366,7 +371,12 @@ export default function AbaMapaDia({
             };
             const aulas = agendamentos.flatMap((aula) => {
                 if (aula.data !== data || !perfis.some((p) => correspondeProfessor(aula, p))) return [];
-                if (!ehProfessor && (unidadeIdAtiva ? aula.unidade_id !== unidadeIdAtiva : aula.professor_id !== prof.id)) return [];
+                if (!ehProfessor) {
+                    const unidadeAula = unidades.find((unidade) => unidade.id === aula.unidade_id);
+                    if (aula.unidade_id !== (unidadeIdAtiva || prof.unidade_id) &&
+                        unidadeAula?.unidade_presencial_id !== (unidadeIdAtiva || prof.unidade_id)) return [];
+                    if (!unidadeIdAtiva && aula.professor_id !== prof.id) return [];
+                }
                 const intervalo = recortarIntervalo(intervaloAula(aula));
                 return intervalo ? [{ ...intervalo, aula }] : [];
             });
@@ -388,7 +398,7 @@ export default function AbaMapaDia({
                     filtroStatus === 'todos' || normalizarStatusAulaR4(aula.status) === filtroStatus)),
             };
         });
-    }, [agendamentos, bloqueios, unidadeIdAtiva, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
+    }, [agendamentos, bloqueios, unidades, unidadeIdAtiva, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
         filtroStatus, professorSemana, professores, professoresVisiveis, semana, podeVerOutrasAgendas, inicioMapa, fimMapa]);
 
     const layout = useLayoutR4();

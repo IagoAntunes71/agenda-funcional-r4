@@ -38,11 +38,17 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-    const dados = await req.formData().catch(() => null);
-    const token = dados?.get('t');
-    const acao = dados?.get('acao');
+    const json = req.headers.get('content-type')?.split(';')[0]?.trim() === 'application/json';
+    const responder = (mensagem: string, status = 200, estado?: string) => json
+        ? Response.json({ sucesso: status === 200, mensagem, status: estado }, {
+            status, headers: { 'Cache-Control': 'no-store' },
+        })
+        : tela(mensagem, undefined, status);
+    const dados = json ? await req.json().catch(() => null) : await req.formData().catch(() => null);
+    const token = json ? dados?.token : dados?.get('t');
+    const acao = json ? dados?.acao : dados?.get('acao');
     if (!tokenValido(token) || (acao !== 'confirmar' && acao !== 'cancelar')) {
-        return tela('Resposta inválida.', undefined, 400);
+        return responder('Resposta inválida.', 400);
     }
     try {
         const { antecedencia } = await lerOperacaoR4();
@@ -59,13 +65,13 @@ export async function POST(req: Request) {
                         >= now() + make_interval(hours => ${antecedencia}))
                 RETURNING aluno_telefone`,
         ]);
-        if (!aulas.length) return tela(confirmar
+        if (!aulas.length) return responder(confirmar
             ? 'A aula já foi respondida ou este link não está mais disponível.'
-            : 'Não foi possível cancelar por este link. Se o prazo gratuito terminou, fale com a secretaria da R4.', undefined, 409);
-        if (confirmar && aulas[0].aluno_telefone) {
+            : 'Não foi possível cancelar por este link. Se o prazo gratuito terminou, fale com a secretaria da R4.', 409);
+        if (!json && confirmar && aulas[0].aluno_telefone) {
             await enviarMensagemResponsavel(aulas[0].aluno_telefone,
                 'Sua aula na R4 Ensina foi confirmada. ' + lembreteCancelamento(antecedencia), 'aula_confirmada').catch(() => undefined);
         }
-        return tela(confirmar ? 'Aula confirmada. ' + lembreteCancelamento(antecedencia) : 'Aula cancelada.');
-    } catch { return tela('Não foi possível registrar sua resposta. Tente novamente.', undefined, 503); }
+        return responder(confirmar ? 'Aula confirmada. ' + lembreteCancelamento(antecedencia) : 'Aula cancelada.', 200, confirmar ? 'confirmado' : 'cancelado');
+    } catch { return responder('Não foi possível registrar sua resposta. Tente novamente.', 503); }
 }
