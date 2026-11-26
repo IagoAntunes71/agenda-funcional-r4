@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
         const duracaoMinutos = Number(body?.duracao_minutos || 100);
         const observacoes = String(body?.observacoes || '').trim() || null;
         const status = String(body?.status || 'confirmado').trim();
-        const recorrencia = Math.min(Math.max(Math.floor(Number(body?.recorrencia_semanas) || 1), 1), 12);
+        const recorrencia = Math.min(Math.max(Math.floor(Number(body?.recorrencia_semanas) || 1), 1), 52);
 
         if (!cfg.status[status]?.ativo || (sessao.role === 'professor' && !['agendado', 'confirmado'].includes(status))) return erro('Status indisponível.', 400);
         if (!dataISOValida(data)) return erro('Data inválida.', 400);
@@ -72,17 +72,23 @@ export async function POST(req: NextRequest) {
         if (sessao.role === 'professor' && !professorDaAula(await professorVinculado(sessao), { id: destino.id, grupo_professor: destino.grupo_professor })) {
             return erro('Você só pode agendar na sua própria agenda.', 403);
         }
-        if (!podeOperacao(cfg, sessao.role, 'simultaneos')) {
-            const datas = Array.from({ length: recorrencia }, (_, i) => adicionarDiasISO(data, i * 7));
-            for (const dia of datas) {
-                if (await existeSobreposicao(professorId, dia, horaInicio, minutosParaHora(horaParaMinutos(horaInicio) + duracaoMinutos))) {
-                    return erro('Já existe uma aula nesse horário.', 409);
-                }
+        const extras: unknown = body.alunos_adicionais ?? [];
+        const principal = Number(body.aluno_id || 0);
+        if (!Array.isArray(extras) || extras.length > 3 || !extras.every(idValido) ||
+            new Set(extras).size !== extras.length || extras.includes(principal) ||
+            (extras.length && (!principal || body.novo_aluno))) return erro('Selecione até quatro alunos distintos já cadastrados.', 400);
+        if (principal && !idValido(principal)) return erro('Aluno inválido.', 400);
+        const ids = principal ? [principal, ...extras] : [];
+        for (const id of ids) {
+            if (!podeOperacao(cfg, sessao.role, 'todosAlunos') && !await alunoAtendidoPor(sessao, id)) {
+                return erro('Aluno fora do seu acesso.', 403);
             }
         }
-
-        if (Number(body?.aluno_id) > 0 && !podeOperacao(cfg, sessao.role, 'todosAlunos') &&
-            !await alunoAtendidoPor(sessao, Number(body.aluno_id))) return erro('Aluno fora do seu acesso.', 403);
+        const datas = Array.from({ length: recorrencia }, (_, indice) => adicionarDiasISO(data, indice * 7));
+        const horaFim = minutosParaHora(horaParaMinutos(horaInicio) + duracaoMinutos);
+        const conflito = await buscarConflitoAgenda(professorId, ids, datas, horaInicio, horaFim,
+            !podeOperacao(cfg, sessao.role, 'simultaneos'));
+        if (conflito) return erro(conflito, 409);
 
         let alunoId = Number(body?.aluno_id || 0);
         let nomeAluno = '';
@@ -144,17 +150,26 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const horaFim = minutosParaHora(horaParaMinutos(horaInicio) + duracaoMinutos);
-        const [ano, mes, dia] = data.split('-').map(Number);
+        const participantes = [{ id: alunoId, nome_aluno: nomeAluno, responsavel_nome: nomeResponsavel,
+            telefone: telefoneAluno, colegio_nome: colegioAluno, serie: serieAluno }];
+        if (extras.length) {
+            const adicionais = await sql`
+                SELECT al.id, al.nome_aluno, coalesce(r.nome, al.responsavel_nome, '') AS responsavel_nome,
+                    coalesce(r.telefone_formatado, al.telefone_formatado, al.telefone, '') AS telefone,
+                    coalesce(al.colegio_nome, '') AS colegio_nome, coalesce(al.serie, '') AS serie
+                FROM alunos al LEFT JOIN responsaveis r ON r.id = al.responsavel_id
+                WHERE al.id = ANY(${extras}::int[]) AND al.ativo
+            ` as typeof participantes;
+            const normalizar = (valor: string) => valor.trim().toLocaleLowerCase('pt-BR');
+            if (!colegioAluno.trim() || !serieAluno.trim() || adicionais.length !== extras.length ||
+                adicionais.some((aluno) => normalizar(aluno.colegio_nome) !== normalizar(colegioAluno) ||
+                    normalizar(aluno.serie) !== normalizar(serieAluno))) {
+                return erro('O grupo deve ter alunos ativos da mesma escola e série.', 400);
+            }
+            participantes.push(...adicionais);
+        }
 
-        for (let semana = 0; semana < recorrencia; semana++) {
-            const dtObj = new Date(ano, mes - 1, dia + semana * 7);
-            const dataSemana = `${dtObj.getFullYear()}-${String(dtObj.getMonth() + 1).padStart(
-                2,
-                '0'
-            )}-${String(dtObj.getDate()).padStart(2, '0')}`;
-
-            await sql`
+        await sql.transaction(datas.flatMap((dataSemana) => participantes.map((aluno) => sql`
                 INSERT INTO agendamentos (
                     unidade_id,
                     professor_id,
@@ -176,12 +191,12 @@ export async function POST(req: NextRequest) {
                 VALUES (
                     ${unidadeId},
                     ${professorId},
-                    ${alunoId || null},
-                    ${nomeAluno},
-                    ${nomeResponsavel},
-                    ${telefoneAluno},
-                    ${colegioAluno},
-                    ${serieAluno},
+                    ${aluno.id || null},
+                    ${aluno.nome_aluno},
+                    ${aluno.responsavel_nome},
+                    ${aluno.telefone},
+                    ${aluno.colegio_nome},
+                    ${aluno.serie},
                     ${rotuloMateriaAula(materia, duracaoMinutos)},
                     ${dataSemana}::date,
                     ${horaInicio}::time,
@@ -191,8 +206,7 @@ export async function POST(req: NextRequest) {
                     ${status},
                     ${sessao.nome}, ${acompanhamento}
                 )
-            `;
-        }
+        `)));
 
         return NextResponse.json({ sucesso: true });
     } catch (error) {
@@ -239,18 +253,26 @@ async function feedbackPermitido(sessao: SessaoAdmin, aula: Record<string, unkno
         (prazo === null || obterAgoraBahia().dataISO <= adicionarDiasISO(String(aula.data_iso), prazo));
 }
 
-async function existeSobreposicao(professor: number, data: string, inicio: string, fim: string, ignorar = 0) {
-    const [choque] = await sql`
-        SELECT a.id FROM agendamentos a JOIN professores p ON p.id = a.professor_id
-        JOIN professores alvo ON alvo.id = ${professor}
-        WHERE (p.id = alvo.id OR nullif(p.grupo_professor,'') = nullif(alvo.grupo_professor,''))
-          AND a.id <> ${ignorar} AND a.excluido_em IS NULL AND a.data = ${data}::date
+async function buscarConflitoAgenda(professor: number, alunos: number[], datas: string[],
+    inicio: string, fim: string, verificarProfessor: boolean, ignorar = 0) {
+    const conflitos = await sql`
+        WITH alvo AS (SELECT id, grupo_professor FROM professores WHERE id = ${professor})
+        SELECT to_char(a.data, 'DD/MM/YYYY') AS dia,
+            CASE WHEN a.aluno_id = ANY(${alunos}::int[]) THEN 'Aluno com aula' ELSE 'Professor com aula' END AS motivo
+        FROM agendamentos a JOIN professores p ON p.id = a.professor_id CROSS JOIN alvo
+        WHERE (a.aluno_id = ANY(${alunos}::int[]) OR (${verificarProfessor} AND
+            (p.id = alvo.id OR nullif(p.grupo_professor,'') = nullif(alvo.grupo_professor,''))))
+          AND a.id <> ${ignorar} AND a.excluido_em IS NULL AND a.data = ANY(${datas}::date[])
           AND coalesce(a.status,'confirmado') IN ('agendado','confirmado','realizado','concluido','reservado','pendente')
           AND coalesce(a.hora_inicio,a.horario) < ${fim}::time
           AND coalesce(a.hora_fim, coalesce(a.hora_inicio,a.horario) + make_interval(mins => coalesce(a.duracao_minutos,100))) > ${inicio}::time
-        LIMIT 1
+        UNION
+        SELECT to_char(b.data, 'DD/MM/YYYY'), 'Professor com bloqueio'
+        FROM r4_bloqueios_agenda b JOIN professores p ON p.id = b.professor_id CROSS JOIN alvo
+        WHERE (p.id = alvo.id OR nullif(p.grupo_professor,'') = nullif(alvo.grupo_professor,''))
+          AND b.data = ANY(${datas}::date[]) AND b.hora_inicio < ${fim}::time AND b.hora_fim > ${inicio}::time
     `;
-    return Boolean(choque);
+    return conflitos.length ? conflitos.map(({ motivo, dia }) => `${motivo} em ${dia}`).join(' · ') : null;
 }
 
 async function buscarAula(id: number, sessao: SessaoAdmin, outras = false) {
@@ -279,6 +301,32 @@ function ator(sessao: SessaoAdmin) {
 export async function GET(req: NextRequest) {
     const sessao = await lerSessaoAdmin();
     if (!sessao) return erro('Não autorizado.', 401);
+    const historicoAluno = req.nextUrl.searchParams.get('historicoAluno');
+    if (historicoAluno !== null) {
+        const id = Number(historicoAluno);
+        if (!idValido(id)) return erro('Aluno inválido.', 400);
+        try {
+            const cfg = await lerOperacaoR4();
+            if (!podeOperacao(cfg, sessao.role, 'agenda') ||
+                (!podeOperacao(cfg, sessao.role, 'todosAlunos') && !await alunoAtendidoPor(sessao, id))) {
+                return erro('Aluno fora do seu acesso.', 403);
+            }
+            await garantirHistoricoAgendamento();
+            const aulas = await sql`
+                SELECT a.id, to_char(a.data, 'YYYY-MM-DD') AS data, a.materia, p.nome AS professor
+                FROM agendamentos a LEFT JOIN professores p ON p.id = a.professor_id
+                WHERE a.aluno_id = ${id} AND a.excluido_em IS NULL
+                  AND a.data <= ${obterAgoraBahia().dataISO}::date
+                  AND a.status IN ('realizado','concluido')
+                ORDER BY a.data DESC, coalesce(a.hora_inicio,a.horario) DESC, a.id DESC
+                LIMIT 5
+            `;
+            return NextResponse.json({ aulas }, { headers: { 'Cache-Control': 'private, no-store' } });
+        } catch (error) {
+            console.error('Histórico no agendamento:', error);
+            return erro('Não foi possível buscar as últimas aulas.', 500);
+        }
+    }
     if (req.nextUrl.searchParams.get('arquivo') === '1') {
         if (sessao.role === 'professor') return erro('Não autorizado.', 403);
         try {
@@ -430,9 +478,12 @@ export async function PATCH(req: NextRequest) {
             if (sessao.role !== 'admin' && cfg.bloquearRetroativo && data !== aula.data_iso && data < obterAgoraBahia().dataISO) {
                 return erro('Agendamento retroativo bloqueado.', 403);
             }
-            if ((professor !== aula.professor_id || data !== aula.data_iso || inicio !== aula.inicio ||
-                duracao !== duracaoOriginal) && !podeOperacao(cfg, sessao.role, 'simultaneos') &&
-                await existeSobreposicao(professor, data, inicio, minutosParaHora(fimMinutos), id)) return erro('Já existe uma aula nesse horário.', 409);
+            if (professor !== aula.professor_id || data !== aula.data_iso || inicio !== aula.inicio ||
+                duracao !== duracaoOriginal || alunoId !== aula.aluno_id) {
+                const conflito = await buscarConflitoAgenda(professor, alunoId === null ? [] : [alunoId], [data],
+                    inicio, minutosParaHora(fimMinutos), !podeOperacao(cfg, sessao.role, 'simultaneos'), id);
+                if (conflito) return erro(conflito, 409);
+            }
             if ((professor !== aula.professor_id || materia !== materiaBase(aula.materia)) &&
                 !materiasBase(destino.materias).includes(materia)) {
                 return erro('Selecione uma matéria cadastrada para o professor de destino.', 400);

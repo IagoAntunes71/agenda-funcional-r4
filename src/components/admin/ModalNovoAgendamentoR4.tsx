@@ -10,6 +10,7 @@ import { RoleSistema } from '@/lib/admin-auth';
 import { materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import { formatarDuracaoLabel } from '@/lib/agenda-status-r4';
 import {
+    formatarDataBR,
     AlunoAdmin,
     ProfessorAdmin,
     TemaClasses,
@@ -79,6 +80,25 @@ export default function ModalNovoAgendamentoR4({
 
     const [buscaAluno, setBuscaAluno] = useState<string>('');
     const [alunoId, setAlunoId] = useState<number>(0);
+    const [alunosAdicionais, setAlunosAdicionais] = useState<number[]>([]);
+    const [historico, setHistorico] = useState<{
+        alunoId: number; aulas?: { id: number; data: string; materia: string; professor: string | null }[]; erro?: boolean;
+    }>();
+    useEffect(() => {
+        if (!aberto || !alunoId) return;
+        const pedido = new AbortController();
+        fetch('/api/admin/agendamentos?historicoAluno=' + alunoId, { signal: pedido.signal, cache: 'no-store' })
+            .then(async (resposta) => {
+                if (!resposta.ok) throw new Error('Histórico indisponível');
+                const { aulas } = await resposta.json();
+                if (!pedido.signal.aborted) setHistorico({ alunoId, aulas });
+            })
+            .catch(() => {
+                if (!pedido.signal.aborted) setHistorico({ alunoId, erro: true });
+            });
+        return () => pedido.abort();
+    }, [aberto, alunoId]);
+
     const [cadastroRapido, setCadastroRapido] = useState<boolean>(false);
     const [novoAlunoNome, setNovoAlunoNome] = useState<string>('');
     const [novoRespNome, setNovoRespNome] = useState<string>('');
@@ -143,6 +163,13 @@ export default function ModalNovoAgendamentoR4({
         (p) => p.ativo && (!unidadeId || (p.unidade_id === unidadeId || p.unidade_id === unidades.find((u) => u.id === unidadeId)?.unidade_presencial_id))
     );
 
+    const alunoPrincipal = alunos.find((aluno) => aluno.id === alunoId);
+    const normalizarDadoEscolar = (valor?: string | null) => valor?.trim().toLocaleLowerCase('pt-BR');
+    const colegas = alunoPrincipal?.colegio_nome?.trim() && alunoPrincipal?.serie?.trim()
+        ? alunos.filter((aluno) => aluno.id !== alunoId &&
+            normalizarDadoEscolar(aluno.colegio_nome) === normalizarDadoEscolar(alunoPrincipal.colegio_nome) &&
+            normalizarDadoEscolar(aluno.serie) === normalizarDadoEscolar(alunoPrincipal.serie))
+        : [];
     const alunosFiltrados = buscaAluno.trim()
         ? alunos
             .filter(
@@ -198,6 +225,7 @@ export default function ModalNovoAgendamentoR4({
                         unidade_id: unidadeId,
                         professor_id: professorId,
                         aluno_id: cadastroRapido ? null : alunoId,
+                        alunos_adicionais: cadastroRapido ? [] : alunosAdicionais,
                         novo_aluno: cadastroRapido
                             ? {
                                 nome_aluno: novoAlunoNome,
@@ -387,7 +415,7 @@ export default function ModalNovoAgendamentoR4({
                                         <select
                                             required
                                             value={alunoId}
-                                            onChange={(e) => setAlunoId(Number(e.target.value))}
+                                            onChange={(e) => { setAlunoId(Number(e.target.value)); setAlunosAdicionais([]); }}
                                             className={`w-full border rounded-xl px-3 py-2 text-xs ${clsInput}`}
                                         >
                                             <option value={0}>{textoR4("Selecione o aluno...")}</option>
@@ -398,6 +426,26 @@ export default function ModalNovoAgendamentoR4({
                                                 </option>
                                             ))}
                                         </select>
+                                        {colegas.length > 0 && <details className={`rounded-xl border p-3 text-xs ${clsInput}`}>
+                                            <summary className="cursor-pointer font-semibold">Adicionar alunos ao grupo ({alunosAdicionais.length + 1}/4)</summary>
+                                            <div className="mt-2 max-h-40 space-y-2 overflow-auto">
+                                                {colegas.map((aluno) => <label key={aluno.id} className="flex items-center gap-2">
+                                                    <input type="checkbox" checked={alunosAdicionais.includes(aluno.id)}
+                                                        disabled={alunosAdicionais.length >= 3 && !alunosAdicionais.includes(aluno.id)}
+                                                        onChange={(e) => setAlunosAdicionais(e.target.checked
+                                                            ? [...alunosAdicionais, aluno.id] : alunosAdicionais.filter((id) => id !== aluno.id))} />
+                                                    {aluno.nome_aluno}
+                                                </label>)}
+                                            </div>
+                                        </details>}
+                                        {alunoId > 0 && <section aria-live="polite" className={`rounded-xl border p-3 text-xs ${clsInput}`}>
+                                            <h3 className="mb-1 font-semibold">Últimas aulas do aluno</h3>
+                                            {historico?.alunoId !== alunoId ? 'Buscando histórico…' : historico.erro ? 'Histórico indisponível.' :
+                                                historico.aulas?.length ? <ul className="space-y-1">{historico.aulas.map((aula) =>
+                                                    <li key={aula.id}>{formatarDataBR(aula.data)} · {aula.materia} · {aula.professor || 'Professor indisponível'}</li>
+                                                )}</ul> : 'Nenhuma aula anterior encontrada.'}
+                                        </section>}
+
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -601,6 +649,8 @@ export default function ModalNovoAgendamentoR4({
                             <option value={2}>{textoR4("Repetir semanalmente (2 semanas)")}</option>
                             <option value={4}>{textoR4("Repetir semanalmente (4 semanas)")}</option>
                             <option value={8}>{textoR4("Repetir semanalmente (8 semanas)")}</option>
+                            {modo !== 'bloqueio' && [12, 26, 52].map((semanas) =>
+                                <option key={semanas} value={semanas}>Repetir semanalmente ({semanas} semanas)</option>)}
                         </select>
                     </div>
 

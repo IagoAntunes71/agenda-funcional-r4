@@ -204,7 +204,9 @@ export default function AbaMapaDia({
     const inicioMapa = cfg.primeiraHora * 60;
     const fimMapa = (cfg.ultimaHora + 1) * 60;
     const [apresentacao, setApresentacao] = useState(false);
-    const [somenteComAula, setSomenteComAula] = useState(true);
+    const [somenteComAula, setSomenteComAula] = useState(false);
+    const [ocultos, setOcultos] = useState<number[]>([]);
+    const [semanaExpandida, setSemanaExpandida] = useState<number | null>(null);
     const [alturaTela, setAlturaTela] = useState(900);
     const mapaRef = useRef<HTMLElement>(null);
     const alturaSlot = apresentacao ? Math.max(16, Math.min(36,
@@ -350,7 +352,7 @@ export default function AbaMapaDia({
         return Array.from({ length: 7 }, (_, idx) => adicionarDiasISO(segunda, idx));
     }, [dataGlobal]);
 
-    const datasConsulta = [...new Set(semana ? faixaDiasSemana : [dataGlobal, ...Object.values(datasPorProfessor)])].sort().join(',');
+    const datasConsulta = [...new Set(semana || semanaExpandida !== null ? [...faixaDiasSemana, dataGlobal, ...Object.values(datasPorProfessor)] : [dataGlobal, ...Object.values(datasPorProfessor)])].sort().join(',');
     useEffect(() => { onDatasMapaChange(datasConsulta); }, [datasConsulta, onDatasMapaChange]);
 
     const colunasCalculadas = useMemo(() => {
@@ -362,7 +364,9 @@ export default function AbaMapaDia({
             : [];
         const dias = semana
             ? (professorSemana ? faixaDiasSemana.map((data) => ({ prof: professorSemana, data })) : [])
-            : professoresVisiveis.map((prof) => ({ prof, data: datasPorProfessor[prof.id] || dataGlobal }));
+            : professoresVisiveis.flatMap((prof) => prof.id === semanaExpandida
+                ? faixaDiasSemana.map((data) => ({ prof, data }))
+                : [{ prof, data: datasPorProfessor[prof.id] || dataGlobal }]);
 
         return dias.map(({ prof, data }) => {
             const perfis = ehProfessor && !podeVerOutrasAgendas ? professoresDoProprioPerfil : [prof];
@@ -404,15 +408,18 @@ export default function AbaMapaDia({
             };
         });
     }, [agendamentos, bloqueios, unidades, unidadeIdAtiva, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
-        filtroStatus, professorSemana, professores, professoresVisiveis, semana, podeVerOutrasAgendas, inicioMapa, fimMapa]);
+        filtroStatus, professorSemana, professores, professoresVisiveis, semana, semanaExpandida, podeVerOutrasAgendas, inicioMapa, fimMapa]);
 
     const layout = useLayoutR4();
-    const colunasVisiveis = apresentacao && somenteComAula && !semana
-        ? colunasCalculadas.filter((c) => c.aulasExibidas.length > 0)
-        : colunasCalculadas;
+    const professoresComAula = new Set(colunasCalculadas.filter(({ aulasExibidas }) =>
+        aulasExibidas.some(({ aula }) => obterMetaStatusR4(aula.status).ocupaHorario)).map(({ prof }) => prof.id));
+    const colunasVisiveis = semana ? colunasCalculadas : colunasCalculadas.filter(({ prof }) =>
+        !ocultos.includes(prof.id) && (!somenteComAula || professoresComAula.has(prof.id)));
 
     const idColunaLayout = (coluna: (typeof colunasVisiveis)[number]) =>
-        semana ? 'dia_' + new Date(coluna.data + 'T12:00:00Z').getUTCDay() : 'professor_' + coluna.prof.id;
+        semana ? 'dia_' + new Date(coluna.data + 'T12:00:00Z').getUTCDay() :
+        coluna.prof.id === semanaExpandida ? 'professor_' + coluna.prof.id + '_dia_' +
+            new Date(coluna.data + 'T12:00:00Z').getUTCDay() : 'professor_' + coluna.prof.id;
     const colunas = [...colunasVisiveis]
         .filter((coluna) => !layout?.layout[idColunaLayout(coluna)]?.oculto)
         .sort((a, b) => (layout?.layout[idColunaLayout(a)]?.order ?? 1000) - (layout?.layout[idColunaLayout(b)]?.order ?? 1000));
@@ -654,6 +661,13 @@ export default function AbaMapaDia({
         setAulaArrastando(null);
     }
 
+    function unidadeDaTransferencia(aula: AgendamentoAdmin, destino: ProfessorAdmin) {
+        const origem = unidades.find((unidade) => unidade.id === aula.unidade_id);
+        const unidadeDestino = unidades.find((unidade) => unidade.id === destino.unidade_id);
+        if (!origem?.unidade_presencial_id || unidadeDestino?.unidade_presencial_id) return unidadeDestino;
+        return unidades.find((unidade) => unidade.ativa && unidade.unidade_presencial_id === destino.unidade_id);
+    }
+
     async function confirmarTransferencia() {
         if (!transferenciaPendente) return;
 
@@ -673,13 +687,18 @@ export default function AbaMapaDia({
         setSalvandoTransferencia(true);
         try {
             const { aula, professorDestino, novaData, novoHorario } = transferenciaPendente;
+            const unidadeDestino = unidadeDaTransferencia(aula, professorDestino);
+            if (!unidadeDestino) {
+                setErroTransferencia('A unidade de destino não tem sala online ativa para esta aula.');
+                return;
+            }
             const res = await fetch('/api/admin/agendamentos', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: aula.id,
                     professor_id: professorDestino.id,
-                    unidade_id: professorDestino.unidade_id,
+                    unidade_id: unidadeDestino.id,
                     data: novaData,
                     hora_inicio: novoHorario,
                     ...(novaMateria ? { materia: novaMateria } : {}),
@@ -833,9 +852,11 @@ export default function AbaMapaDia({
                         <span data-cor="coral"><Ban /> <b>{resumoBloqueios.size}</b> {resumoBloqueios.size === 1 ? textoR4("bloqueio") : textoR4("bloqueios")}</span>
                     </div>
                     <div className={styles.controles}>
-                        {apresentacao && !semana && <label className={styles.botao}>
+                        {!semana && <label className={styles.botao}>
                             <input type="checkbox" checked={somenteComAula} onChange={(e) => setSomenteComAula(e.target.checked)} /> Só professores com aula
                         </label>}
+                        {!semana && ocultos.length > 0 && <button type="button" className={styles.botao}
+                            onClick={() => setOcultos([])}>Restaurar colunas ({ocultos.length})</button>}
                         <button type="button" className={styles.botao} onClick={() => void alternarApresentacao()}>
                             {apresentacao ? 'Sair da tela cheia' : 'Tela cheia'}
                         </button>
@@ -882,6 +903,11 @@ export default function AbaMapaDia({
                                                 </div>
                                             </div>
                                             <div className={styles.dataProfessor} data-individual={data !== dataGlobal}>
+                                                <button type="button" aria-label={`Semana de ${prof.nome}`} title="Expandir ou recolher semana"
+                                                    aria-pressed={semanaExpandida === prof.id}
+                                                    onClick={() => setSemanaExpandida((atual) => atual === prof.id ? null : prof.id)}><Calendar /></button>
+                                                <button type="button" aria-label={`Ocultar ${prof.nome}`} title="Ocultar coluna"
+                                                    onClick={() => setOcultos((atuais) => [...atuais, prof.id])}><X /></button>
                                                 <button type="button" aria-label={`Dia anterior para ${prof.nome}`}
                                                     onClick={() => alterarDataProfessor(prof.id, adicionarDiasISO(data, -1))}><ChevronLeft /></button>
                                                 <label className={styles.data}>
@@ -964,10 +990,11 @@ export default function AbaMapaDia({
                                                 onClick={() => { setHoverCard(null); setAulaSelecionada(aula); }}>
                                                 <span className={styles.aulaHora}>
                                                     {meta.valor === 'confirmado' ? <Check /> : <i />}
-                                                    {totalFaixas > 1 ? minutosParaHora(intervaloAula(aula).inicio) : formatarIntervaloCard(aula)}
+                                                    {formatarIntervaloCard(aula)}
                                                 </span>
                                                 <strong>{aula.nome_aluno}</strong>
                                                 <small>{rotuloMateriaAula(aula.materia, duracaoDaAula(aula))}</small>
+                                                <small>{[aula.unidade_nome, meta.rotulo].filter(Boolean).join(' · ')}</small>
                                             </button>
                                         );
                                     })}
@@ -1151,8 +1178,8 @@ export default function AbaMapaDia({
                                     </strong>{' '}{textoR4("às")}{' '}
                                     <strong className={clsTitulo}>
                                         {transferenciaPendente.novoHorario}
-                                    </strong>
-                                    ?
+                                    </strong>{' · '}
+                                    {unidadeDaTransferencia(transferenciaPendente.aula, transferenciaPendente.professorDestino)?.nome || 'Sala online indisponível'}?
                                 </p>
 
                                 <div className="grid grid-cols-2 gap-3 pt-2">
