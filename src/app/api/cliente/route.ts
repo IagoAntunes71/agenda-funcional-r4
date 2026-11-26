@@ -1,5 +1,5 @@
 import { lerSessaoCliente } from '@/lib/cliente-auth';
-import { alunoImportadoAguardandoVinculo } from '@/lib/cadastro-aluno-r4';
+import { alunoJaCadastradoNoTelefone, vincularFichasPendentes } from '@/lib/cadastro-aluno-r4';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { NextRequest, NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
@@ -266,6 +266,13 @@ export async function POST(req: NextRequest) {
 
         const body = await req.json();
         const acao = String(body?.acao || 'cadastrarAluno');
+
+        if (acao === 'vincularFichas') {
+            const sessao = await lerSessaoCliente();
+            if (!sessao) return NextResponse.json({ error: 'Entre no Portal para vincular os alunos.' }, { status: 401 });
+            const fichas = await vincularFichasPendentes(sessao.telefone);
+            return NextResponse.json({ fichas });
+        }
 
         if (acao === 'cancelarAgendamento') {
             const agendamentoId = Number(body?.agendamentoId || 0);
@@ -621,7 +628,10 @@ export async function POST(req: NextRequest) {
         }
 
         // Cadastro de novo aluno (vinculando à conta única do responsável)
-        const telefoneRaw = String(body?.telefone || '');
+        const sessao = await lerSessaoCliente();
+        if (!sessao) return NextResponse.json({ error: 'Entre no Portal para cadastrar outro aluno.' }, { status: 401 });
+        const telefoneRaw = sessao.telefone;
+        await vincularFichasPendentes(telefoneRaw);
         const telefone = normalizarTelefone(telefoneRaw);
         const variantes = gerarVariantesTelefone(telefoneRaw);
         const responsavelNome = String(body?.responsavelNome || '').trim();
@@ -707,8 +717,8 @@ export async function POST(req: NextRequest) {
             colegioNomeFinal = colRows[0].nome;
         }
 
-        if (await alunoImportadoAguardandoVinculo(nomeAluno, telefone)) {
-            return NextResponse.json({ error: 'Peça à recepção para confirmar o vínculo do aluno com sua conta.' }, { status: 409 });
+        if (await alunoJaCadastradoNoTelefone(nomeAluno, telefone)) {
+            return NextResponse.json({ error: 'Já existe uma ficha com esse nome neste WhatsApp. Confira a lista de alunos ou fale com a recepção.' }, { status: 409 });
         }
 
         const telFormatado = formatarTelefone(telefone);

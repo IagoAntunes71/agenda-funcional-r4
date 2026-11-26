@@ -1,4 +1,4 @@
-import { alunoImportadoAguardandoVinculo } from '@/lib/cadastro-aluno-r4';
+import { alunoJaCadastradoNoTelefone, temFichasPendentes } from '@/lib/cadastro-aluno-r4';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 import {
@@ -77,24 +77,24 @@ async function atualizarStatusPin(
 ) {
     if (dados.pinHash !== undefined) {
         await Promise.all([
-            sql`UPDATE responsaveis SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
-            sql`UPDATE alunos SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE responsaveis SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE alunos SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
         ]);
         return;
     }
 
     if (dados.bloquearMinutos !== undefined) {
         await Promise.all([
-            sql`UPDATE responsaveis SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
-            sql`UPDATE alunos SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE responsaveis SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE alunos SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
         ]);
         return;
     }
 
     const tentativas = dados.tentativas ?? 0;
     await Promise.all([
-        sql`UPDATE responsaveis SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
-        sql`UPDATE alunos SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '\D', '', 'g'), '^55(?=\d{10,11}$)', '') = ANY(${variantes}::text[])`,
+        sql`UPDATE responsaveis SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
+        sql`UPDATE alunos SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
     ]);
 }
 
@@ -139,8 +139,19 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        const fichasPendentes = ['verificar_telefone', 'enviar_codigo_primeiro_acesso', 'criar_pin',
+            'enviar_codigo_cadastro', 'cadastrar_conta'].includes(acao) && await temFichasPendentes(telefoneNorm);
+
+        if (acao === 'enviar_codigo_primeiro_acesso') {
+            if (familia.temPin || (!fichasPendentes && !familia.responsavelId && !familia.alunos.length)) {
+                return NextResponse.json({ error: 'Confira o número e use o acesso correspondente.' }, { status: 409 });
+            }
+            const envio = await solicitarCodigoVerificacaoWhatsApp(telefoneNorm, 'cadastro');
+            return NextResponse.json(envio, { status: envio.ok ? 200 : envio.status || 503 });
+        }
+
         if (acao === 'verificar_telefone') {
-            if (!familia.responsavelId && familia.alunos.length === 0) {
+            if (!fichasPendentes && !familia.responsavelId && familia.alunos.length === 0) {
                 const cfgWhatsApp = await obterConfigWhatsApp();
                 const exigeVerificacaoCadastro = Boolean(
                     cfgWhatsApp.ativo && cfgWhatsApp.verificar_cadastro_whatsapp
@@ -155,13 +166,14 @@ export async function POST(req: NextRequest) {
 
             return NextResponse.json({
                 status: familia.temPin ? 'exige_pin' : 'criar_pin',
+                exigeCodigoPrimeiroAcesso: !familia.temPin,
                 telefone: telefoneNorm,
                 alunosCount: familia.alunos.length,
             });
         }
 
         if (acao === 'enviar_codigo_cadastro') {
-            if (familia.responsavelId || familia.alunos.length > 0) {
+            if (fichasPendentes || familia.responsavelId || familia.alunos.length > 0) {
                 return NextResponse.json(
                     {
                         error:
@@ -205,7 +217,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (acao === 'cadastrar_conta') {
-            if (familia.responsavelId || familia.alunos.length > 0) {
+            if (fichasPendentes || familia.responsavelId || familia.alunos.length > 0) {
                 return NextResponse.json(
                     {
                         error:
@@ -306,8 +318,8 @@ export async function POST(req: NextRequest) {
                 }
             }
 
-            if (await alunoImportadoAguardandoVinculo(nomeAluno, telefoneNorm)) {
-                return NextResponse.json({ error: 'Peça à recepção para confirmar o vínculo do aluno com sua conta.' }, { status: 409 });
+            if (await alunoJaCadastradoNoTelefone(nomeAluno, telefoneNorm)) {
+                return NextResponse.json({ error: 'Já existe uma ficha com esse nome neste WhatsApp. Confira a lista de alunos ou fale com a recepção.' }, { status: 409 });
             }
 
             const pinHash = gerarHashPin(pin);
@@ -380,7 +392,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (acao === 'criar_pin') {
-            if (!familia.responsavelId && familia.alunos.length === 0) {
+            if (!fichasPendentes && !familia.responsavelId && familia.alunos.length === 0) {
                 return NextResponse.json(
                     { error: 'Finalize o cadastro do aluno antes de definir o PIN.' },
                     { status: 400 }
@@ -403,7 +415,24 @@ export async function POST(req: NextRequest) {
             const erroPin = validarNovoPinEConfirmacao(pin, confirmarPin);
             if (erroPin) return erroPin;
 
-            await atualizarStatusPin(variantes, { pinHash: gerarHashPin(pin) });
+            const otp = await validarCodigoVerificacaoWhatsApp(telefoneNorm, 'cadastro',
+                String(body.codigoVerificacao || ''), true);
+            if (!otp.ok) return NextResponse.json({ error: otp.erro }, { status: otp.status || 400 });
+            const nome = familia.responsavelNome || familia.alunos[0]?.responsavel_nome || 'Responsável';
+            const pinHash = gerarHashPin(pin);
+            const contas = familia.responsavelId
+                ? await sql`UPDATE responsaveis SET pin_hash = ${pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL
+                    WHERE id = ${familia.responsavelId} AND nullif(trim(pin_hash), '') IS NULL RETURNING id`
+                : (await sql.transaction([
+                    sql`SELECT pg_advisory_xact_lock(840427, hashtext(${telefoneNorm}))`,
+                    sql`INSERT INTO responsaveis (telefone, telefone_formatado, nome, pin_hash)
+                        SELECT ${telefoneNorm}, ${formatarTelefone(telefoneNorm)}, ${nome}, ${pinHash}
+                        WHERE NOT EXISTS (SELECT 1 FROM responsaveis
+                            WHERE regexp_replace(regexp_replace(telefone, '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '')
+                                = ANY(${variantes}::text[]))
+                        RETURNING id`,
+                ]))[1];
+            if (!contas.length) return NextResponse.json({ error: 'Este número já tem PIN. Volte e entre na conta.' }, { status: 409 });
 
             return responderAutenticado(
                 telefoneNorm,

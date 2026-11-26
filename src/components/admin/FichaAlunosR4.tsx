@@ -4,7 +4,7 @@ import { useLayoutR4 } from './EditorLayoutR4';
 import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, CalendarDays, ClipboardList, Contact, GraduationCap, UserRound, UserRoundX } from 'lucide-react';
 import { formatarTelefone, normalizarTelefone, SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { obterMetaStatusR4 } from '@/lib/agenda-status-r4';
@@ -229,6 +229,29 @@ function ContatosAdicionais({ id, contatos, atualizar, pode }: { id: number; con
     </div>;
 }
 
+function ExcluirAluno({ aluno, aoExcluir }: { aluno: Ficha; aoExcluir: () => void }) {
+    const [ocupado, setOcupado] = useState(false);
+    const [erro, setErro] = useState('');
+    async function excluir() {
+        if (ocupado || !window.confirm(`Excluir definitivamente a ficha de ${aluno.nome_aluno} do R4 e do Portal? As aulas já registradas ficarão no histórico. Esta ação é irreversível.`)) return;
+        setOcupado(true);
+        setErro('');
+        try {
+            await ler('/api/admin/alunos?id=' + aluno.id, { method: 'DELETE' });
+            aoExcluir();
+        } catch (falha) {
+            setErro(falha instanceof Error ? falha.message : 'Não foi possível excluir o aluno.');
+        } finally { setOcupado(false); }
+    }
+    return <div className="mt-4 border-t pt-3">
+        <button type="button" disabled={ocupado} onClick={() => void excluir()}
+            className="rounded-lg border border-rose-600 px-3 py-2 font-semibold text-rose-600">
+            {ocupado ? 'Excluindo…' : 'Excluir aluno definitivamente'}
+        </button>
+        {erro && <p role="alert">{erro}</p>}
+    </div>;
+}
+
 function Situacao({ aluno, atualizar, pode }: { aluno: Ficha; atualizar: () => void; pode: boolean }) {
     const [confirmado, setConfirmado] = useState(false);
     return <section className={css.painel}><h2>{aluno.ativo ? 'Inativar aluno' : 'Reativar aluno'}</h2>
@@ -242,6 +265,7 @@ function Situacao({ aluno, atualizar, pode }: { aluno: Ficha; atualizar: () => v
 
 export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: ReactNode; atualizarPainel: () => Promise<void> }) {
     const params = useSearchParams();
+    const router = useRouter();
     const id = Number(params.get('aluno')) || 0;
     const layout = useLayoutR4();
     const secao = secoes.find((item) => item.id === params.get('secao'))?.id;
@@ -253,6 +277,7 @@ export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: Rea
     const aluno = dados?.dados?.aluno;
     const atualizar = () => { setRevisao((r) => r + 1); void atualizarPainel(); };
     const erro = base?.erro || dados?.erro;
+    const aposExcluir = () => { router.replace(caminho()); setModo('alunos'); atualizar(); };
     if (base?.erro && !id) return <div className={css.ficha}><p role="alert">{base.erro} <button type="button" onClick={atualizar}>Atualizar</button></p>{contas}</div>;
     return <div className={css.ficha}>
         {id > 0 ? <>
@@ -299,10 +324,12 @@ export default function FichaAlunosR4({ contas, atualizarPainel }: { contas: Rea
                             <label className={css.confirmar}><input required name="confirmado" type="checkbox" /> Confirmei o WhatsApp e que o responsável pode acessar este aluno</label>
                         </Formulario>
                     </details>}
+                    {base?.dados?.podeEditar && <ExcluirAluno aluno={aluno} aoExcluir={aposExcluir} />}
                     <ContatosAdicionais id={id} contatos={dados?.dados?.contatos || []} atualizar={atualizar} pode={Boolean(base?.dados?.podeEditar)} />
                 </section>}
                 {secao === 'situacao' && <section {...layout?.item("secao_situacao", "ficha", "Situação")}>
                     <Situacao aluno={aluno} atualizar={atualizar} pode={Boolean(base?.dados?.podeAdministrar)} />
+                    {base?.dados?.podeEditar && <ExcluirAluno aluno={aluno} aoExcluir={aposExcluir} />}
                 </section>}
                 {(secao === 'calendario' || secao === 'controle') && <section
                     {...layout?.item("secao_" + secao, "ficha", secao === 'calendario' ? "Calendário" : "Controle")}><Calendario key={id + secao} id={id} controle={secao === 'controle'} ficha={aluno}

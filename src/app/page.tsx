@@ -132,6 +132,7 @@ export default function PaginaAgendamentoReforco() {
   const [exigeVerificacaoCadastro, setExigeVerificacaoCadastro] =
       useState<boolean>(false);
   const [codigoOtpInput, setCodigoOtpInput] = useState<string>('');
+  const [avisoVinculo, setAvisoVinculo] = useState<string | null>(null);
   const [avisoOtp, setAvisoOtp] = useState<string | null>(null);
   const [cooldownOtpSegundos, setCooldownOtpSegundos] = useState<number>(0);
   const [enviandoCodigoOtp, setEnviandoCodigoOtp] = useState<boolean>(false);
@@ -267,6 +268,18 @@ export default function PaginaAgendamentoReforco() {
       unAtual?: number,
       dtAtual?: string
   ): Promise<AlunoCadastrado[]> {
+    const respostaVinculo = await fetch('/api/cliente', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao: 'vincularFichas' }),
+    });
+    if (!respostaVinculo.ok) throw new Error('Não foi possível consultar os vínculos dos alunos.');
+    const { fichas } = await respostaVinculo.json();
+    if (fichas?.length) {
+      setAvisoVinculo('Alunos encontrados no R4 e vinculados ao seu WhatsApp: ' +
+          fichas.map((ficha: { nome_aluno: string }) => ficha.nome_aluno).join(', ') + '.');
+    }
+
     const resCliente = await fetch(
         `/api/cliente?telefone=${encodeURIComponent(telNorm)}`,
         { cache: 'no-store' }
@@ -606,6 +619,31 @@ export default function PaginaAgendamentoReforco() {
     }
   }
 
+  async function enviarCodigoPrimeiroAcesso() {
+    setEnviandoCodigoOtp(true);
+    setErroCliente(null);
+    setAvisoOtp(null);
+    try {
+      const res = await fetch('/api/cliente/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'enviar_codigo_primeiro_acesso', telefone: telefonePendente }),
+      });
+      const dados = await res.json();
+      if (!res.ok) {
+        setErroCliente(dados.erro || dados.error || 'Não foi possível enviar o código.');
+        setCooldownOtpSegundos(Number(dados.aguardarSegundos || 0));
+        return;
+      }
+      setAvisoOtp('Código enviado para o seu WhatsApp.');
+      setCooldownOtpSegundos(Number(dados.cooldownSegundos || 60));
+    } catch {
+      setErroCliente('Falha de conexão ao enviar o código.');
+    } finally {
+      setEnviandoCodigoOtp(false);
+    }
+  }
+
   async function handleCriarPinPrimeiroAcesso(e: React.FormEvent) {
     e.preventDefault();
     if (pinInput.length !== 4 || confirmarPinInput.length !== 4) {
@@ -627,6 +665,7 @@ export default function PaginaAgendamentoReforco() {
         body: JSON.stringify({
           acao: 'criar_pin',
           telefone: telefonePendente,
+          codigoVerificacao: codigoOtpInput,
           pin: pinInput,
           confirmarPin: confirmarPinInput,
         }),
@@ -812,6 +851,7 @@ export default function PaginaAgendamentoReforco() {
     setPinInput('');
     setConfirmarPinInput('');
     setRemarcarId(null);
+    setAvisoVinculo(null);
     setAlunos([]);
     setProximasAulas([]);
     setAlunoSelecionadoId(0);
@@ -1245,6 +1285,7 @@ export default function PaginaAgendamentoReforco() {
               </section>
           )}
 
+          {telefoneConfirmado && avisoVinculo && <p role="status" className={`rounded-xl border p-3 text-sm ${clsCard}`}>{avisoVinculo}</p>}
           {!telefoneConfirmado ? (
               <section
                   className={`border rounded-2xl p-6 sm:p-8 max-w-lg mx-auto space-y-5 ${clsCard}`}
@@ -1527,6 +1568,22 @@ export default function PaginaAgendamentoReforco() {
                           onSubmit={handleCriarPinPrimeiroAcesso}
                           className="space-y-4"
                       >
+                        <div className="grid gap-2">
+                          <p className="text-sm">Confirme seu WhatsApp para acessar os alunos cadastrados no R4.</p>
+                          <button type="button" className="r4-acao rounded-lg px-3 py-2 text-sm"
+                            disabled={enviandoCodigoOtp || cooldownOtpSegundos > 0}
+                            onClick={() => void enviarCodigoPrimeiroAcesso()}>
+                            {enviandoCodigoOtp ? 'Enviando…' : cooldownOtpSegundos > 0
+                              ? `Reenviar em ${cooldownOtpSegundos}s` : 'Enviar código pelo WhatsApp'}
+                          </button>
+                          {avisoOtp && <p role="status" className="text-sm">{avisoOtp}</p>}
+                          <label className="grid gap-1 text-sm">Código recebido
+                            <input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{4}"
+                              maxLength={4} value={codigoOtpInput}
+                              onChange={(e) => setCodigoOtpInput(e.target.value.replace(/[^0-9]/g, ''))}
+                              className={`rounded-lg border px-3 py-2 ${clsInput}`} />
+                          </label>
+                        </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label

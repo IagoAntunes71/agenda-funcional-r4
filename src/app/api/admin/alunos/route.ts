@@ -281,22 +281,24 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
-    if (sessao.role !== 'admin') return NextResponse.json({ error: 'Apenas administradores podem excluir cadastros.' }, { status: 403 });
+    if (sessao.role !== 'admin' && sessao.role !== 'atendimento') return NextResponse.json({ error: 'Sem permissão para excluir cadastros.' }, { status: 403 });
 
     try {
         const { searchParams } = new URL(req.url);
         const responsavelId = Number(searchParams.get('responsavelId') || 0);
         const id = Number(searchParams.get('id') || 0);
 
+        const cfg = await lerOperacaoR4();
+        if ((responsavelId && sessao.role !== 'admin') ||
+            !podeOperacao(cfg, sessao.role, 'todosAlunos') || !podeOperacao(cfg, sessao.role, 'editarAlunos')) {
+            return NextResponse.json({ error: 'Sem permissão para excluir este cadastro.' }, { status: 403 });
+        }
         await prepararCadastroAlunoR4();
-        const [importado] = await sql`SELECT id FROM alunos WHERE contato_importado <> ''
-            AND ((${responsavelId} > 0 AND responsavel_id = ${responsavelId}) OR (${id} > 0 AND id = ${id})) LIMIT 1`;
-        if (importado) return NextResponse.json({
-            error: 'Este cadastro está integrado à agenda. Use a opção de inativação na ficha do aluno.',
-        }, { status: 409 });
 
         // Excluir conta inteira do responsável (preservando histórico de agendamentos)
         if (responsavelId > 0) {
+            const [integrado] = await sql`SELECT id FROM alunos WHERE responsavel_id = ${responsavelId} AND contato_importado <> '' LIMIT 1`;
+            if (integrado) return NextResponse.json({ error: 'Exclua individualmente as fichas integradas antes de excluir a conta.' }, { status: 409 });
             await sql`
         UPDATE agendamentos
         SET aluno_id = NULL
@@ -321,23 +323,16 @@ export async function DELETE(req: NextRequest) {
             });
         }
 
-        if (!id) {
-            return NextResponse.json(
-                { error: 'ID inválido para exclusão.' },
-                { status: 400 }
-            );
+        if (!Number.isSafeInteger(id) || id < 1) {
+            return NextResponse.json({ error: 'ID inválido para exclusão.' }, { status: 400 });
         }
 
-        await sql`
-      UPDATE agendamentos
-      SET aluno_id = NULL
-      WHERE aluno_id = ${id}
-    `;
-
-        await sql`
-      DELETE FROM alunos
-      WHERE id = ${id}
-    `;
+        const [, , removidos] = await sql.transaction([
+            sql`SELECT id FROM alunos WHERE id = ${id} FOR UPDATE`,
+            sql`UPDATE agendamentos SET aluno_id = NULL WHERE aluno_id = ${id}`,
+            sql`DELETE FROM alunos WHERE id = ${id} RETURNING id`,
+        ]);
+        if (!removidos.length) return NextResponse.json({ error: 'Aluno não encontrado.' }, { status: 404 });
 
         return NextResponse.json({
             sucesso: true,

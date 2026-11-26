@@ -254,6 +254,7 @@ export default function AbaAlunos({
     }
 
     async function excluirAlunoAdmin(id: number) {
+        if (!window.confirm('Excluir definitivamente esta ficha do R4 e do Portal? As aulas registradas serão preservadas.')) return;
         setExcluindoAlunoId(id);
         setFeedbackAluno(null);
         try {
@@ -696,7 +697,7 @@ export default function AbaAlunos({
                                                                 }
                                                                 className="px-2.5 py-1.5 rounded-lg bg-[#BE1E23]/15 hover:bg-[#BE1E23]/25 border border-[#BE1E23]/40 text-rose-400 text-xs font-medium inline-flex items-center gap-1 cursor-pointer"
                                                             >
-                                                                <Trash2 className="w-3 h-3" />{textoR4("Remover")}</button>
+                                                                <Trash2 className="w-3 h-3" />{"Excluir aluno"}</button>
                                                         )}
                                                     </div>
                                                 </div>
