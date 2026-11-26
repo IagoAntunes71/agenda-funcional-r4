@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
             resumoSemanaRaw,
         ] = await Promise.all([
             sql`
-        SELECT id, nome, ativa
+        SELECT id, nome, ativa, unidade_presencial_id
         FROM unidades
         ORDER BY id ASC
       `,
@@ -144,6 +144,7 @@ export async function GET(req: NextRequest) {
           a.professor_id,
           COALESCE(p.nome, 'Professor') AS professor_nome,
           p.grupo_professor AS professor_grupo_professor,
+          a.whatsapp_link_aula,
           a.materia,
           to_char(a.data, 'YYYY-MM-DD') AS data,
           COALESCE(
@@ -311,7 +312,7 @@ export async function GET(req: NextRequest) {
             datasLiberadas,
             agendamentos: sessao.role === 'professor' ? agendamentos.map((aula) => {
                 return unidadeOnline(aula.unidade_nome) ? aula :
-                    { ...aula, nome_responsavel: '', whatsapp_responsavel: '' };
+                    { ...aula, nome_responsavel: '', whatsapp_responsavel: '', whatsapp_link_aula: null };
             }) : agendamentos,
             bloqueios,
         });

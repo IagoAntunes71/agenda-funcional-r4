@@ -140,7 +140,7 @@ export default function ModalNovoAgendamentoR4({
     const totalMinutos = duracaoHoras * 60 + duracaoMinutos;
     const profSelecionado = professores.find((p) => p.id === professorId);
     const profsDaUnidade = professores.filter(
-        (p) => p.ativo && (!unidadeId || p.unidade_id === unidadeId)
+        (p) => p.ativo && (!unidadeId || (p.unidade_id === unidadeId || p.unidade_id === unidades.find((u) => u.id === unidadeId)?.unidade_presencial_id))
     );
 
     const alunosFiltrados = buscaAluno.trim()
@@ -313,7 +313,7 @@ export default function ModalNovoAgendamentoR4({
                                         const uid = Number(e.target.value);
                                         setUnidadeId(uid);
                                         const primeiroProf = professores.find(
-                                            (p) => p.ativo && p.unidade_id === uid
+                                            (p) => p.ativo && (p.unidade_id === uid || p.unidade_id === unidades.find((u) => u.id === uid)?.unidade_presencial_id)
                                         );
                                         if (primeiroProf) {
                                             setProfessorId(primeiroProf.id);

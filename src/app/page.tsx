@@ -95,6 +95,7 @@ interface ComprovanteAgendamento {
   colegioNome?: string;
   serie?: string;
   linkWaMe?: string | null;
+  respostaWhatsAppEnviada?: boolean;
 }
 
 type EtapaLoginCliente =
@@ -1004,7 +1005,14 @@ export default function PaginaAgendamentoReforco() {
     );
   }
 
+  const [modalidade, setModalidade] = useState<'presencial' | 'online'>('presencial');
+  const [whatsappAluno, setWhatsappAluno] = useState('');
+  const onlineDireto = unidades.find((u) => u.id === unidadeId)?.nome.trim().toLowerCase() === 'online';
+  const aulaOnline = onlineDireto || modalidade === 'online';
+
   function abrirModalAgendamento(prof: ProfessorDisponivel, slot: SlotAula) {
+    setModalidade('presencial');
+    setWhatsappAluno('');
     setSelecaoSlot({ professor: prof, slot });
     const matInicial =
         materiaFiltro !== 'todas'
@@ -1027,6 +1035,8 @@ export default function PaginaAgendamentoReforco() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           unidadeId,
+          modalidade: aulaOnline ? 'online' : 'presencial',
+          whatsappAluno: aulaOnline ? whatsappAluno : undefined,
           remarcarId,
           professorId: selecaoSlot.professor.id,
           alunoId: alunoAtivo.id,
@@ -1052,7 +1062,7 @@ export default function PaginaAgendamentoReforco() {
       }
 
       setRemarcarId(null);
-      setComprovante(json.agendamento);
+      setComprovante({ ...json.agendamento, respostaWhatsAppEnviada: json.respostaWhatsAppEnviada });
       setSelecaoSlot(null);
       setObservacoes('');
       await Promise.all([
@@ -1214,6 +1224,9 @@ export default function PaginaAgendamentoReforco() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {comprovante.respostaWhatsAppEnviada === false && <p className="text-sm">
+                    Aula agendada. O envio do link de confirmação pelo WhatsApp ficou indisponível. Fale com a secretaria.
+                  </p>}
                   {comprovante.linkWaMe && (
                       <a
                           href={comprovante.linkWaMe}
@@ -2431,11 +2444,11 @@ export default function PaginaAgendamentoReforco() {
         {selecaoSlot && alunoAtivo && (
             <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
               <div
-                  className={`border rounded-2xl max-h-[90dvh] overflow-y-auto max-w-lg w-full p-4 sm:p-6 space-y-5 shadow-2xl ${clsCard}`}
+                  className={`border rounded-2xl max-h-[90dvh] overflow-y-auto max-w-lg w-full p-4 sm:p-5 space-y-3 shadow-2xl ${clsCard}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-[#0284c7]">{textoR4("Confirmar Aula R4 Ensina (100 min)")}</span>
+                <span className="text-xs font-bold uppercase tracking-wider text-[#0284c7]">{textoR4("Agendar aula")}</span>
                     <h2 className={`text-lg font-bold mt-0.5 ${clsTitulo}`}>
                       {selecaoSlot.professor.nome}
                     </h2>
@@ -2469,11 +2482,26 @@ export default function PaginaAgendamentoReforco() {
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-[#BE1E23]/12 border border-[#BE1E23]/35 px-3.5 py-2.5 text-[11px] text-rose-300">
-                  {textos.aviso_modal_lembrete}
-                </div>
-
-                <form onSubmit={handleConfirmarAgendamento} className="space-y-3.5">
+                <form onSubmit={handleConfirmarAgendamento} className="space-y-3">
+                  {!onlineDireto && <fieldset>
+                    <legend className="mb-1 text-xs font-semibold">Modalidade da aula</legend>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['presencial', 'online'] as const).map((opcao) => (
+                        <label key={opcao} className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold ${modalidade === opcao ? 'border-sky-500' : clsSubCard}`}>
+                          <input type="radio" name="modalidade" checked={modalidade === opcao} onChange={() => setModalidade(opcao)} />
+                          {opcao === 'online' ? 'Online' : 'Presencial'}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>}
+                  {aulaOnline && <div className={`space-y-2 rounded-xl border p-3 text-xs ${clsSubCard}`}>
+                    <p>O professor enviará o link para o WhatsApp do responsável. Para receber no número do aluno, informe-o abaixo.</p>
+                    <label className="block font-semibold">WhatsApp do aluno (opcional)
+                      <input type="tel" inputMode="tel" value={whatsappAluno}
+                        onChange={(e) => setWhatsappAluno(formatarTelefone(e.target.value))}
+                        placeholder="(71) 99999-9999" className={`mt-1 w-full rounded-lg border px-3 py-2 ${clsInput}`} />
+                    </label>
+                  </div>}
                   <div>
                     <label
                         className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
@@ -2524,7 +2552,7 @@ export default function PaginaAgendamentoReforco() {
                     >
                       {enviandoAgendamento
                           ? textoR4("Agendando...")
-                          : textoR4("Confirmar Agendamento")}
+                          : textoR4("Agendar aula")}
                     </button>
                   </div>
                 </form>

@@ -1,3 +1,6 @@
+import { randomBytes, createHash } from 'node:crypto';
+import { unidadeOnline } from '@/lib/unidade-online';
+import { normalizarTelefone, formatarTelefone } from '@/lib/cliente-helpers';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -21,7 +24,7 @@ import {
     filtrarMateriasProfessorPorSerie,
     gerarVariantesTelefone,
 } from '@/lib/cliente-helpers';
-import { notificarGrupoNovoAgendamento } from '@/lib/whatsapp-notificacao';
+import { notificarGrupoNovoAgendamento, enviarMensagemResponsavel, lembreteCancelamento } from '@/lib/whatsapp-notificacao';
 import { obterModoChaveMestra } from '@/app/api/admin/configuracoes/route';
 
 declare global {
@@ -352,15 +355,31 @@ export async function POST(req: NextRequest) {
         }
 
         const unidadeRows = (await sql`
-      SELECT nome
-      FROM unidades
-      WHERE id = ${unidadeId}
+      SELECT id, nome, (SELECT online.id FROM unidades online WHERE online.unidade_presencial_id = base.id AND online.ativa) AS online_id,
+        (SELECT online.nome FROM unidades online WHERE online.unidade_presencial_id = base.id AND online.ativa) AS online_nome
+      FROM unidades base
+      WHERE id = ${unidadeId} AND unidade_presencial_id IS NULL AND ativa
       LIMIT 1
-    `) as { nome: string }[];
+    `) as { id: number; nome: string; online_id: number | null; online_nome: string | null }[];
 
-        const nomeUnidade = unidadeRows[0]?.nome || 'Unidade';
+        const unidade = unidadeRows[0];
+        if (!unidade || (body.modalidade !== undefined && !['online','presencial'].includes(body.modalidade))) {
+            return NextResponse.json({ error: 'Unidade ou modalidade inválida.' }, { status: 400 });
+        }
+        const onlineDireto = unidadeOnline(unidade.nome);
+        const online = onlineDireto || body.modalidade === 'online';
+        const unidadeAgendaId = online && !onlineDireto ? unidade.online_id : unidade.id;
+        if (!unidadeAgendaId) return NextResponse.json({ error: 'A modalidade online está indisponível nesta unidade.' }, { status: 409 });
+        const nomeUnidade = online && !onlineDireto ? unidade.online_nome! : unidade.nome;
+        const telefoneAlternativo = String(body.whatsappAluno ?? '').trim();
+        const telefoneLink = online ? normalizarTelefone(telefoneAlternativo || alunoTelefone) : null;
+        if (online && (!telefoneLink || !/^[1-9][0-9]{9,10}$/.test(telefoneLink))) {
+            return NextResponse.json({ error: 'Informe um WhatsApp válido com DDD para receber o link.' }, { status: 400 });
+        }
+        const token = randomBytes(32).toString('hex');
+        const tokenHash = createHash('sha256').update(token).digest('hex');
         const materiaAgendada = rotuloMateriaAula(materia, horaParaMinutos(slotEscolhido.fim) - horaParaMinutos(slotEscolhido.inicio));
-        const antecedencia = remarcarId ? (await lerOperacaoR4()).antecedencia : 0;
+        const { antecedencia } = await lerOperacaoR4();
         const inicio = slotEscolhido.inicio;
         const fim = slotEscolhido.fim;
         const duracao = horaParaMinutos(fim) - horaParaMinutos(inicio);
@@ -383,10 +402,11 @@ export async function POST(req: NextRequest) {
                   AND coalesce(a.hora_fim,coalesce(a.hora_inicio,a.horario) + interval '100 minutes') > ${inicio}::time
             )`;
         const gravacao = remarcarId
-            ? sql`UPDATE agendamentos SET unidade_id = ${unidadeId}, professor_id = ${prof.id},
+            ? sql`UPDATE agendamentos SET unidade_id = ${unidadeAgendaId}, professor_id = ${prof.id},
                 materia = ${materiaAgendada}, data = ${data}::date, hora_inicio = ${inicio}::time,
                 hora_fim = ${fim}::time, horario = ${inicio}::time, duracao_minutos = ${duracao},
-                observacoes = ${observacoes || null}, notificado_whatsapp = false
+                observacoes = ${observacoes || null}, notificado_whatsapp = false, status = 'agendado',
+                whatsapp_link_aula = ${telefoneLink}, resposta_whatsapp_hash = ${tokenHash}
               WHERE id = ${remarcarId} AND aluno_id = ${alunoId} AND excluido_em IS NULL
                 AND coalesce(status, 'confirmado') IN ('agendado','confirmado')
                 AND ((agendamentos.data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia')
@@ -395,11 +415,11 @@ export async function POST(req: NextRequest) {
             : sql`INSERT INTO agendamentos (
                 unidade_id, professor_id, aluno_id, materia, data, hora_inicio, hora_fim, duracao_minutos,
                 aluno_nome, aluno_telefone, colegio_nome, serie, responsavel_nome, observacoes,
-                status, notificado_whatsapp
-              ) SELECT ${unidadeId}, ${prof.id}, ${alunoId}, ${materiaAgendada}, ${data}::date,
+                status, notificado_whatsapp, whatsapp_link_aula, resposta_whatsapp_hash
+              ) SELECT ${unidadeAgendaId}, ${prof.id}, ${alunoId}, ${materiaAgendada}, ${data}::date,
                 ${inicio}::time, ${fim}::time, ${duracao}, ${alunoSelecionado.nome_aluno}, ${sessaoCliente.telefone},
                 ${alunoSelecionado.colegio_nome || null}, ${alunoSelecionado.serie || null},
-                ${responsavelFinal || null}, ${observacoes || null}, 'confirmado', false
+                ${responsavelFinal || null}, ${observacoes || null}, 'agendado', false, ${telefoneLink}, ${tokenHash}
               WHERE EXISTS (${livre})
                 AND (SELECT count(*) FROM agendamentos WHERE aluno_id = ${alunoId}
                   AND excluido_em IS NULL AND status IN ('agendado','confirmado')
@@ -416,6 +436,23 @@ export async function POST(req: NextRequest) {
         if (!agendamentoId) return NextResponse.json({
             error: remarcarId ? 'Remarcação indisponível. Confira o prazo e escolha um horário livre.' : 'Horário ocupado ou limite de aulas atingido.',
         }, { status: 409 });
+
+        const origem = process.env.R4_URL_PUBLICA || (process.env.VERCEL_PROJECT_PRODUCTION_URL && 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL) || req.nextUrl.origin;
+        const entregaWhatsApp = await (async () => {
+            const url = new URL('/responder-aula', origem);
+            url.searchParams.set('t', token);
+            const primeira = await enviarMensagemResponsavel(alunoTelefone, [
+                `Aula agendada na R4 Ensina · ${alunoNome}`,
+                `${materiaAgendada} com ${prof.nome} · ${nomeUnidade}`,
+                `${data.split('-').reverse().join('/')} · ${inicio} às ${fim}`,
+                telefoneLink ? `O professor enviará o link da aula para ${formatarTelefone(telefoneLink)}.` : '',
+                lembreteCancelamento(antecedencia),
+            ].filter(Boolean).join('\n'), 'aula_agendada');
+            if (!primeira.ok) return false;
+            const resposta = await enviarMensagemResponsavel(alunoTelefone,
+                `Confirme ou cancele sua aula neste link:\n${url.toString()}`, 'responder_aula');
+            return resposta.ok;
+        })().catch(() => false);
 
         const notif = await notificarGrupoNovoAgendamento({
             id: agendamentoId,
@@ -447,6 +484,7 @@ export async function POST(req: NextRequest) {
             {
                 sucesso: true,
                 notificadoWhatsApp: notif.enviado,
+                respostaWhatsAppEnviada: entregaWhatsApp,
                 agendamento: {
                     id: agendamentoId,
                     unidade: nomeUnidade,

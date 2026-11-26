@@ -7,7 +7,7 @@ export async function GET() {
             sql`
         SELECT id, nome, ativa
         FROM unidades
-        WHERE ativa = true
+        WHERE ativa = true AND unidade_presencial_id IS NULL
         ORDER BY nome ASC
       `,
             sql`

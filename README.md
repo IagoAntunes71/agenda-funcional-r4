@@ -47,3 +47,9 @@ A migração preserva os históricos, converte o agrupamento de professores entr
 A remarcação altera a aula existente após validar a titularidade, o prazo e o novo horário. A agenda original é liberada quando a transação confirma o novo horário. Abas administrativas abertas em primeiro plano atualizam os dados a cada cinco segundos.
 
 Mantenha o `.env.local` original e as exportações históricas em armazenamento privado. Os scripts antigos estão arquivados e excluídos da compilação da aplicação.
+
+## Modalidade online por unidade e resposta por WhatsApp
+
+Aplique `migrations/002-modalidade-e-confirmacao.sql` no Neon antes de publicar esta versão. Ela pressupõe a migração 001. As cinco unidades derivadas usam o cadastro de professores da unidade presencial de origem.
+
+Configure `R4_URL_PUBLICA` no servidor com a URL pública HTTPS do Portal se o endereço de produção detectado pelo Vercel não for o endereço desejado. O WhatsApp precisa estar ativo e o provedor configurado para mensagens individuais. Para webhook, valide os eventos `aula_agendada`, `responder_aula` e `aula_confirmada`, com o destino em `telefone`. O link recebido pelo responsável abre as ações no R4.

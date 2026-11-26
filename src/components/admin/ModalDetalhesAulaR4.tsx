@@ -95,7 +95,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const status = normalizarStatusAulaR4(aula.status);
     const destino = professores.find((p) => p.id === form.professor_id);
     const materias = materiasBase([...(destino ? filtrarMateriasVisiveis(destino.materias) : []), form.materia]);
-    const professoresUnidade = professores.filter((p) => p.unidade_id === form.unidade_id && (p.ativo || p.id === aula.professor_id));
+    const professoresUnidade = professores.filter((p) => (p.unidade_id === form.unidade_id || p.unidade_id === unidades.find((u) => u.id === form.unidade_id)?.unidade_presencial_id) && (p.ativo || p.id === aula.professor_id));
 
     useEffect(() => {
         const elemento = dialogo.current;
@@ -229,6 +229,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                                 <Dado icone={<Building2 />} cor="coral" titulo={textoR4("Unidade")} valor={aula.unidade_nome} />
                             </div>
                         </section>
+                        {aula.whatsapp_link_aula && <p className={css.contato}><strong>Enviar link da aula para</strong>{' '}{aula.whatsapp_link_aula}</p>}
                         {(aula.nome_responsavel || aula.whatsapp_responsavel) && <p className={css.contato}>
                             <strong>{textoR4("Responsável")}</strong> {[aula.nome_responsavel, aula.whatsapp_responsavel].filter(Boolean).join(' · ')}
                         </p>}

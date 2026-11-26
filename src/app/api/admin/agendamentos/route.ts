@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
             !/^([01]\d|2[0-3]):[0-5]\d$/.test(horaInicio) || horaParaMinutos(horaInicio) + duracaoMinutos >= 1440) {
             return erro('Horário ou duração inválidos.', 400);
         }
-        const [destino] = await sql`SELECT id, grupo_professor, materias FROM professores
-            WHERE id = ${professorId} AND unidade_id = ${unidadeId} AND ativo`;
+        const [destino] = await sql`SELECT p.id, p.grupo_professor, p.materias FROM professores p JOIN unidades u ON u.id = ${unidadeId}
+            WHERE p.id = ${professorId} AND p.unidade_id IN (u.id, u.unidade_presencial_id) AND p.ativo AND u.ativa`;
         if (!destino || !materiasBase(destino.materias).includes(materia)) {
             return erro('Selecione uma matéria cadastrada para o professor.', 400);
         }
@@ -347,6 +347,7 @@ export async function GET(req: NextRequest) {
                 serie_aluno: aula.serie || aula.serie_aluno,
                 colegio_aluno: aula.colegio_nome || aula.colegio_aluno,
                 nome_responsavel: exibirContato ? aula.responsavel_nome || aula.nome_responsavel : '',
+                whatsapp_link_aula: exibirContato ? aula.whatsapp_link_aula : null,
                 whatsapp_responsavel: exibirContato ? aula.aluno_telefone || aula.whatsapp_responsavel : '',
                 observacoes: aula.observacoes, feedback_professor: aula.feedback_professor,
                 excluido_em: aula.excluido_em,
@@ -420,8 +421,8 @@ export async function PATCH(req: NextRequest) {
                 return erro('Confira aluno, unidade, professor, matéria, data e duração.', 400);
             }
             const [destino] = await sql`
-                SELECT p.id, p.grupo_professor, p.materias FROM professores p JOIN unidades u ON u.id = p.unidade_id
-                WHERE p.id = ${professor} AND u.id = ${unidade}
+                SELECT p.id, p.grupo_professor, p.materias FROM professores p JOIN unidades u ON u.id = ${unidade}
+                WHERE p.id = ${professor} AND p.unidade_id IN (u.id, u.unidade_presencial_id)
                 AND ((p.ativo AND u.ativa) OR (p.id = ${aula.professor_id} AND u.id = ${aula.unidade_id}))
             `;
             if (!destino) return erro('Escolha um professor vinculado à unidade selecionada.', 400);

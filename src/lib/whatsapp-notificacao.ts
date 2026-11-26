@@ -539,3 +539,14 @@ export async function notificarGrupoCancelamentoAgendamento(
         erro: resultado.erro,
     };
 }
+
+export async function enviarMensagemResponsavel(telefone: string, mensagem: string, evento: string) {
+    const cfg = await obterConfigWhatsApp();
+    if (!cfg.ativo || !cfg.url_api) return { ok: false };
+    const destino = formatarDestinoApi(telefone);
+    return dispararRequisicaoWhatsApp(cfg, destino, mensagem, { evento, telefone: destino });
+}
+
+export function lembreteCancelamento(antecedencia: number) {
+    return `Cancelamento gratuito até ${antecedencia} h antes da aula. Após esse prazo, fale com a secretaria da R4.`;
+}

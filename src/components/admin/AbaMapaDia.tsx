@@ -332,7 +332,7 @@ export default function AbaMapaDia({
         }
         const termo = normalizarTextoComparacao(busca);
         return professores.filter((p) => p.ativo &&
-            (unidadeIdAtiva ? p.unidade_id === unidadeIdAtiva : unidades.some((u) => u.ativa && u.id === p.unidade_id)) &&
+            (unidadeIdAtiva ? (p.unidade_id === unidadeIdAtiva || p.unidade_id === unidades.find((u) => u.id === unidadeIdAtiva)?.unidade_presencial_id) : unidades.some((u) => u.ativa && u.id === p.unidade_id)) &&
             (!termo || [p.nome, ...filtrarMateriasVisiveis(p.materias)]
                 .some((texto) => normalizarTextoComparacao(texto).includes(termo))));
     }, [ehProfessor, podeVerOutrasAgendas, professorTravadoId, professores, unidadeIdAtiva, unidades, busca]);
@@ -366,7 +366,7 @@ export default function AbaMapaDia({
             };
             const aulas = agendamentos.flatMap((aula) => {
                 if (aula.data !== data || !perfis.some((p) => correspondeProfessor(aula, p))) return [];
-                if (!ehProfessor && aula.unidade_id && aula.unidade_id !== prof.unidade_id) return [];
+                if (!ehProfessor && (unidadeIdAtiva ? aula.unidade_id !== unidadeIdAtiva : aula.professor_id !== prof.id)) return [];
                 const intervalo = recortarIntervalo(intervaloAula(aula));
                 return intervalo ? [{ ...intervalo, aula }] : [];
             });
@@ -388,7 +388,7 @@ export default function AbaMapaDia({
                     filtroStatus === 'todos' || normalizarStatusAulaR4(aula.status) === filtroStatus)),
             };
         });
-    }, [agendamentos, bloqueios, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
+    }, [agendamentos, bloqueios, unidadeIdAtiva, dataGlobal, datasPorProfessor, ehProfessor, faixaDiasSemana,
         filtroStatus, professorSemana, professores, professoresVisiveis, semana, podeVerOutrasAgendas, inicioMapa, fimMapa]);
 
     const layout = useLayoutR4();
@@ -1479,7 +1479,7 @@ export default function AbaMapaDia({
                 modoInicial={modalNovoModo}
                 roleUsuario={roleUsuario}
                 professorTravadoId={professorTravadoId}
-                unidadeInicialId={professores.find((prof) => prof.id === modalProfInicial)?.unidade_id || unidadeIdAtiva}
+                unidadeInicialId={unidadeIdAtiva || professores.find((prof) => prof.id === modalProfInicial)?.unidade_id || 0}
                 professorInicialId={modalProfInicial}
                 dataInicial={modalDataInicial}
                 horaInicial={modalHoraInicial}

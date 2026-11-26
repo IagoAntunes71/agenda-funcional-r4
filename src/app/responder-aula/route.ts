@@ -1,0 +1,71 @@
+import { createHash } from 'node:crypto';
+import { sql } from '@/lib/db';
+import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
+import { enviarMensagemResponsavel, lembreteCancelamento } from '@/lib/whatsapp-notificacao';
+
+function tela(texto: string, token?: string, status = 200) {
+    return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Responder à aula · R4 Ensina</title>
+    <style>body{margin:0;padding:2rem 1rem;background:#f1f5f9;color:#0f172a;font:1rem/1.5 system-ui}
+    main{max-width:32rem;margin:auto;padding:1.5rem;border:1px solid #cbd5e1;border-radius:1rem;background:white}
+    button{padding:.75rem 1rem;margin:.25rem;border:1px solid #0369a1;border-radius:.5rem;background:#fff;color:#075985;cursor:pointer}
+    button:first-of-type{background:#0369a1;color:white}</style>
+    <main><h1>R4 Ensina</h1><p>${texto}</p>${token ? `<form method="post">
+    <input type="hidden" name="t" value="${token}">
+    <button name="acao" value="confirmar">Confirmar aula</button>
+    <button name="acao" value="cancelar">Cancelar aula</button></form>` : ''}</main></html>`, {
+        status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" },
+    });
+}
+
+const tokenValido = (t: unknown): t is string => typeof t === 'string' && /^[a-f0-9]{64}$/.test(t);
+const hash = (token: string) => createHash('sha256').update(token).digest('hex');
+
+export async function GET(req: Request) {
+    const token = new URL(req.url).searchParams.get('t');
+    if (!tokenValido(token)) return tela('Link inválido. Fale com a secretaria da R4.', undefined, 400);
+    try {
+        const [aula] = await sql`SELECT id FROM agendamentos WHERE resposta_whatsapp_hash = ${hash(token)}
+            AND excluido_em IS NULL AND status IN ('agendado','confirmado')
+            AND ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia') > now()`;
+        if (!aula) return tela('Este link já foi usado ou a aula está indisponível. Fale com a secretaria da R4.', undefined, 404);
+        const { antecedencia } = await lerOperacaoR4();
+        return tela(lembreteCancelamento(antecedencia), token);
+    } catch { return tela('Não foi possível consultar a aula. Tente novamente.', undefined, 503); }
+}
+
+export async function POST(req: Request) {
+    const dados = await req.formData().catch(() => null);
+    const token = dados?.get('t');
+    const acao = dados?.get('acao');
+    if (!tokenValido(token) || (acao !== 'confirmar' && acao !== 'cancelar')) {
+        return tela('Resposta inválida.', undefined, 400);
+    }
+    try {
+        const { antecedencia } = await lerOperacaoR4();
+        const confirmar = acao === 'confirmar';
+        const [, aulas] = await sql.transaction([
+            sql`SELECT set_config('r4.ator_agenda', 'Responsável · WhatsApp', true)`,
+            sql`UPDATE agendamentos
+                SET status = ${confirmar ? 'confirmado' : 'cancelado'},
+                    resposta_whatsapp_hash = CASE WHEN ${confirmar} THEN resposta_whatsapp_hash ELSE NULL END
+                WHERE resposta_whatsapp_hash = ${hash(token)} AND excluido_em IS NULL
+                    AND (status = 'agendado' OR (NOT ${confirmar} AND status = 'confirmado'))
+                    AND ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia') > now()
+                    AND (${confirmar} OR ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia')
+                        >= now() + make_interval(hours => ${antecedencia}))
+                RETURNING aluno_telefone`,
+        ]);
+        if (!aulas.length) return tela(confirmar
+            ? 'A aula já foi respondida ou este link não está mais disponível.'
+            : 'Não foi possível cancelar por este link. Se o prazo gratuito terminou, fale com a secretaria da R4.', undefined, 409);
+        if (confirmar && aulas[0].aluno_telefone) {
+            await enviarMensagemResponsavel(aulas[0].aluno_telefone,
+                'Sua aula na R4 Ensina foi confirmada. ' + lembreteCancelamento(antecedencia), 'aula_confirmada').catch(() => undefined);
+        }
+        return tela(confirmar ? 'Aula confirmada. ' + lembreteCancelamento(antecedencia) : 'Aula cancelada.');
+    } catch { return tela('Não foi possível registrar sua resposta. Tente novamente.', undefined, 503); }
+}

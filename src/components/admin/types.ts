@@ -12,6 +12,7 @@ export interface UnidadeAdmin {
     id: number;
     nome: string;
     ativa: boolean;
+    unidade_presencial_id?: number | null;
 }
 
 export interface ProfessorAdmin {
@@ -80,6 +81,7 @@ export interface AgendamentoAdmin {
     horario: string;
     nome_responsavel: string;
     whatsapp_responsavel: string;
+    whatsapp_link_aula?: string | null;
     nome_aluno: string;
     colegio_aluno: string;
     serie_aluno: string;

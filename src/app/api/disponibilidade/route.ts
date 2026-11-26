@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
         const unidades = (await sql`
       SELECT id, nome
       FROM unidades
-      WHERE ativa = true
+      WHERE ativa = true AND unidade_presencial_id IS NULL
       ORDER BY id ASC
     `) as { id: number; nome: string }[];
 
