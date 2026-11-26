@@ -172,6 +172,7 @@ async function executarMigracaoContasResponsaveis() {
       pin_bloqueado_ate::text AS pin_bloqueado_ate
     FROM alunos
     WHERE responsavel_id IS NULL
+      AND nullif(trim(pin_hash), '') IS NOT NULL
       AND COALESCE(trim(telefone), '') <> ''
     ORDER BY id ASC
   `) as {
@@ -665,14 +666,7 @@ export async function buscarFamiliaPorTelefone(telefoneBruto: string): Promise<{
     FROM alunos al
     LEFT JOIN responsaveis r ON r.id = al.responsavel_id
     WHERE al.ativo = true
-      AND (
-        (${resp?.id || 0} > 0 AND al.responsavel_id = ${resp?.id || 0})
-        OR regexp_replace(
-          regexp_replace(COALESCE(al.telefone, ''), '\D', '', 'g'),
-          '^55(?=\d{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
-      )
+      AND al.responsavel_id = ${resp?.id ?? null}
     ORDER BY al.id ASC
   `) as {
         id: number;

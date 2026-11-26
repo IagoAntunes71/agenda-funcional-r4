@@ -217,7 +217,7 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             <div className={css.datas}>{(['de', 'ate'] as const).map((chave) => <label key={chave}>{chave === 'de' ? 'De' : 'Até'}
                 <input type="date" value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} />
             </label>)}</div>
-            {seletor('unidade', 'Unidade', unidades.map((u) => [String(u.id), u.nome]))}
+            {seletor('unidade', 'Unidade', unidades.filter((u) => !u.unidade_presencial_id).map((u) => [String(u.id), u.nome]))}
             {seletor('status', 'Status da aula', LISTA_STATUS_AULA_R4.map((s) => [s.valor, s.rotulo]))}
             {filtrosTexto.filter(([chave]) => ['professor', 'aluno', 'materia'].includes(chave)).map(([chave, rotulo]) =>
                 <label key={chave}>{rotulo}

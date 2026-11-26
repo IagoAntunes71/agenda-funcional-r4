@@ -54,7 +54,7 @@ export default function InicioAdminR4({ perfil, unidades, resumo, modulos, escur
     const layout = useLayoutR4();
     const [painel, setPainel] = useState<HTMLDivElement | null>(null);
     const hoje = obterAgoraBahia().dataISO;
-    const unidadesAtivas = unidades.filter((unidade) => unidade.ativa);
+    const unidadesAtivas = unidades.filter((unidade) => unidade.ativa && !unidade.unidade_presencial_id);
     const atalhos = atalhosOperacao.flatMap((id) => modulos.filter((item) => item.id === id));
     function destino(id: string, original: string) {
         const modulo = layout?.layout[id]?.modulo;

@@ -78,7 +78,7 @@ async function atualizarStatusPin(
     if (dados.pinHash !== undefined) {
         await Promise.all([
             sql`UPDATE responsaveis SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
-            sql`UPDATE alunos SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE alunos SET pin_hash = ${dados.pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL WHERE responsavel_id IS NOT NULL AND regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
         ]);
         return;
     }
@@ -86,7 +86,7 @@ async function atualizarStatusPin(
     if (dados.bloquearMinutos !== undefined) {
         await Promise.all([
             sql`UPDATE responsaveis SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
-            sql`UPDATE alunos SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
+            sql`UPDATE alunos SET pin_tentativas = 0, pin_bloqueado_ate = now() + (${dados.bloquearMinutos} || ' minutes')::interval WHERE responsavel_id IS NOT NULL AND regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
         ]);
         return;
     }
@@ -94,7 +94,7 @@ async function atualizarStatusPin(
     const tentativas = dados.tentativas ?? 0;
     await Promise.all([
         sql`UPDATE responsaveis SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL, atualizado_em = now() WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
-        sql`UPDATE alunos SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL WHERE regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
+        sql`UPDATE alunos SET pin_tentativas = ${tentativas}, pin_bloqueado_ate = NULL WHERE responsavel_id IS NOT NULL AND regexp_replace(regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])`,
     ]);
 }
 
@@ -415,13 +415,15 @@ export async function POST(req: NextRequest) {
             const erroPin = validarNovoPinEConfirmacao(pin, confirmarPin);
             if (erroPin) return erroPin;
 
+            const nome = String(body?.responsavelNome || '').trim();
+            if (nome.length < 2 || nome.length > 120) return NextResponse.json({ error: 'Informe o nome do responsável.' }, { status: 400 });
+
             const otp = await validarCodigoVerificacaoWhatsApp(telefoneNorm, 'cadastro',
                 String(body.codigoVerificacao || ''), true);
             if (!otp.ok) return NextResponse.json({ error: otp.erro }, { status: otp.status || 400 });
-            const nome = familia.responsavelNome || familia.alunos[0]?.responsavel_nome || 'Responsável';
             const pinHash = gerarHashPin(pin);
             const contas = familia.responsavelId
-                ? await sql`UPDATE responsaveis SET pin_hash = ${pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL
+                ? await sql`UPDATE responsaveis SET nome = ${nome}, pin_hash = ${pinHash}, pin_tentativas = 0, pin_bloqueado_ate = NULL
                     WHERE id = ${familia.responsavelId} AND nullif(trim(pin_hash), '') IS NULL RETURNING id`
                 : (await sql.transaction([
                     sql`SELECT pg_advisory_xact_lock(840427, hashtext(${telefoneNorm}))`,
@@ -434,13 +436,7 @@ export async function POST(req: NextRequest) {
                 ]))[1];
             if (!contas.length) return NextResponse.json({ error: 'Este número já tem PIN. Volte e entre na conta.' }, { status: 409 });
 
-            return responderAutenticado(
-                telefoneNorm,
-                familia.responsavelNome ||
-                    familia.alunos[0]?.responsavel_nome ||
-                    'Responsável',
-                familia.alunos
-            );
+            return responderAutenticado(telefoneNorm, nome, familia.alunos);
         }
 
         if (acao === 'entrar_pin') {
@@ -492,13 +488,7 @@ export async function POST(req: NextRequest) {
 
             await atualizarStatusPin(variantes, { tentativas: 0 });
 
-            return responderAutenticado(
-                telefoneNorm,
-                familia.responsavelNome ||
-                    familia.alunos[0]?.responsavel_nome ||
-                    'Responsável',
-                familia.alunos
-            );
+            return responderAutenticado(telefoneNorm, familia.responsavelNome || 'Responsável', familia.alunos);
         }
 
         if (acao === 'solicitar_recuperacao_pin') {
@@ -566,13 +556,7 @@ export async function POST(req: NextRequest) {
 
             await atualizarStatusPin(variantes, { pinHash: gerarHashPin(pin) });
 
-            return responderAutenticado(
-                telefoneNorm,
-                familia.responsavelNome ||
-                    familia.alunos[0]?.responsavel_nome ||
-                    'Responsável',
-                familia.alunos
-            );
+            return responderAutenticado(telefoneNorm, familia.responsavelNome || 'Responsável', familia.alunos);
         }
 
         return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });

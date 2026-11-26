@@ -273,7 +273,9 @@ export default function AbaMapaDia({
 
     const scrollGradeRef = useRef<HTMLDivElement | null>(null);
     const [rolagem, setRolagem] = useState({ anterior: false, proximo: false });
-    const unidadeIdAtiva = todasUnidades ? 0 : unidades.find((unidade) => unidade.ativa && unidade.id === unidadeId)?.id || unidades.find((unidade) => unidade.ativa)?.id || 0;
+    const unidadesFiltro = unidades.filter((unidade) => unidade.ativa && !unidade.unidade_presencial_id);
+    const unidadeBase = unidades.find((unidade) => unidade.id === unidadeId)?.unidade_presencial_id || unidadeId;
+    const unidadeIdAtiva = todasUnidades ? 0 : unidadesFiltro.find((unidade) => unidade.id === unidadeBase)?.id || unidadesFiltro[0]?.id || 0;
     const unidadeEndereco = todasUnidades ? 'todas' : unidadeIdAtiva;
 
     useEffect(() => {
@@ -334,7 +336,7 @@ export default function AbaMapaDia({
         }
         const termo = normalizarTextoComparacao(busca);
         return professores.filter((p) => p.ativo &&
-            (unidadeIdAtiva ? (p.unidade_id === unidadeIdAtiva || p.unidade_id === unidades.find((u) => u.id === unidadeIdAtiva)?.unidade_presencial_id) : unidades.some((u) => u.ativa && u.id === p.unidade_id)) &&
+            (unidadeIdAtiva ? (p.unidade_id === unidadeIdAtiva || unidades.some((u) => u.id === p.unidade_id && u.unidade_presencial_id === unidadeIdAtiva)) : unidades.some((u) => u.ativa && u.id === p.unidade_id)) &&
             (!termo || [p.nome, ...filtrarMateriasVisiveis(p.materias)]
                 .some((texto) => normalizarTextoComparacao(texto).includes(termo))));
     }, [ehProfessor, podeVerOutrasAgendas, professorTravadoId, professores, unidadeIdAtiva, unidades, busca]);
@@ -373,9 +375,12 @@ export default function AbaMapaDia({
                 if (aula.data !== data || !perfis.some((p) => correspondeProfessor(aula, p))) return [];
                 if (!ehProfessor) {
                     const unidadeAula = unidades.find((unidade) => unidade.id === aula.unidade_id);
-                    if (aula.unidade_id !== (unidadeIdAtiva || prof.unidade_id) &&
-                        unidadeAula?.unidade_presencial_id !== (unidadeIdAtiva || prof.unidade_id)) return [];
-                    if (!unidadeIdAtiva && aula.professor_id !== prof.id) return [];
+                    const unidadeProfessor = unidades.find((unidade) => unidade.id === prof.unidade_id);
+                    if ((unidadeAula?.unidade_presencial_id ?? aula.unidade_id) !==
+                        (unidadeIdAtiva || unidadeProfessor?.unidade_presencial_id || prof.unidade_id)) return [];
+                    if (aula.professor_id !== prof.id && (
+                        !unidadeIdAtiva || (!semana && professoresVisiveis.some((p) => p.id === aula.professor_id))
+                    )) return [];
                 }
                 const intervalo = recortarIntervalo(intervaloAula(aula));
                 return intervalo ? [{ ...intervalo, aula }] : [];
@@ -787,7 +792,7 @@ export default function AbaMapaDia({
                                     atualizarEndereco(dataGlobal, e.target.value === 'todas' ? 'todas' : Number(e.target.value));
                                 }}>
                                     <option value="todas">{textoR4("Todas as unidades")}</option>
-                                    {unidades.filter((u) => u.ativa).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                                    {unidadesFiltro.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
                                 </select>
                                 <label className={styles.busca}>
                                     <Search />

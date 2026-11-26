@@ -2,6 +2,7 @@
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
+import type { CadastroColegioR4 } from '@/lib/colegios-r4';
 import { useEffect, useState } from 'react';
 
 interface ColegioItem {
@@ -11,10 +12,19 @@ interface ColegioItem {
     total_alunos: number;
 }
 
-export default function AdminColegios() {
+function chaveColegio(cadastro: CadastroColegioR4) {
+    return cadastro.id === null ? 'nome:' + cadastro.nome : 'id:' + cadastro.id;
+}
+
+export default function AdminColegios({ aoUnificar }: { aoUnificar?: () => Promise<unknown> }) {
     const textoR4 = useTextoR4();
     const [pendentes, setPendentes] = useState<ColegioItem[]>([]);
     const [oficiais, setOficiais] = useState<ColegioItem[]>([]);
+    const [cadastros, setCadastros] = useState<CadastroColegioR4[]>([]);
+    const [sugestoes, setSugestoes] = useState<[CadastroColegioR4, CadastroColegioR4][]>([]);
+    const [selecionados, setSelecionados] = useState<string[]>([]);
+    const [nomeFinal, setNomeFinal] = useState('');
+    const [busca, setBusca] = useState('');
     const [novoColegio, setNovoColegio] = useState('');
     const [nomesEditados, setNomesEditados] = useState<Record<number, string>>({});
     const [mesclarAlvo, setMesclarAlvo] = useState<Record<number, number>>({});
@@ -32,12 +42,16 @@ export default function AdminColegios() {
                 if (!cancelado && res.ok) {
                     setPendentes(json.pendentes || []);
                     setOficiais(json.oficiais || []);
+                    setCadastros(json.cadastros || []);
+                    setSugestoes(json.sugestoes || []);
                     const mapaNomes: Record<number, string> = {};
                     for (const p of json.pendentes || []) {
                         mapaNomes[p.id] = p.nome;
                     }
                     setNomesEditados(mapaNomes);
                 }
+            } catch {
+                if (!cancelado) setMensagem('Não foi possível carregar os colégios.');
             } finally {
                 if (!cancelado) setCarregando(false);
             }
@@ -62,15 +76,20 @@ export default function AdminColegios() {
             if (res.ok) {
                 setPendentes(json.pendentes || []);
                 setOficiais(json.oficiais || []);
+                setCadastros(json.cadastros || []);
+                setSugestoes(json.sugestoes || []);
                 const mapaNomes: Record<number, string> = {};
                 for (const p of json.pendentes || []) {
                     mapaNomes[p.id] = p.nome;
                 }
                 setNomesEditados(mapaNomes);
                 setMensagem(msgSucesso);
+                return true;
             } else {
                 setMensagem(json.error || 'Erro ao salvar.');
             }
+        } catch {
+            setMensagem('Não foi possível conectar ao servidor.');
         } finally {
             setSalvando(false);
         }
@@ -84,6 +103,22 @@ export default function AdminColegios() {
             'Colégio adicionado à lista oficial!'
         );
         setNovoColegio('');
+    }
+
+    async function unificar(evento: React.FormEvent<HTMLFormElement>) {
+        evento.preventDefault();
+        const escolhidos = cadastros.filter((cadastro) => selecionados.includes(chaveColegio(cadastro)));
+        if (escolhidos.length < 2 || !nomeFinal.trim()) return;
+        if (!window.confirm(`Unificar ${escolhidos.length} cadastros em “${nomeFinal.trim()}”? As fichas vinculadas serão atualizadas.`)) return;
+        const sucesso = await executarAcao({
+            acao: 'unificar', nome: nomeFinal,
+            cadastros: escolhidos.map(({ id, nome }) => ({ id, nome })),
+        }, 'Colégios unificados. As fichas dos alunos foram atualizadas.');
+        if (sucesso) {
+            setSelecionados([]);
+            setNomeFinal('');
+            await aoUnificar?.();
+        }
     }
 
     return (
@@ -105,6 +140,52 @@ export default function AdminColegios() {
                 <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-4 py-2.5 text-xs text-emerald-300">
                     {mensagem}
                 </div>
+            )}
+
+            {!carregando && cadastros.length >= 2 && (
+                <form onSubmit={unificar} className="rounded-xl border border-slate-700 p-4 space-y-3">
+                    <h3 className="text-sm font-bold text-slate-100">Unificar colégios</h3>
+                    <p className="text-xs text-slate-300">Revise uma sugestão ou marque os cadastros manualmente. Você pode editar o nome final.</p>
+                    {sugestoes.length > 0 ? (
+                        <div className="max-h-40 overflow-auto space-y-1">
+                            {sugestoes.map(([a, b]) => (
+                                <button key={JSON.stringify([chaveColegio(a), chaveColegio(b)])} type="button"
+                                    className="block w-full rounded-lg border border-slate-700 px-3 py-2 text-left text-xs text-sky-300 hover:bg-slate-800"
+                                    onClick={() => {
+                                        setSelecionados([chaveColegio(a), chaveColegio(b)]);
+                                        setNomeFinal(a.nome);
+                                        setBusca('');
+                                    }}>
+                                    Revisar {a.nome} / {b.nome}
+                                </button>
+                            ))}
+                        </div>
+                    ) : <p className="text-xs text-slate-400">Nenhuma duplicata sugerida.</p>}
+                    <input aria-label="Buscar colégio" value={busca} onChange={(e) => setBusca(e.target.value)}
+                        placeholder="Buscar colégio" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                    <div className="max-h-52 overflow-auto space-y-1">
+                        {cadastros.filter((cadastro) => selecionados.includes(chaveColegio(cadastro)) ||
+                            cadastro.nome.toLowerCase().includes(busca.trim().toLowerCase())).map((cadastro) => {
+                            const chave = chaveColegio(cadastro);
+                            return <label key={chave} className="flex gap-2 px-2 py-1.5 text-sm text-slate-200">
+                                <input type="checkbox" checked={selecionados.includes(chave)} disabled={salvando}
+                                    onChange={(e) => {
+                                        const marcado = e.target.checked;
+                                        setSelecionados((atuais) => marcado ? [...atuais, chave] : atuais.filter((id) => id !== chave));
+                                    }} />
+                                {cadastro.nome} · {cadastro.id === null ? 'nome nas fichas' : 'cadastro no catálogo'} · {cadastro.total_alunos} aluno(s)
+                            </label>;
+                        })}
+                    </div>
+                    <label className="block text-sm text-slate-200">Nome final do colégio
+                        <input required minLength={2} maxLength={180} value={nomeFinal} onChange={(e) => setNomeFinal(e.target.value)}
+                            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                    </label>
+                    <button type="submit" disabled={salvando || selecionados.length < 2}
+                        className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                        Unificar selecionados ({selecionados.length})
+                    </button>
+                </form>
             )}
 
             {/* Colégios enviados por clientes via "Outros" */}

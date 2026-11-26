@@ -1,4 +1,4 @@
-import { lerSessaoCliente } from '@/lib/cliente-auth';
+import { buscarFamiliaPorTelefone, lerSessaoCliente } from '@/lib/cliente-auth';
 import { POST as acaoCliente } from '../cliente/route';
 import { NextRequest, NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
@@ -21,6 +21,7 @@ export async function GET() {
 
     try {
         await garantirHistoricoAgendamento();
+        const { alunos } = await buscarFamiliaPorTelefone(whatsapp);
         const agendamentos = await sql`
       SELECT
         a.id,
@@ -37,11 +38,14 @@ export async function GET() {
       FROM agendamentos a
       JOIN unidades u ON u.id = a.unidade_id
       JOIN professores p ON p.id = a.professor_id
-      WHERE regexp_replace(
-        regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
-        '^55(?=[0-9]{10,11}$)',
-        ''
-      ) = ANY(${variantes}::text[])
+      WHERE (
+        a.aluno_id = ANY(${alunos.map(({ id }) => id)}::int[])
+        OR (a.aluno_id IS NULL AND regexp_replace(
+            regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
+            '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])
+          AND lower(trim(coalesce(a.aluno_nome, a.nome_aluno, ''))) = ANY(
+            ${alunos.map(({ nome_aluno }) => nome_aluno.trim().toLowerCase())}::text[]))
+      )
         AND a.excluido_em IS NULL
         AND a.data >= (now() AT TIME ZONE 'America/Bahia')::date
       ORDER BY a.data ASC, COALESCE(a.hora_inicio, a.horario) ASC

@@ -132,6 +132,10 @@ export default function PaginaAgendamentoReforco() {
   const [exigeVerificacaoCadastro, setExigeVerificacaoCadastro] =
       useState<boolean>(false);
   const [codigoOtpInput, setCodigoOtpInput] = useState<string>('');
+  const [fichasPendentes, setFichasPendentes] = useState<Pick<AlunoCadastrado, 'id' | 'nome_aluno' | 'colegio_nome' | 'serie'>[]>([]);
+  const [fichasSelecionadas, setFichasSelecionadas] = useState<number[]>([]);
+  const [salvandoVinculo, setSalvandoVinculo] = useState(false);
+  const [erroVinculo, setErroVinculo] = useState('');
   const [avisoVinculo, setAvisoVinculo] = useState<string | null>(null);
   const [avisoOtp, setAvisoOtp] = useState<string | null>(null);
   const [cooldownOtpSegundos, setCooldownOtpSegundos] = useState<number>(0);
@@ -268,17 +272,15 @@ export default function PaginaAgendamentoReforco() {
       unAtual?: number,
       dtAtual?: string
   ): Promise<AlunoCadastrado[]> {
-    const respostaVinculo = await fetch('/api/cliente', {
+    const respostaFichas = await fetch('/api/cliente', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acao: 'vincularFichas' }),
+      body: JSON.stringify({ acao: 'listarFichas' }),
     });
-    if (!respostaVinculo.ok) throw new Error('Não foi possível consultar os vínculos dos alunos.');
-    const { fichas } = await respostaVinculo.json();
-    if (fichas?.length) {
-      setAvisoVinculo('Alunos encontrados no R4 e vinculados ao seu WhatsApp: ' +
-          fichas.map((ficha: { nome_aluno: string }) => ficha.nome_aluno).join(', ') + '.');
-    }
+    if (!respostaFichas.ok) throw new Error('Não foi possível consultar os vínculos dos alunos.');
+    const { fichas } = await respostaFichas.json();
+    setFichasPendentes(fichas || []);
+    setFichasSelecionadas([]);
 
     const resCliente = await fetch(
         `/api/cliente?telefone=${encodeURIComponent(telNorm)}`,
@@ -321,10 +323,32 @@ export default function PaginaAgendamentoReforco() {
           listaAlunos[0].serie
       );
     } else {
-      setExibirFormNovoAluno(true);
+      setExibirFormNovoAluno(!fichas?.length);
     }
 
     return listaAlunos;
+  }
+
+  async function vincularFichasSelecionadas() {
+    setSalvandoVinculo(true);
+    setErroVinculo('');
+    try {
+      const resposta = await fetch('/api/cliente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'vincularFichas', ids: fichasSelecionadas }),
+      });
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.error || 'Não foi possível vincular os alunos.');
+      await carregarDadosFamiliaAutenticada(telefoneConfirmado);
+      setAvisoVinculo(dados.fichas.length
+        ? 'Alunos vinculados: ' + dados.fichas.map((ficha: { nome_aluno: string }) => ficha.nome_aluno).join(', ') + '.'
+        : 'As fichas selecionadas não estão mais disponíveis para vínculo.');
+    } catch (erro) {
+      setErroVinculo(erro instanceof Error ? erro.message : 'Não foi possível vincular os alunos.');
+    } finally {
+      setSalvandoVinculo(false);
+    }
   }
 
   useEffect(() => {
@@ -664,6 +688,7 @@ export default function PaginaAgendamentoReforco() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           acao: 'criar_pin',
+          responsavelNome: responsavelInput.trim(),
           telefone: telefonePendente,
           codigoVerificacao: codigoOtpInput,
           pin: pinInput,
@@ -846,12 +871,16 @@ export default function PaginaAgendamentoReforco() {
     await fetch('/api/cliente/sessao', { method: 'DELETE' });
     setTelefoneConfirmado('');
     setResponsavelConfirmado('');
+    setResponsavelInput('');
     setTelefonePendente('');
     setEtapaLogin('telefone');
     setPinInput('');
     setConfirmarPinInput('');
     setRemarcarId(null);
     setAvisoVinculo(null);
+    setFichasPendentes([]);
+    setFichasSelecionadas([]);
+    setErroVinculo('');
     setAlunos([]);
     setProximasAulas([]);
     setAlunoSelecionadoId(0);
@@ -1569,6 +1598,11 @@ export default function PaginaAgendamentoReforco() {
                           className="space-y-4"
                       >
                         <div className="grid gap-2">
+                          <label className="grid gap-1 text-sm">Seu nome como responsável
+                            <input required minLength={2} maxLength={120} autoComplete="name"
+                              value={responsavelInput} onChange={(e) => setResponsavelInput(e.target.value)}
+                              className={`rounded-lg border px-3 py-2 ${clsInput}`} />
+                          </label>
                           <p className="text-sm">Confirme seu WhatsApp para acessar os alunos cadastrados no R4.</p>
                           <button type="button" className="r4-acao rounded-lg px-3 py-2 text-sm"
                             disabled={enviandoCodigoOtp || cooldownOtpSegundos > 0}
@@ -1922,6 +1956,30 @@ export default function PaginaAgendamentoReforco() {
               </section>
           ) : (
               <>
+                {fichasPendentes.length > 0 && (
+                  <section className={`rounded-2xl border p-5 space-y-3 ${clsCard}`}>
+                    <h2 className="font-bold">Alunos encontrados neste WhatsApp</h2>
+                    <p className="text-sm">Marque as fichas que deseja vincular à sua conta.</p>
+                    {fichasPendentes.map((ficha) => (
+                      <label key={ficha.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${clsInput}`}>
+                        <input type="checkbox" checked={fichasSelecionadas.includes(ficha.id)} disabled={salvandoVinculo}
+                          onChange={(e) => {
+                            const marcado = e.target.checked;
+                            setFichasSelecionadas((ids) => marcado ? [...ids, ficha.id] : ids.filter((id) => id !== ficha.id));
+                          }} />
+                        <span>
+                          <strong className="block text-sm">{ficha.nome_aluno}</strong>
+                          <span className="text-xs">{[ficha.colegio_nome?.trim(), ficha.serie?.trim()].filter(Boolean).join(' • ')}</span>
+                        </span>
+                      </label>
+                    ))}
+                    {erroVinculo && <p role="alert" className="text-sm text-rose-500">{erroVinculo}</p>}
+                    <button type="button" className="r4-acao rounded-xl px-3 py-2 text-sm disabled:opacity-50"
+                      disabled={salvandoVinculo || !fichasSelecionadas.length} onClick={() => void vincularFichasSelecionadas()}>
+                      {salvandoVinculo ? 'Vinculando…' : 'Vincular selecionados'}
+                    </button>
+                  </section>
+                )}
                 {/* BARRA DO RESPONSÁVEL E SELEÇÃO DO ALUNO */}
                 <section className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                   <div
@@ -1942,7 +2000,7 @@ export default function PaginaAgendamentoReforco() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {alunos.length > 0 && (
+                      {(alunos.length > 0 || fichasPendentes.length > 0) && (
                           <button
                               type="button"
                               onClick={() => {

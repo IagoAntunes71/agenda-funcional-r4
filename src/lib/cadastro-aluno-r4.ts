@@ -28,7 +28,7 @@ export async function alunoJaCadastradoNoTelefone(nome: string, telefone: string
     const [aluno] = await sql`
         SELECT id FROM alunos
         WHERE lower(regexp_replace(trim(nome_aluno), '[[:space:]]+', ' ', 'g')) = ${nome.trim().replace(/\s+/g, ' ').toLowerCase()}
-          AND regexp_replace(regexp_replace(coalesce(nullif(telefone,''),contato_importado,''), '[^0-9]', '', 'g'),
+          AND regexp_replace(regexp_replace(coalesce(nullif(CASE WHEN responsavel_id IS NULL THEN contato_importado ELSE telefone END,''),telefone,''), '[^0-9]', '', 'g'),
               '^55(?=[0-9]{10,11}$)', '') = ANY(${gerarVariantesTelefone(telefone)}::text[])
         LIMIT 1`;
     return Boolean(aluno);
@@ -44,7 +44,17 @@ export async function temFichasPendentes(telefone: string) {
     return Boolean(ficha);
 }
 
-export async function vincularFichasPendentes(telefone: string) {
+export async function listarFichasPendentes(telefone: string) {
+    await prepararCadastroAlunoR4();
+    return sql`
+        SELECT id, nome_aluno, colegio_nome, serie FROM alunos
+        WHERE ativo AND responsavel_id IS NULL
+          AND regexp_replace(regexp_replace(coalesce(nullif(contato_importado,''), telefone, ''), '[^0-9]', '', 'g'),
+              '^55(?=[0-9]{10,11}$)', '') = ANY(${gerarVariantesTelefone(telefone)}::text[])
+        ORDER BY nome_aluno, id`;
+}
+
+export async function vincularFichasPendentes(telefone: string, ids: number[]) {
     await prepararCadastroAlunoR4();
     return sql`
         WITH contas AS (
@@ -57,8 +67,8 @@ export async function vincularFichasPendentes(telefone: string) {
         )
         UPDATE alunos a SET responsavel_id = conta.id, telefone = conta.telefone,
             telefone_formatado = conta.telefone_formatado,
-            responsavel_nome = coalesce(nullif(trim(a.responsavel_nome), ''), conta.nome)
-        FROM conta WHERE a.ativo AND a.responsavel_id IS NULL
+            responsavel_nome = conta.nome
+        FROM conta WHERE a.ativo AND a.responsavel_id IS NULL AND a.id = ANY(${ids}::int[])
             AND regexp_replace(regexp_replace(coalesce(nullif(a.contato_importado,''), a.telefone, ''), '[^0-9]', '', 'g'),
                 '^55(?=[0-9]{10,11}$)', '') = ANY(${gerarVariantesTelefone(telefone)}::text[])
         RETURNING a.id, a.nome_aluno`;
