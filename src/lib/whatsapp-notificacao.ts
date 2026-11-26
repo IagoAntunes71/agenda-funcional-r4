@@ -461,7 +461,8 @@ async function dispararNotificacaoGrupoControle(
 }
 
 export async function notificarGrupoNovoAgendamento(
-    dados: DadosNotificacaoAgendamento
+    dados: DadosNotificacaoAgendamento,
+    resposta?: { token: string; lembrete: string },
 ): Promise<{ enviado: boolean; erro?: string; linkWaMe: string | null }> {
     const cfg = await obterConfigWhatsApp();
     const linkWaMe = cfg.wame_ativo
@@ -479,6 +480,7 @@ export async function notificarGrupoNovoAgendamento(
     const mensagem = montarMensagemAgendamento(dados);
     const resultado = await enviarTextoParaGrupo(cfg, mensagem, {
         evento: 'novo_agendamento',
+        ...(cfg.provedor === 'webhook' && resposta ? { resposta } : {}),
         agendamento: {
             ...dados,
             data: formatarDataBR(dados.data),

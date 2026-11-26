@@ -438,7 +438,8 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
 
         const origem = process.env.R4_URL_PUBLICA || (process.env.VERCEL_PROJECT_PRODUCTION_URL && 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL) || req.nextUrl.origin;
-        const entregaWhatsApp = await (async () => {
+        const usarBotoesCRM = process.env.R4_DATACRAZY_BOTOES === 'true';
+        const entregaWhatsApp = usarBotoesCRM ? false : await (async () => {
             const url = new URL('/responder-aula', origem);
             url.searchParams.set('t', token);
             const primeira = await enviarMensagemResponsavel(alunoTelefone, [
@@ -467,7 +468,7 @@ export async function POST(req: NextRequest) {
             colegioNome,
             serie,
             observacoes,
-        }).catch((erro) => {
+        }, usarBotoesCRM ? { token, lembrete: lembreteCancelamento(antecedencia) } : undefined).catch((erro) => {
             console.error('Falha na notificação da aula gravada:', erro);
             return { enviado: false, linkWaMe: null };
         });
@@ -484,7 +485,7 @@ export async function POST(req: NextRequest) {
             {
                 sucesso: true,
                 notificadoWhatsApp: notif.enviado,
-                respostaWhatsAppEnviada: entregaWhatsApp,
+                respostaWhatsAppEnviada: usarBotoesCRM ? notif.enviado : entregaWhatsApp,
                 agendamento: {
                     id: agendamentoId,
                     unidade: nomeUnidade,
