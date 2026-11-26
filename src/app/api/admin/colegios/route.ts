@@ -1,6 +1,7 @@
+import { sugerirColegiosDuplicados, type CadastroColegioR4 } from '@/lib/colegios-r4';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { verificarAdminAutenticado } from '@/lib/admin-auth';
+import { lerSessaoAdmin } from '@/lib/admin-auth';
 import { garantirTabelasClientesEColegios } from '@/app/api/cliente/route';
 
 async function carregarColegiosAdmin() {
@@ -11,7 +12,7 @@ async function carregarColegiosAdmin() {
       c.aprovado,
       COUNT(a.id)::int AS total_alunos
     FROM colegios c
-    LEFT JOIN alunos a ON a.colegio_id = c.id AND a.ativo = true
+    LEFT JOIN alunos a ON a.colegio_id = c.id
     GROUP BY c.id, c.nome, c.aprovado
     ORDER BY c.aprovado ASC, c.nome ASC
   `) as {
@@ -21,14 +22,25 @@ async function carregarColegiosAdmin() {
         total_alunos: number;
     }[];
 
+    const nomesLivres = await sql`
+        SELECT NULL AS id, min(trim(colegio_nome)) AS nome, count(*)::int AS total_alunos
+        FROM alunos
+        WHERE colegio_id IS NULL AND trim(colegio_nome) <> ''
+        GROUP BY lower(trim(colegio_nome))
+        ORDER BY 2
+    ` as CadastroColegioR4[];
+    const cadastros = [...rows, ...nomesLivres];
+
     return {
+        cadastros,
+        sugestoes: sugerirColegiosDuplicados(cadastros),
         pendentes: rows.filter((r) => !r.aprovado),
         oficiais: rows.filter((r) => r.aprovado),
     };
 }
 
 export async function GET() {
-    if (!(await verificarAdminAutenticado())) {
+    if ((await lerSessaoAdmin())?.role !== 'admin') {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
@@ -48,7 +60,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-    if (!(await verificarAdminAutenticado())) {
+    if ((await lerSessaoAdmin())?.role !== 'admin') {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
@@ -121,46 +133,79 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ sucesso: true, ...dados });
         }
 
-        if (acao === 'mesclar') {
-            const origemId = Number(body?.origemId || 0);
-            const destinoId = Number(body?.destinoId || 0);
-
-            if (!origemId || !destinoId || origemId === destinoId) {
-                return NextResponse.json(
-                    { error: 'Selecione um colégio oficial válido para mesclar.' },
-                    { status: 400 }
-                );
+        if (acao === 'unificar' || acao === 'mesclar') {
+            const entradas: unknown = acao === 'mesclar'
+                ? [{ id: Number(body.origemId) }, { id: Number(body.destinoId) }]
+                : body.cadastros;
+            const nomeSolicitado = typeof body.nome === 'string' ? body.nome.replace(/\s+/g, ' ').trim() : '';
+            if (!Array.isArray(entradas) || entradas.length < 2 || entradas.length > 50 ||
+                (acao === 'unificar' && (nomeSolicitado.length < 2 || nomeSolicitado.length > 180))) {
+                return NextResponse.json({ error: 'Selecione os cadastros e informe o nome final do colégio.' }, { status: 400 });
+            }
+            const ids: number[] = [];
+            const nomes: string[] = [];
+            for (const entrada of entradas) {
+                if (Number.isSafeInteger(entrada?.id) && entrada.id > 0 && entrada.id <= 2147483647) ids.push(entrada.id);
+                else if (entrada?.id === null && typeof entrada.nome === 'string' && entrada.nome.trim()) nomes.push(entrada.nome.trim());
+                else return NextResponse.json({ error: 'Cadastro de colégio inválido.' }, { status: 400 });
+            }
+            if (new Set(ids).size !== ids.length || new Set(nomes.map((nome) => nome.toLowerCase())).size !== nomes.length) {
+                return NextResponse.json({ error: 'Selecione cadastros diferentes.' }, { status: 400 });
             }
 
-            const destinoRows = (await sql`
-        SELECT id, nome
-        FROM colegios
-        WHERE id = ${destinoId}
-          AND aprovado = true
-        LIMIT 1
-      `) as { id: number; nome: string }[];
-
-            if (destinoRows.length === 0) {
-                return NextResponse.json(
-                    { error: 'Colégio oficial de destino não encontrado.' },
-                    { status: 404 }
-                );
-            }
-
-            await sql`
-        UPDATE alunos
-        SET colegio_id = ${destinoRows[0].id},
-            colegio_nome = ${destinoRows[0].nome}
-        WHERE colegio_id = ${origemId}
-      `;
-
-            await sql`
-        DELETE FROM colegios
-        WHERE id = ${origemId}
-      `;
-
-            const dados = await carregarColegiosAdmin();
-            return NextResponse.json({ sucesso: true, ...dados });
+            const [, resultado] = await sql.transaction([
+                sql`LOCK TABLE colegios, alunos IN SHARE ROW EXCLUSIVE MODE`,
+                sql`
+                    WITH nomes_selecionados AS (
+                        SELECT lower(trim(valor)) AS nome FROM unnest(${nomes}::text[]) AS n(valor)
+                    ), selecao AS (
+                        SELECT id, nome FROM colegios WHERE id = ANY(${ids}::int[])
+                    ), destino AS (
+                        SELECT coalesce(nullif(${nomeSolicitado}, ''), (
+                            SELECT nome FROM colegios WHERE id = ${acao === 'mesclar' ? ids[1] : null} AND aprovado
+                        )) AS nome
+                        WHERE (SELECT count(*) FROM selecao) = ${ids.length}
+                          AND NOT EXISTS (
+                            SELECT 1 FROM nomes_selecionados n WHERE NOT EXISTS (
+                                SELECT 1 FROM alunos a WHERE a.colegio_id IS NULL AND lower(trim(a.colegio_nome)) = n.nome
+                            )
+                          )
+                    ), valido AS (
+                        SELECT nome FROM destino d WHERE nome IS NOT NULL AND NOT EXISTS (
+                            SELECT 1 FROM colegios c WHERE lower(trim(c.nome)) = lower(d.nome)
+                              AND NOT (c.id = ANY(${ids}::int[]))
+                        )
+                    ), manter AS (
+                        SELECT s.id FROM selecao s CROSS JOIN valido v
+                        ORDER BY (lower(trim(s.nome)) = lower(v.nome)) DESC, (s.id = ${ids[1] ?? null}) DESC NULLS LAST, s.id
+                        LIMIT 1
+                    ), criado AS (
+                        INSERT INTO colegios (nome, aprovado)
+                        SELECT nome, true FROM valido WHERE NOT EXISTS (SELECT 1 FROM manter)
+                        RETURNING id, nome
+                    ), renomeado AS (
+                        UPDATE colegios c SET nome = v.nome, aprovado = true FROM valido v, manter m
+                        WHERE c.id = m.id RETURNING c.id, c.nome
+                    ), oficial AS (
+                        SELECT * FROM criado UNION ALL SELECT * FROM renomeado
+                    ), movidos AS (
+                        UPDATE alunos a SET colegio_id = o.id, colegio_nome = o.nome FROM oficial o
+                        WHERE a.colegio_id = ANY(${ids}::int[]) OR (
+                            a.colegio_id IS NULL AND lower(trim(a.colegio_nome)) IN (SELECT nome FROM nomes_selecionados)
+                        )
+                        RETURNING a.id
+                    ), removidos AS (
+                        DELETE FROM colegios c USING oficial o
+                        WHERE c.id = ANY(${ids}::int[]) AND c.id <> o.id AND (SELECT count(*) FROM movidos) >= 0
+                        RETURNING c.id
+                    )
+                    SELECT id FROM oficial
+                `,
+            ]);
+            if (!resultado.length) return NextResponse.json({
+                error: 'Os cadastros mudaram ou o nome final já pertence a outro colégio. Atualize a lista ou inclua esse cadastro na seleção.',
+            }, { status: 409 });
+            return NextResponse.json({ sucesso: true, ...await carregarColegiosAdmin() });
         }
 
         if (acao === 'remover') {

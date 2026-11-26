@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
                 ELSE 'noite' END = ${termo('periodo')})
               AND (NOT ${filtro} OR nullif(trim(a.feedback_professor), '') IS NOT NULL
                 OR (a.status IN ('realizado', 'concluido') AND a.aluno_id IS NOT NULL))
-              AND (${unidade} = 0 OR a.unidade_id = ${unidade})
+              AND (${unidade} = 0 OR COALESCE(u.unidade_presencial_id, a.unidade_id) = ${unidade})
               AND (${status} = '' OR a.status = ${status} OR (${status} = 'realizado' AND a.status = 'concluido'))
               AND strpos(lower(concat_ws(' ', a.aluno_nome,a.nome_aluno,p.nome,a.materia,u.nome)), ${busca}) > 0
               AND (NOT ${filtro} OR ${podeOperacao(cfg, sessao.role, 'todosAlunos')} OR EXISTS (
@@ -194,7 +194,7 @@ export async function GET(req: NextRequest) {
             FROM r4_bloqueios_agenda b JOIN professores p ON p.id = b.professor_id JOIN unidades u ON u.id = p.unidade_id
             WHERE b.data BETWEEN coalesce(nullif(${de},'')::date, ${inicio}::date)
                 AND coalesce(nullif(${ate},'')::date, (${inicio}::date + interval '1 month - 1 day')::date)
-                AND (${unidade} = 0 OR p.unidade_id = ${unidade})
+                AND (${unidade} = 0 OR COALESCE(u.unidade_presencial_id, p.unidade_id) = ${unidade})
                 AND strpos(lower(p.nome), ${termo('professor')}) > 0
             ORDER BY data, inicio LIMIT 200
         ` : [];

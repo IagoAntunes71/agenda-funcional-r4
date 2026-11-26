@@ -426,7 +426,7 @@ export default function AbaProfessores({ unidades, professores, agendamentos, es
         return [...mapa.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     }, [professores]);
     const termo = busca.trim().toLocaleLowerCase('pt-BR');
-    const filtrados = grupos.filter((p) => (unidade === 'todas' || p.unidades_ids.includes(Number(unidade))) &&
+    const filtrados = grupos.filter((p) => (unidade === 'todas' || p.unidades_ids.some((id) => (unidades.find((u) => u.id === id)?.unidade_presencial_id ?? id) === Number(unidade))) &&
         (status === 'todos' || p.ativo === (status === 'ativos')) &&
         [p.nome, ...(p.materias ?? [])].some((nome) => nome.toLocaleLowerCase('pt-BR').includes(termo)));
     const registro = professores.find((p) => p.id === id);
@@ -505,7 +505,7 @@ export default function AbaProfessores({ unidades, professores, agendamentos, es
                         value={busca} onChange={(e) => setBusca(e.target.value)} /></label>
                 <select aria-label="Unidade" value={unidade} onChange={(e) => setUnidade(e.target.value)}>
                     <option value="todas">{t('Todas unidades')}</option>
-                    {unidadesAtivas.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                    {unidadesAtivas.filter((u) => !u.unidade_presencial_id).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
                 </select>
                 <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
                     <option value="todos">Todos</option><option value="ativos">Ativos</option><option value="pausados">Pausados</option>

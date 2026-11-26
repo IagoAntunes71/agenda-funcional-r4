@@ -53,6 +53,7 @@ import {
 } from '@/lib/horarios-reforco';
 import { TEXTOS_PORTAL_PADRAO, TextosPortal } from '@/lib/portal-textos-padrao';
 import AbaAlunos from './AbaAlunos';
+import AdminColegios from '@/components/AdminColegios';
 import FichaAlunosR4 from './FichaAlunosR4';
 import AbaDatas from './AbaDatas';
 import AbaMapaDia from './AbaMapaDia';
@@ -1582,10 +1583,16 @@ export default function PainelAdmin({
                     )}
 
                     {aba === 'alunos' && (
-                        <FichaAlunosR4 atualizarPainel={carregarDados} contas={
-                            <AbaAlunos responsaveis={responsaveis} classes={classesCompartilhadas}
-                                onRecarregarDadosAction={carregarDados} />
-                        } />
+                        <div className="space-y-4">
+                            <FichaAlunosR4 atualizarPainel={carregarDados} contas={
+                                <AbaAlunos responsaveis={responsaveis} classes={classesCompartilhadas}
+                                    onRecarregarDadosAction={carregarDados} />
+                            } />
+                            {admin && <details className="rounded-xl border p-3">
+                                <summary className="cursor-pointer text-sm font-semibold">Gerenciar colégios</summary>
+                                <div className="mt-3"><AdminColegios aoUnificar={carregarDados} /></div>
+                            </details>}
+                        </div>
                     )}
 
                     {aba === 'textos' && admin && (

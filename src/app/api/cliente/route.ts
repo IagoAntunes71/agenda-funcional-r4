@@ -1,5 +1,5 @@
-import { lerSessaoCliente } from '@/lib/cliente-auth';
-import { alunoJaCadastradoNoTelefone, vincularFichasPendentes } from '@/lib/cadastro-aluno-r4';
+import { buscarFamiliaPorTelefone, lerSessaoCliente } from '@/lib/cliente-auth';
+import { alunoJaCadastradoNoTelefone, listarFichasPendentes, vincularFichasPendentes } from '@/lib/cadastro-aluno-r4';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { NextRequest, NextResponse } from 'next/server';
 import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
@@ -52,6 +52,7 @@ async function buscarProximasAulasPorTelefone(telefoneBruto: string) {
     try {
         await garantirHistoricoAgendamento();
         const { antecedencia } = await lerOperacaoR4();
+        const { alunos } = await buscarFamiliaPorTelefone(telefoneBruto);
         const rows = await sql`
       SELECT
         a.id,
@@ -108,20 +109,12 @@ async function buscarProximasAulasPorTelefone(telefoneBruto: string) {
         AND a.excluido_em IS NULL
         AND ((a.data + COALESCE(a.hora_fim, a.hora_inicio, a.horario, '20:50'::time)) AT TIME ZONE 'America/Bahia') >= NOW()
         AND (
-          regexp_replace(
+          a.aluno_id = ANY(${alunos.map(({ id }) => id)}::int[])
+          OR (a.aluno_id IS NULL AND regexp_replace(
             regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
-            '^55(?=[0-9]{10,11}$)',
-            ''
-          ) = ANY(${variantes}::text[])
-          OR a.aluno_id IN (
-            SELECT id
-            FROM alunos
-            WHERE regexp_replace(
-              regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-              '^55(?=[0-9]{10,11}$)',
-              ''
-            ) = ANY(${variantes}::text[])
-          )
+            '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])
+            AND lower(trim(coalesce(a.aluno_nome, a.nome_aluno, ''))) = ANY(
+                ${alunos.map(({ nome_aluno }) => nome_aluno.trim().toLowerCase())}::text[]))
         )
       ORDER BY a.data ASC, COALESCE(a.hora_inicio, a.horario) ASC
     `;
@@ -189,11 +182,11 @@ export async function GET(req: NextRequest) {
           colegio_nome,
           serie
         FROM alunos
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-          '^55(?=[0-9]{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
+        WHERE responsavel_id IN (
+          SELECT id FROM responsaveis
+          WHERE regexp_replace(regexp_replace(telefone, '[^0-9]', '', 'g'), '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])
+            AND NOT coalesce(conflito_migracao, false)
+        )
           AND ativo = true
         ORDER BY id ASC
       `,
@@ -267,10 +260,15 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const acao = String(body?.acao || 'cadastrarAluno');
 
-        if (acao === 'vincularFichas') {
+        if (acao === 'listarFichas' || acao === 'vincularFichas') {
             const sessao = await lerSessaoCliente();
             if (!sessao) return NextResponse.json({ error: 'Entre no Portal para vincular os alunos.' }, { status: 401 });
-            const fichas = await vincularFichasPendentes(sessao.telefone);
+            if (acao === 'listarFichas') return NextResponse.json({ fichas: await listarFichasPendentes(sessao.telefone) });
+            const ids: unknown = body.ids;
+            if (!Array.isArray(ids) || !ids.length || !ids.every((id) => Number.isSafeInteger(id) && id > 0 && id <= 2147483647)) {
+                return NextResponse.json({ error: 'Selecione pelo menos um aluno.' }, { status: 400 });
+            }
+            const fichas = await vincularFichasPendentes(sessao.telefone, ids);
             return NextResponse.json({ fichas });
         }
 
@@ -289,6 +287,7 @@ export async function POST(req: NextRequest) {
                 );
             }
 
+            const { alunos } = await buscarFamiliaPorTelefone(telefoneRaw);
             const registros = (await sql`
         SELECT
           a.id,
@@ -336,22 +335,14 @@ export async function POST(req: NextRequest) {
         LEFT JOIN alunos al ON al.id = a.aluno_id
         LEFT JOIN responsaveis r ON r.id = al.responsavel_id
         WHERE a.id = ${agendamentoId}
-          AND (
-            regexp_replace(
-              regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
-              '^55(?=[0-9]{10,11}$)',
-              ''
-            ) = ANY(${variantes}::text[])
-            OR a.aluno_id IN (
-              SELECT id
-              FROM alunos
-              WHERE regexp_replace(
-                regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-                '^55(?=[0-9]{10,11}$)',
-                ''
-              ) = ANY(${variantes}::text[])
-            )
-          )
+        AND (
+          a.aluno_id = ANY(${alunos.map(({ id }) => id)}::int[])
+          OR (a.aluno_id IS NULL AND regexp_replace(
+            regexp_replace(COALESCE(a.aluno_telefone, a.whatsapp_responsavel, ''), '[^0-9]', '', 'g'),
+            '^55(?=[0-9]{10,11}$)', '') = ANY(${variantes}::text[])
+            AND lower(trim(coalesce(a.aluno_nome, a.nome_aluno, ''))) = ANY(
+                ${alunos.map(({ nome_aluno }) => nome_aluno.trim().toLowerCase())}::text[]))
+        )
         LIMIT 1
       `) as {
                 id: number;
@@ -429,9 +420,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (acao === 'salvarResponsavel') {
-            const telefoneRaw = String(body?.telefone || '');
+            const sessao = await lerSessaoCliente();
+            if (!sessao) return NextResponse.json({ error: 'Confirme seu WhatsApp e PIN.' }, { status: 401 });
+            const telefoneRaw = sessao.telefone;
             const telefone = normalizarTelefone(telefoneRaw);
             const variantes = gerarVariantesTelefone(telefoneRaw);
+            const { responsavelId } = await buscarFamiliaPorTelefone(telefoneRaw);
+
             const responsavelNome = String(body?.responsavelNome || '').trim();
 
             if (
@@ -455,11 +450,7 @@ export async function POST(req: NextRequest) {
           telefone = ${telefone},
           telefone_formatado = ${telFmt},
           atualizado_em = now()
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-          '^55(?=[0-9]{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
+        WHERE id = ${responsavelId}
       `;
 
             await sql`
@@ -468,12 +459,7 @@ export async function POST(req: NextRequest) {
           responsavel_nome = ${responsavelNome},
           telefone = ${telefone},
           telefone_formatado = ${telFmt}
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-          '^55(?=[0-9]{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
-          AND ativo = true
+        WHERE responsavel_id = ${responsavelId} AND ativo = true
       `;
 
             return NextResponse.json({
@@ -484,9 +470,13 @@ export async function POST(req: NextRequest) {
 
         if (acao === 'removerAluno') {
             const alunoId = Number(body?.alunoId || 0);
-            const telefoneRaw = String(body?.telefone || '');
+            const sessao = await lerSessaoCliente();
+            if (!sessao) return NextResponse.json({ error: 'Confirme seu WhatsApp e PIN.' }, { status: 401 });
+            const telefoneRaw = sessao.telefone;
             const telefone = normalizarTelefone(telefoneRaw);
             const variantes = gerarVariantesTelefone(telefoneRaw);
+            const { responsavelId, alunos } = await buscarFamiliaPorTelefone(telefoneRaw);
+
 
             if (!alunoId || !telefone || variantes.length === 0) {
                 return NextResponse.json(
@@ -495,25 +485,21 @@ export async function POST(req: NextRequest) {
                 );
             }
 
+            if (!alunos.some(({ id }) => id === alunoId)) {
+                return NextResponse.json({ error: 'Aluno não vinculado a esta conta.' }, { status: 404 });
+            }
+
             await sql`
         UPDATE alunos
         SET ativo = false
         WHERE id = ${alunoId}
-          AND regexp_replace(
-            regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-            '^55(?=[0-9]{10,11}$)',
-            ''
-          ) = ANY(${variantes}::text[])
+          AND responsavel_id = ${responsavelId}
       `;
 
             const restantes = await sql`
         SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
         FROM alunos
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-          '^55(?=[0-9]{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
+        WHERE responsavel_id = ${responsavelId}
           AND ativo = true
         ORDER BY id ASC
       `;
@@ -523,9 +509,13 @@ export async function POST(req: NextRequest) {
 
         if (acao === 'editarAluno') {
             const alunoId = Number(body?.alunoId || 0);
-            const telefoneRaw = String(body?.telefone || '');
+            const sessao = await lerSessaoCliente();
+            if (!sessao) return NextResponse.json({ error: 'Confirme seu WhatsApp e PIN.' }, { status: 401 });
+            const telefoneRaw = sessao.telefone;
             const telefone = normalizarTelefone(telefoneRaw);
             const variantes = gerarVariantesTelefone(telefoneRaw);
+            const { responsavelId, alunos } = await buscarFamiliaPorTelefone(telefoneRaw);
+
             const nomeAluno = String(body?.nomeAluno || '').trim();
             const colegioOpcao = String(body?.colegioOpcao || '').trim();
             const colegioOutroNome = String(body?.colegioOutroNome || '').trim();
@@ -542,6 +532,10 @@ export async function POST(req: NextRequest) {
                     { error: 'Preencha todos os dados para atualizar o aluno.' },
                     { status: 400 }
                 );
+            }
+
+            if (!alunos.some(({ id }) => id === alunoId)) {
+                return NextResponse.json({ error: 'Aluno não vinculado a esta conta.' }, { status: 404 });
             }
 
             let colegioIdFinal: number | null = null;
@@ -601,22 +595,14 @@ export async function POST(req: NextRequest) {
           telefone = ${telefone},
           telefone_formatado = ${telFmt}
         WHERE id = ${alunoId}
-          AND regexp_replace(
-            regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-            '^55(?=[0-9]{10,11}$)',
-            ''
-          ) = ANY(${variantes}::text[])
+          AND responsavel_id = ${responsavelId}
           AND ativo = true
       `;
 
             const todosAlunos = await sql`
         SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
         FROM alunos
-        WHERE regexp_replace(
-          regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-          '^55(?=[0-9]{10,11}$)',
-          ''
-        ) = ANY(${variantes}::text[])
+        WHERE responsavel_id = ${responsavelId}
           AND ativo = true
         ORDER BY id ASC
       `;
@@ -631,7 +617,6 @@ export async function POST(req: NextRequest) {
         const sessao = await lerSessaoCliente();
         if (!sessao) return NextResponse.json({ error: 'Entre no Portal para cadastrar outro aluno.' }, { status: 401 });
         const telefoneRaw = sessao.telefone;
-        await vincularFichasPendentes(telefoneRaw);
         const telefone = normalizarTelefone(telefoneRaw);
         const variantes = gerarVariantesTelefone(telefoneRaw);
         const responsavelNome = String(body?.responsavelNome || '').trim();
@@ -801,22 +786,6 @@ export async function POST(req: NextRequest) {
             colegio_nome: string;
             serie: string;
         }[];
-
-        await sql`
-      UPDATE alunos
-      SET
-        responsavel_id = ${responsavelIdFinal},
-        telefone = ${telefone},
-        telefone_formatado = ${telFormatado},
-        responsavel_nome = COALESCE(NULLIF(${nomeRespFinal}, ''), responsavel_nome),
-        pin_hash = COALESCE(NULLIF(trim(pin_hash), ''), ${pinHerdado})
-      WHERE regexp_replace(
-        regexp_replace(COALESCE(telefone, ''), '[^0-9]', '', 'g'),
-        '^55(?=[0-9]{10,11}$)',
-        ''
-      ) = ANY(${variantes}::text[])
-        AND ativo = true
-    `;
 
         const todosAlunos = await sql`
       SELECT id, telefone, telefone_formatado, responsavel_nome, nome_aluno, colegio_id, colegio_nome, serie
