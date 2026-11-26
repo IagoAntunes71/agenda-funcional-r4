@@ -20,7 +20,6 @@ import {
     CalendarPlus,
     CalendarX,
     Check,
-    CheckCircle2,
     ChevronLeft,
     ChevronRight,
     GraduationCap,
@@ -121,6 +120,14 @@ function formatarDataExtensoPT(dataISO: string): string {
     } de ${ano}`;
 }
 
+function renderAvatar(prof: ProfessorAdmin) {
+    return <>
+        {obterIniciais(prof.nome)}
+        {prof.foto_url && <img key={prof.foto_url} src={prof.foto_url} alt="" loading="lazy"
+            onError={(evento) => { evento.currentTarget.hidden = true; }} />}
+    </>;
+}
+
 function duracaoDaAula(aula: AgendamentoAdmin) {
     const intervalo = intervaloAula(aula);
     return intervalo.fim - intervalo.inicio;
@@ -209,9 +216,10 @@ export default function AbaMapaDia({
     const [somenteComAula, setSomenteComAula] = useState(false);
     const [ocultos, setOcultos] = useState<number[]>([]);
     const [semanaExpandida, setSemanaExpandida] = useState<number | null>(null);
-    const [alturaTela, setAlturaTela] = useState(900);
+    const [alturaDisponivel, setAlturaDisponivel] = useState(600);
+    const reguaRef = useRef<HTMLDivElement>(null);
     const mapaRef = useRef<HTMLElement>(null);
-    const alturaSlot = alturaSlotMapa(cfg.intervalo, apresentacao ? alturaTela : undefined, fimMapa - inicioMapa);
+    const alturaSlot = alturaSlotMapa(cfg.intervalo, alturaDisponivel, Math.min(fimMapa - inicioMapa, Math.max(60, 20 * 60 - inicioMapa + cfg.intervalo)));
     const horariosGrade = Array.from({ length: (fimMapa - inicioMapa) / cfg.intervalo }, (_, i) => inicioMapa + i * cfg.intervalo);
     const alturaGrade = horariosGrade.length * alturaSlot;
     const posicao = (minuto: number) => (minuto - inicioMapa) * alturaSlot / cfg.intervalo;
@@ -305,17 +313,13 @@ export default function AbaMapaDia({
     const semana = modoVisualizacao === 'semana';
 
     useEffect(() => {
-        const atualizar = () => setAlturaTela(window.innerHeight);
         const sair = () => {
             if (document.fullscreenElement !== mapaRef.current) setApresentacao(false);
         };
         const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') setApresentacao(false); };
-        atualizar();
-        window.addEventListener('resize', atualizar);
         document.addEventListener('fullscreenchange', sair);
         document.addEventListener('keydown', tecla);
         return () => {
-            window.removeEventListener('resize', atualizar);
             document.removeEventListener('fullscreenchange', sair);
             document.removeEventListener('keydown', tecla);
         };
@@ -434,8 +438,29 @@ export default function AbaMapaDia({
         coluna.aulas.map(({ aula }) => [aula.id, aula] as const)));
     const resumoBloqueios = new Set(colunasVisiveis.flatMap((coluna) =>
         coluna.bloqueios.map(({ bloqueio }) => bloqueio.id)));
-    const confirmadas = [...resumoAulas.values()].filter((aula) =>
-        normalizarStatusAulaR4(aula.status) === 'confirmado').length;
+    const temColunas = colunas.length > 0;
+    useEffect(() => {
+        const regua = reguaRef.current;
+        const grade = scrollGradeRef.current;
+        const mapa = mapaRef.current;
+        if (!regua || !grade || !mapa) return;
+        const medir = () => {
+            const alturaGradeVisivel = Math.max(260, Math.floor(window.innerHeight - grade.getBoundingClientRect().top - 8));
+            grade.style.setProperty('--altura-mapa-visivel', alturaGradeVisivel + 'px');
+            const topo = regua.getBoundingClientRect().top + grade.scrollTop;
+            setAlturaDisponivel(Math.max(0, Math.floor(window.innerHeight - topo - 20)));
+        };
+        medir();
+        const observador = new ResizeObserver(medir);
+        for (const elemento of [grade, regua.previousElementSibling, mapa.firstElementChild]) {
+            if (elemento) observador.observe(elemento);
+        }
+        window.addEventListener('resize', medir);
+        return () => {
+            observador.disconnect();
+            window.removeEventListener('resize', medir);
+        };
+    }, [temColunas, apresentacao]);
 
     useEffect(() => {
         const grade = scrollGradeRef.current;
@@ -857,7 +882,6 @@ export default function AbaMapaDia({
                     </div>
                     <div className={styles.resumo} aria-label={textoR4("Resumo da agenda")}>
                         <span><Calendar /> <b>{resumoAulas.size}</b> {resumoAulas.size === 1 ? textoR4("aula") : textoR4("aulas")}</span>
-                        <span data-cor="verde"><CheckCircle2 /> <b>{confirmadas}</b> {confirmadas === 1 ? textoR4("confirmada") : textoR4("confirmadas")}</span>
                         <span data-cor="coral"><Ban /> <b>{resumoBloqueios.size}</b> {resumoBloqueios.size === 1 ? textoR4("bloqueio") : textoR4("bloqueios")}</span>
                     </div>
                     <div className={styles.controles}>
@@ -909,11 +933,15 @@ export default function AbaMapaDia({
                                                     if (expandida) setSemanaExpandida(null);
                                                 }}><X /></button>
                                             <div className={styles.professor}>
-                                                <span className={styles.avatar}>
-                                                    {obterIniciais(prof.nome)}
-                                                    {prof.foto_url && <img key={prof.foto_url} src={prof.foto_url} alt="" loading="lazy"
-                                                        onError={(e) => { e.currentTarget.hidden = true; }} />}
-                                                </span>
+                                                {ehProfessor ? (
+                                                    <span className={styles.avatar}>{renderAvatar(prof)}</span>
+                                                ) : (
+                                                    <Link className={styles.avatar} href={`/admin/professores?professor=${prof.id}`}
+                                                        target="_blank" rel="noopener noreferrer" prefetch={false}
+                                                        aria-label={`Abrir perfil de ${prof.nome} em nova aba`}>
+                                                        {renderAvatar(prof)}
+                                                    </Link>
+                                                )}
                                                 <div>
                                                     <strong title={prof.nome}>{prof.nome}</strong>
                                                     {prof.unidade_nome && <small className={styles.unidadeProfessor}>{prof.unidade_nome}</small>}
@@ -950,7 +978,7 @@ export default function AbaMapaDia({
                                     )}
                                 </div>;
                             })}
-                            <div className={styles.horas} style={{ height: alturaGrade }}>
+                            <div ref={reguaRef} className={styles.horas} style={{ height: alturaGrade }}>
                                 {horariosGrade.map((minuto) => (
                                     <div key={minuto} className={styles.hora} style={{ height: alturaSlot }}>
                                         <b>{minutosParaHora(minuto)}</b>
@@ -1004,7 +1032,7 @@ export default function AbaMapaDia({
                                         return (
                                             <button type="button" key={aula.id} className={styles.aula}
                                                 title={`${aula.nome_aluno} · ${aula.materia} · ${formatarIntervaloCard(aula)} · ${aula.unidade_nome || ""} · ${meta.rotulo}`}
-                                                data-compacta={semana || prof.id === semanaExpandida} data-curta={fim - inicio < 45}
+                                                data-compacta={semana || prof.id === semanaExpandida} data-curta={posicao(fim) - posicao(inicio) < 34}
                                                 data-status={meta.valor} data-dividida={totalFaixas > 1} data-arrastando={aulaArrastando?.id === aula.id}
                                                 aria-label={`${aula.nome_aluno}, ${aula.materia}, ${formatarIntervaloCard(aula)}, ${textoR4(meta.rotulo)}`}
                                                 style={{ top: posicao(inicio), height: posicao(fim) - posicao(inicio),
@@ -1022,8 +1050,7 @@ export default function AbaMapaDia({
                                                     {formatarIntervaloCard(aula)}
                                                 </span>
                                                 <strong>{aula.nome_aluno}</strong>
-                                                <small>{rotuloMateriaAula(aula.materia, duracaoDaAula(aula))}</small>
-                                                <small>{[aula.unidade_nome, meta.rotulo].filter(Boolean).join(' · ')}</small>
+                                                <small>{[rotuloMateriaAula(aula.materia, duracaoDaAula(aula)), aula.unidade_nome].filter(Boolean).join(' · ')}</small>
                                             </button>
                                         );
                                     })}
@@ -1033,13 +1060,6 @@ export default function AbaMapaDia({
                         </div>
                     </div>
                 )}
-                <div className={styles.legenda}>
-                    {LISTA_STATUS_AULA_R4.map((status) => (
-                        <span key={status.valor} data-status={status.valor}
-                            style={{ '--event': cfg.status[status.valor]?.cor || (LISTA_STATUS_AULA_R4.slice(0, 6).some((item) => item.valor === status.valor) ? undefined : CORES_STATUS_R4[status.valor]) } as React.CSSProperties}><i />{textoR4(status.rotulo)}</span>
-                    ))}
-                    <span data-status="bloqueio"><i />{textoR4("Bloqueio")}</span>
-                </div>
             </div>
 
             {/* Hover Card Flutuante ao Passar o Mouse na Aula */}

@@ -4,11 +4,9 @@ import type { AgendamentoAdmin, BloqueioAdmin } from './types';
 export const INICIO_MAPA = 8 * 60;
 export const FIM_MAPA = 23 * 60;
 
-export function alturaSlotMapa(intervalo: number, alturaTela: number | undefined, minutosVisiveis: number) {
-    // Mantém 66 px para quatro linhas em uma aula de 50 minutos, inclusive em tela cheia.
-    const alturaLegivel = Math.ceil(66 * intervalo / 50);
-    const alturaDisponivel = alturaTela === undefined ? 36 : Math.floor((alturaTela - 168) * intervalo / minutosVisiveis);
-    return Math.max(alturaLegivel, Math.min(40, alturaDisponivel));
+export function alturaSlotMapa(intervalo: number, alturaDisponivel: number, minutosVisiveis: number) {
+    const pixelsPorMinuto = Math.max(0.68, Math.min(0.90, alturaDisponivel / minutosVisiveis));
+    return intervalo * pixelsPorMinuto;
 }
 
 export function relogioBahia() {

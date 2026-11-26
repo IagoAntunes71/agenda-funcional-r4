@@ -404,3 +404,20 @@
 .professor .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .mapa .scroll { max-height: max(260px, calc(100dvh - 174px)); }
 .mapa[data-apresentacao='true'] .scroll { max-height: calc(100dvh - 114px); }
+
+.mapa { gap: 5px; }
+.mapa :is(.topo, .filtros, .barraGrade) { padding-block: 5px; }
+.mapa .professor { padding-block: 4px; }
+.professor a.avatar:is(:hover, :focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mapa .scroll { max-height: var(--altura-mapa-visivel, max(260px, calc(100dvh - 126px))); }
+.mapa .aula {
+    background: color-mix(in srgb, var(--event) 64%, #fff);
+    padding: 1px 4px 1px 7px;
+    border: 1px solid var(--surface);
+    line-height: 10px;
+}
+.mapa[data-tema='escuro'] .aula { background: color-mix(in srgb, var(--event) 58%, #17212c); }
+.mapa .aula :is(strong, small, .aulaHora) { font-size: 10px; line-height: 10px; }
+.mapa .aula .aulaHora svg { width: 9px; height: 9px; }
+.mapa .aula[data-curta='true'] small { display: none; }
+.mapa .bloqueio { padding-block: 1px; min-height: 0; }
