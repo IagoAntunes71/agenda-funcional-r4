@@ -19,6 +19,11 @@ export async function GET(req: NextRequest) {
     if (mesProfessor !== null && !/^20\d{2}-(0[1-9]|1[0-2])$/.test(mesProfessor)) {
         return NextResponse.json({ error: 'Mês inválido.' }, { status: 400 });
     }
+    const datasMapa = [...new Set((req.nextUrl.searchParams.get('datasMapa') || '').split(',').filter(Boolean))];
+    if (datasMapa.length > 366 || datasMapa.some((data) => {
+        const dia = new Date(data + 'T12:00:00Z');
+        return !/^\d{4}-\d{2}-\d{2}$/.test(data) || !Number.isFinite(dia.getTime()) || dia.toISOString().slice(0,10) !== data;
+    })) return NextResponse.json({ error: 'Datas inválidas para o mapa.' }, { status: 400 });
     const inicioMes = mesProfessor ? mesProfessor + '-01' : null;
 
     try {
@@ -206,15 +211,16 @@ export async function GET(req: NextRequest) {
         LEFT JOIN alunos al ON al.id = a.aluno_id
         LEFT JOIN responsaveis r ON r.id = al.responsavel_id
         WHERE a.excluido_em IS NULL
-          AND (${inicioMes}::date IS NULL OR (
+          AND (cardinality(${datasMapa}::date[]) = 0 OR a.data = ANY(${datasMapa}::date[]))
+          AND (${datasMapa.length > 0} OR ${inicioMes}::date IS NULL OR (
             a.data >= ${inicioMes}::date AND a.data < ${inicioMes}::date + interval '1 month'
           ))
-          AND (${outrasAgendas && !mesProfessor} OR EXISTS (
+          AND (${outrasAgendas && (!mesProfessor || datasMapa.length > 0)} OR EXISTS (
             SELECT 1 FROM professores vinculado WHERE vinculado.id = ${sessao.professor_id}
               AND (vinculado.id = p.id OR nullif(vinculado.grupo_professor, '') = nullif(p.grupo_professor, ''))
           ))
         ORDER BY a.data DESC, COALESCE(a.hora_inicio, a.horario) ASC
-        LIMIT ${mesProfessor ? null : 250}
+        LIMIT ${mesProfessor || datasMapa.length ? null : 250}
       `,
             sql`
                 SELECT

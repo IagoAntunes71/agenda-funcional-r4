@@ -229,10 +229,15 @@ export default function PainelAdmin({
         }
     }, []);
 
+    const [datasMapa, setDatasMapa] = useState('');
+    const consultaMapa = aba === 'mapa' ? datasMapa : '';
     const carregarDados = useCallback(async (signal?: AbortSignal, silencioso = false) => {
         if (!silencioso) setCarregandoDados(true);
         try {
-            const url = mesConsulta ? '/api/admin/painel?mesProfessor=' + mesConsulta : '/api/admin/painel';
+            const params = new URLSearchParams();
+            if (consultaMapa) params.set('datasMapa', consultaMapa);
+            else if (mesConsulta) params.set('mesProfessor', mesConsulta);
+            const url = '/api/admin/painel?' + params;
             const res = await fetch(url, { cache: 'no-store', signal });
             if (signal?.aborted) return;
             if (res.status === 401) {
@@ -280,7 +285,7 @@ export default function PainelAdmin({
         } finally {
             if (!silencioso && !signal?.aborted) setCarregandoDados(false);
         }
-    }, [carregarPerfisETextos, mesConsulta]);
+    }, [carregarPerfisETextos, mesConsulta, consultaMapa]);
 
     useEffect(() => {
         if (!autenticado) return;
@@ -1568,6 +1573,7 @@ export default function PainelAdmin({
                             alunos={alunos}
                             agendamentos={agendamentos}
                             bloqueios={bloqueios}
+                            onDatasMapaChange={setDatasMapa}
                             escuro={escuro}
                             classes={classesCompartilhadas}
                             modoTelaCheia
