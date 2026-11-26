@@ -126,3 +126,70 @@ body {
 .r4-sidebar-contagem { color: #c2e7e7; padding: 1px 5px; border-radius: 5px; background: #ffffff12; font-size: 10px; }
 .r4-admin[data-visao-geral] .r4-admin-sidebar :is(a[title]:not(.r4-sidebar-item),button[title]) { color: #d8e5f5; }
 .r4-admin[data-visao-geral] .r4-admin-sidebar :is(a[title]:not(.r4-sidebar-item),button[title]):hover { background-color: #51e0d519; }
+
+/* Controles de reserva do portal e do fluxo compacto. */
+.r4-portal, .r4-fluxo {
+  --portal-controle: #f8fafc;
+  --portal-borda: #94a3b8;
+  --portal-texto: #0f172a;
+  --portal-acento: #0369a1;
+}
+.r4-portal[data-tema='escuro'], .r4-fluxo[data-tema='escuro'] {
+  color-scheme: dark;
+  --portal-controle: #1e293b;
+  --portal-borda: #334155;
+  --portal-texto: #f1f5f9;
+  --portal-acento: #38bdf8;
+}
+.r4-portal[data-tema='escuro'] {
+  --r4-base: #0f172a !important;
+  --r4-painel: #172235 !important;
+  --r4-borda: #334155;
+  --r4-leitura: #f1f5f9 !important;
+  --r4-botao: #0284c7 !important;
+  --r4-botao-texto: #082031 !important;
+}
+.r4-portal[data-tema='escuro'] :is(input:not([type='checkbox'], [type='radio']), select, textarea),
+.r4-fluxo[data-tema='escuro'] :is(input:not([type='checkbox'], [type='radio']), select, textarea) {
+  background-color: var(--portal-controle);
+  border-color: var(--portal-borda);
+  color: var(--portal-texto);
+}
+.r4-portal :is(button, summary, input, select, textarea):focus-visible,
+.r4-fluxo :is(button, summary, input, select, textarea):focus-visible {
+  outline: 2px solid var(--portal-acento);
+  outline-offset: 2px;
+}
+.r4-avatar-professor {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--portal-controle) 82%, var(--portal-acento));
+  color: var(--portal-acento);
+  font-size: .75rem;
+  font-weight: 750;
+}
+.r4-horario {
+  background: var(--portal-controle);
+  border-color: var(--portal-borda);
+  color: var(--portal-texto);
+}
+.r4-horario[aria-pressed='true'],
+.r4-horario:not(:disabled):hover {
+  background: #0369a1;
+  border-color: #38bdf8;
+  color: #fff;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .r4-horario:not(:disabled):hover { translate: 0 -2px; }
+}
+.r4-portal [data-aviso-portal='horario'] { color: #075985; }
+.r4-portal [data-aviso-portal='cancelamento'] { color: #881337; }
+.r4-portal[data-tema='escuro'] [data-aviso-portal='horario'] { color: #bae6fd; }
+.r4-portal[data-tema='escuro'] [data-aviso-portal='cancelamento'] { color: #fecdd3; }
+@media (max-width: 639px) {
+  .r4-portal :is(input, select, textarea), .r4-fluxo :is(input, select, textarea) { font-size: 1rem; }
+}

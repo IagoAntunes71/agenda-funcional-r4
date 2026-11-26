@@ -1,4 +1,5 @@
 'use client';
+import AvatarProfessor from '@/components/agendamento/AvatarProfessor';
 import { useCoresR4, variaveisCoresR4 } from '@/components/CoresInterfaceR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
@@ -1073,17 +1074,17 @@ export default function PaginaAgendamentoReforco() {
   const escuro = tema === 'escuro';
 
   const clsBg = escuro
-      ? 'bg-[#221918] text-stone-100'
-      : 'bg-[#faf2ec] text-stone-900';
+      ? 'bg-[#0f172a] text-stone-100'
+      : 'bg-[#f8fafc] text-stone-900';
   const clsCard = 'r4-painel shadow-xs';
   const clsSubCard = escuro
-      ? 'bg-[#251b19] border-[#513932]'
+      ? 'bg-[#1e293b] border-[#334155]'
       : 'bg-stone-50 border-stone-200/80';
   const clsInput = escuro
-      ? 'bg-[#251b19] border-[#60443d] text-stone-100 placeholder:text-stone-500 focus:border-[#1496A1]'
-      : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400 focus:border-[#0E7C86]';
+      ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-400 focus:border-[#0284c7]'
+      : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400 focus:border-[#0284c7]';
   const clsTitulo = 'r4-texto';
-  const clsSubtexto = escuro ? 'text-stone-400' : 'text-stone-500';
+  const clsSubtexto = escuro ? 'text-slate-300' : 'text-slate-600';
 
   const unidadeAtual = unidades.find((u) => u.id === unidadeId);
   const professoresExibidos = professores.filter(
@@ -1100,12 +1101,31 @@ export default function PaginaAgendamentoReforco() {
       ).length
       : 0;
 
+  const regrasPortal = (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <div className="rounded-xl bg-[#0284c7]/15 border border-[#0284c7]/35 px-4 py-3 text-xs space-y-1" data-aviso-portal="horario">
+                <p className="font-bold uppercase tracking-wide text-[11px]">
+                  {textos.aviso_proxima_semana_titulo}
+                </p>
+                <p>{textos.aviso_proxima_semana_texto}</p>
+              </div>
+
+              <div className="rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/45 px-4 py-3 text-xs space-y-1" data-aviso-portal="cancelamento">
+                <p className="font-bold uppercase tracking-wide text-[11px] flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  {textos.aviso_cancelamento_titulo}
+                </p>
+                <p>{textos.aviso_cancelamento_texto}</p>
+              </div>
+            </div>
+  );
+
   return (
-      <main className={`r4-portal min-h-screen transition-colors ${clsBg}`} style={variaveisCoresR4(paleta[escuro ? 'escuro' : 'claro'])}>
+      <main data-tema={tema} className={`r4-portal min-h-screen transition-colors ${clsBg}`} style={variaveisCoresR4(paleta[escuro ? 'escuro' : 'claro'])}>
         <div
             className={`border-b backdrop-blur-md sticky top-0 z-30 ${
                 escuro
-                    ? 'bg-[#11151A]/90 border-[#1F262E]'
+                    ? 'bg-[#0f172a]/90 border-[#334155]'
                     : 'bg-white/90 border-stone-200'
             }`}
         >
@@ -1116,7 +1136,7 @@ export default function PaginaAgendamentoReforco() {
             <span
                 className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border ${clsSubCard} ${clsSubtexto}`}
             >
-              <Clock className="w-3.5 h-3.5 text-[#1496A1]" />
+              <Clock className="w-3.5 h-3.5 text-[#0284c7]" />
               {textos.horario_secretaria}
             </span>
 
@@ -1125,8 +1145,8 @@ export default function PaginaAgendamentoReforco() {
                   onClick={alternarTema}
                   className={`px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer ${
                       escuro
-                          ? 'bg-[#312320] border-[#513932] text-amber-300 hover:border-stone-600'
-                          : 'bg-[#231917] border-[#231917] text-white hover:bg-stone-800'
+                          ? 'bg-slate-800 border-slate-700 text-slate-100 hover:border-stone-600'
+                          : 'bg-[#0f172a] border-[#0f172a] text-white hover:bg-stone-800'
                   }`}
               >
                 {escuro ? (
@@ -1145,11 +1165,20 @@ export default function PaginaAgendamentoReforco() {
           </div>
         </div>
 
-        <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
+        <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-4 sm:space-y-5">
           {/* BANNER INSTITUCIONAL COM TEXTOS EDITÁVEIS PELO PAINEL ADMIN */}
-          <header className={`border rounded-2xl p-6 space-y-3.5 ${clsCard}`}>
+          {telefoneConfirmado ? (
+              <details className={`group rounded-xl border px-4 py-2 ${clsCard}`}>
+                <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold">
+                  {textoR4("Ver regras de horário e cancelamento")}
+                  <span aria-hidden="true" className="text-lg transition-transform group-open:rotate-45">+</span>
+                </summary>
+                <div className="pb-2">{regrasPortal}</div>
+              </details>
+          ) : (
+          <header className={`border rounded-2xl p-6 space-y-3.5 max-w-lg mx-auto ${clsCard}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1] bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-3 py-1 rounded-full">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0284c7] bg-[#0284c7]/15 border border-[#0284c7]/35 px-3 py-1 rounded-full">
               {textos.badge_topo}
             </span>
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
@@ -1163,23 +1192,8 @@ export default function PaginaAgendamentoReforco() {
               {textos.subtitulo_principal}
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-              <div className="rounded-xl bg-[#0E7C86]/15 border border-[#0E7C86]/35 px-4 py-3 text-xs text-[#39B8C4] space-y-1">
-                <p className="font-bold uppercase tracking-wide text-[11px]">
-                  {textos.aviso_proxima_semana_titulo}
-                </p>
-                <p>{textos.aviso_proxima_semana_texto}</p>
-              </div>
-
-              <div className="rounded-xl bg-[#BE1E23]/15 border border-[#BE1E23]/45 px-4 py-3 text-xs text-rose-300 space-y-1">
-                <p className="font-bold uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-rose-400">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  {textos.aviso_cancelamento_titulo}
-                </p>
-                <p>{textos.aviso_cancelamento_texto}</p>
-              </div>
-            </div>
-          </header>
+            {regrasPortal}
+          </header>)}
 
           {comprovante && (
               <section className="bg-emerald-500/10 border border-emerald-500/40 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
@@ -1225,7 +1239,7 @@ export default function PaginaAgendamentoReforco() {
                 {etapaLogin === 'telefone' && (
                     <>
                       <div className="space-y-1">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0284c7]">
                     <Lock className="w-3.5 h-3.5" />{' ' + textoR4("Acesso Exclusivo R4 Ensina")}</span>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Informe seu WhatsApp")}</h2>
                         <p className={`text-sm ${clsSubtexto}`}>{textoR4("Digite o número cadastrado com DDD. Sua sessão ficará lembrada neste dispositivo por 30 dias.")}</p>
@@ -1268,7 +1282,7 @@ export default function PaginaAgendamentoReforco() {
                 {etapaLogin === 'exige_pin' && (
                     <>
                       <div className="space-y-1">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0284c7]">
                     <KeyRound className="w-3.5 h-3.5" />{' ' + textoR4("Verificação de Segurança")}</span>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Digite seu PIN de 4 dígitos")}</h2>
                         <p className={`text-sm ${clsSubtexto}`}>{textoR4("Número:")}{' '}
@@ -1331,7 +1345,7 @@ export default function PaginaAgendamentoReforco() {
                               type="button"
                               disabled={enviandoCodigoOtp || buscandoCliente}
                               onClick={() => void handleSolicitarRecuperacaoPin()}
-                              className="text-xs font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
+                              className="text-xs font-semibold text-[#0284c7] hover:underline disabled:opacity-50 cursor-pointer"
                           >
                             {enviandoCodigoOtp
                                 ? textoR4("Enviando código no WhatsApp...")
@@ -1345,7 +1359,7 @@ export default function PaginaAgendamentoReforco() {
                 {etapaLogin === 'recuperar_pin' && (
                     <>
                       <div className="space-y-1">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0284c7]">
                     <KeyRound className="w-3.5 h-3.5" />{' ' + textoR4("Recuperação via WhatsApp")}</span>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Redefinir seu PIN")}</h2>
                         <p className={`text-xs ${clsSubtexto}`}>{textoR4("WhatsApp:")}{' '}
@@ -1376,7 +1390,7 @@ export default function PaginaAgendamentoReforco() {
                                     enviandoCodigoOtp || cooldownOtpSegundos > 0
                                 }
                                 onClick={() => void handleSolicitarRecuperacaoPin()}
-                                className="text-[11px] font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
+                                className="text-[11px] font-semibold text-[#0284c7] hover:underline disabled:opacity-50 cursor-pointer"
                             >
                               {enviandoCodigoOtp
                                   ? textoR4("Reenviando...")
@@ -1575,7 +1589,7 @@ export default function PaginaAgendamentoReforco() {
                 {etapaLogin === 'novo_cadastro' && (
                     <>
                       <div className="space-y-1">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1496A1]">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0284c7]">
                     <UserCheck className="w-3.5 h-3.5" />{' ' + textoR4("Primeiro Cadastro R4")}</span>
                         <h2 className={`text-xl font-bold ${clsTitulo}`}>{textoR4("Complete seus dados e crie seu PIN")}</h2>
                         <p className={`text-xs ${clsSubtexto}`}>{textoR4("WhatsApp:")}{' '}
@@ -1673,7 +1687,7 @@ export default function PaginaAgendamentoReforco() {
                         <div
                             className={`border rounded-xl p-3.5 space-y-2.5 ${clsSubCard}`}
                         >
-                          <p className="text-xs font-semibold text-[#1496A1]">{textoR4("Crie um PIN de 4 números para proteger seus próximos acessos:")}</p>
+                          <p className="text-xs font-semibold text-[#0284c7]">{textoR4("Crie um PIN de 4 números para proteger seus próximos acessos:")}</p>
                           <div className="grid grid-cols-2 gap-3">
                             <input
                                 type="password"
@@ -1776,7 +1790,7 @@ export default function PaginaAgendamentoReforco() {
                                 onClick={() =>
                                     void solicitarCodigoParaCadastro(false)
                                 }
-                                className="text-[11px] font-semibold text-[#1496A1] hover:underline disabled:opacity-50 cursor-pointer"
+                                className="text-[11px] font-semibold text-[#0284c7] hover:underline disabled:opacity-50 cursor-pointer"
                             >
                               {enviandoCodigoOtp
                                   ? textoR4("Reenviando...")
@@ -1842,16 +1856,16 @@ export default function PaginaAgendamentoReforco() {
                 <section className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                   <div
                       className={`flex flex-wrap items-center justify-between gap-3 pb-3 border-b ${
-                          escuro ? 'border-[#513932]' : 'border-stone-200'
+                          escuro ? 'border-[#334155]' : 'border-stone-200'
                       }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <UserCheck className="w-5 h-5 text-[#1496A1]" />
+                      <UserCheck className="w-5 h-5 text-[#0284c7]" />
                       <div>
                         <p className={`text-sm font-bold ${clsTitulo}`}>{textoR4("Responsável:") + ' '}{responsavelConfirmado}
                         </p>
                         <p className={`text-xs ${clsSubtexto}`}>{textoR4("WhatsApp:") + ' '}{formatarTelefone(telefoneConfirmado)} •{' '}
-                          <span className="text-[#1496A1] font-medium">
+                          <span className="text-[#0284c7] font-medium">
                         {aulasAtivasAlunoSelecionado}/{limiteSimultaneo}{' ' + textoR4("aulas ativas para o aluno selecionado")}</span>
                         </p>
                       </div>
@@ -1870,8 +1884,8 @@ export default function PaginaAgendamentoReforco() {
                               }}
                               className={`px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1 cursor-pointer transition ${
                                   escuro
-                                      ? 'bg-[#0E7C86]/15 hover:bg-[#0E7C86]/25 border-[#0E7C86]/40 text-[#39B8C4]'
-                                      : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86]/20 border-[#0E7C86]/30 text-[#0B5C63]'
+                                      ? 'bg-[#0284c7]/15 hover:bg-[#0284c7]/25 border-[#0284c7]/40 text-[#38bdf8]'
+                                      : 'bg-[#0284c7]/10 hover:bg-[#0284c7]/20 border-[#0284c7]/30 text-[#075985]'
                               }`}
                           >
                             <Plus className="w-3.5 h-3.5" />{' ' + textoR4("Cadastrar Outro Filho(a)")}</button>
@@ -1899,9 +1913,9 @@ export default function PaginaAgendamentoReforco() {
                                     className={`text-left rounded-xl p-3.5 border transition cursor-pointer flex items-start justify-between gap-2 ${
                                         ativo
                                             ? escuro
-                                                ? 'bg-[#0E7C86]/20 border-[#1496A1] text-white'
-                                                : 'bg-[#0E7C86]/10 border-[#0E7C86] text-stone-900'
-                                            : `${clsSubCard} hover:border-[#0E7C86]/50`
+                                                ? 'bg-[#0284c7]/20 border-[#0284c7] text-white'
+                                                : 'bg-[#0284c7]/10 border-[#0284c7] text-stone-900'
+                                            : `${clsSubCard} hover:border-[#0284c7]/50`
                                     }`}
                                 >
                                   <div>
@@ -1910,12 +1924,12 @@ export default function PaginaAgendamentoReforco() {
                                         className={`text-xs mt-0.5 ${
                                             ativo
                                                 ? escuro
-                                                    ? 'text-[#39B8C4]'
-                                                    : 'text-[#0B5C63]'
+                                                    ? 'text-[#38bdf8]'
+                                                    : 'text-[#075985]'
                                                 : clsSubtexto
                                         }`}
                                     >
-                                      {al.colegio_nome} • {al.serie}
+                                      {[al.colegio_nome?.trim(), al.serie?.trim()].filter(Boolean).join(' • ')}
                                     </p>
                                   </div>
 
@@ -1927,8 +1941,8 @@ export default function PaginaAgendamentoReforco() {
                                       }}
                                       className={`text-[11px] font-semibold px-2 py-1 rounded-lg border cursor-pointer shrink-0 ${
                                           escuro
-                                              ? 'bg-[#251b19] border-[#513932] text-stone-300 hover:border-[#1496A1]'
-                                              : 'bg-white border-stone-200 text-stone-600 hover:border-[#0E7C86]'
+                                              ? 'bg-slate-800 border-slate-700 text-slate-100 hover:border-[#0284c7]'
+                                              : 'bg-white border-stone-200 text-stone-600 hover:border-[#0284c7]'
                                       }`}
                                   >{textoR4("Editar")}</button>
                                 </div>
@@ -1944,7 +1958,7 @@ export default function PaginaAgendamentoReforco() {
                           className={`rounded-xl border p-4 sm:p-5 space-y-4 ${clsSubCard}`}
                       >
                         <div className="flex items-center justify-between">
-                          <h3 className="text-sm font-bold text-[#1496A1]">
+                          <h3 className="text-sm font-bold text-[#0284c7]">
                             {alunoEditandoId
                                 ? textoR4("Editar Dados do Aluno(a)")
                                 : textoR4("Cadastrar Aluno(a) na R4 Ensina")}
@@ -2054,7 +2068,7 @@ export default function PaginaAgendamentoReforco() {
                     <section className={`border rounded-2xl p-5 space-y-4 ${clsCard}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#1496A1]">{textoR4("Sua Agenda na R4 Ensina")}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#0284c7]">{textoR4("Sua Agenda na R4 Ensina")}</span>
                           <h2 className={`text-base font-bold ${clsTitulo}`}>{textoR4("Próximas Aulas Agendadas (")}{proximasAulas.length})
                           </h2>
                         </div>
@@ -2096,13 +2110,13 @@ export default function PaginaAgendamentoReforco() {
                               >
                                 <div className="space-y-1.5">
                                   <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-[#1496A1]">
+                            <span className="text-xs font-bold text-[#0284c7]">
                               {aula.data_formatada} • {aula.horario}
                             </span>
                                     <span
                                         className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
                                             escuro
-                                                ? 'bg-[#312320] text-stone-300 border border-[#513932]'
+                                                ? 'bg-[#1e293b] text-stone-300 border border-[#334155]'
                                                 : 'bg-white text-stone-700 border border-stone-200'
                                         }`}
                                     >
@@ -2126,7 +2140,7 @@ export default function PaginaAgendamentoReforco() {
 
                                 <div
                                     className={`pt-2.5 border-t ${
-                                        escuro ? 'border-[#513932]' : 'border-stone-200'
+                                        escuro ? 'border-[#334155]' : 'border-stone-200'
                                     }`}
                                 >
                                   {aula.pode_cancelar && sistemaAberto && alunos.some((aluno) => aluno.id === aula.aluno_id) &&
@@ -2205,8 +2219,8 @@ export default function PaginaAgendamentoReforco() {
                                   <label id="grade-portal"
                                     className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
                                 >
-                                  <MapPin className="w-3.5 h-3.5 text-[#1496A1]" />{' ' + textoR4("1. Escolha a Unidade R4")}</label>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                  <MapPin className="w-3.5 h-3.5 text-[#0284c7]" />{' ' + textoR4("1. Escolha a Unidade R4")}</label>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
                                   {unidades.map((u) => {
                                     const ativa = u.id === unidadeId;
                                     return (
@@ -2214,10 +2228,10 @@ export default function PaginaAgendamentoReforco() {
                                             key={u.id}
                                             type="button"
                                             onClick={() => handleTrocarUnidade(u.id)}
-                                            className={`py-3 px-4 rounded-xl text-sm font-semibold border transition cursor-pointer ${
+                                            className={`min-h-11 break-words py-3 px-2 sm:px-4 rounded-xl text-sm font-semibold border transition cursor-pointer ${
                                                 ativa
-                                                    ? 'bg-[#0E7C86] border-[#1496A1] text-white shadow-md shadow-[#0E7C86]/25'
-                                                    : `${clsSubCard} ${clsSubtexto} hover:border-[#0E7C86]/50`
+                                                    ? 'bg-[#0284c7] border-[#0284c7] text-white shadow-md shadow-[#0284c7]/25'
+                                                    : `${clsSubCard} ${clsSubtexto} hover:border-[#0284c7]/50`
                                             }`}
                                         >
                                           {u.nome}
@@ -2231,7 +2245,7 @@ export default function PaginaAgendamentoReforco() {
                                 <label
                                     className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${clsSubtexto}`}
                                 >
-                                  <Calendar className="w-3.5 h-3.5 text-[#1496A1]" />{' ' + textoR4("2. Datas Liberadas Esta Semana")}</label>
+                                  <Calendar className="w-3.5 h-3.5 text-[#0284c7]" />{' ' + textoR4("2. Datas Liberadas Esta Semana")}</label>
 
                                 {datas.length === 0 ? (
                                     <div
@@ -2248,15 +2262,15 @@ export default function PaginaAgendamentoReforco() {
                                                 onClick={() => handleTrocarData(d.data)}
                                                 className={`min-w-[118px] py-2.5 px-3.5 rounded-xl border text-center transition cursor-pointer shrink-0 ${
                                                     ativa
-                                                        ? 'bg-[#0E7C86] border-[#1496A1] text-white shadow-md shadow-[#0E7C86]/25'
-                                                        : `${clsSubCard} ${clsSubtexto} hover:border-[#0E7C86]/50`
+                                                        ? 'bg-[#0284c7] border-[#0284c7] text-white shadow-md shadow-[#0284c7]/25'
+                                                        : `${clsSubCard} ${clsSubtexto} hover:border-[#0284c7]/50`
                                                 }`}
                                             >
                                   <span
                                       className={`block text-[10px] font-bold tracking-wider ${
                                           ativa
                                               ? 'text-teal-100'
-                                              : 'text-[#1496A1]'
+                                              : 'text-[#0284c7]'
                                       }`}
                                   >
                                     {formatarDiaSemana(d.data)}
@@ -2275,7 +2289,7 @@ export default function PaginaAgendamentoReforco() {
                                 <div>
                                   <label
                                       className={`block text-xs font-medium mb-1 ${clsSubtexto}`}
-                                  >{textoR4("Filtrar por Matéria (para") + ' '}{alunoAtivo.serie})
+                                  >{alunoAtivo.serie?.trim() ? `${textoR4("Filtrar por Matéria (para")} ${alunoAtivo.serie.trim()})` : textoR4("Filtrar por Matéria")}
                                   </label>
                                   <select
                                       value={materiaFiltro}
@@ -2322,13 +2336,14 @@ export default function PaginaAgendamentoReforco() {
                             )}
 
                             <section className="space-y-4">
-                              <div className="flex items-center justify-between">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
                                 <h2 className={`text-base font-bold ${clsTitulo}`}>{textoR4("3. Horários Disponíveis (100 min) —")}{' '}
                                   {unidadeAtual?.nome || 'Unidade'}
                                 </h2>
                                 <span className={`text-xs ${clsSubtexto}`}>
-                          {professoresExibidos.length}{' ' + textoR4("professor(es) para")}{' '}
-                                  {alunoAtivo.serie}
+                          {professoresExibidos.length}{' '}{alunoAtivo.serie?.trim()
+                              ? `${textoR4("professor(es) para")} ${alunoAtivo.serie.trim()}`
+                              : textoR4("professor(es)")}
                         </span>
                               </div>
 
@@ -2340,7 +2355,7 @@ export default function PaginaAgendamentoReforco() {
                               0 ? (
                                   <div
                                       className={`border rounded-2xl p-10 text-center text-sm ${clsCard} ${clsSubtexto}`}
-                                  >{textoR4("Nenhum professor encontrado para") + ' '}{alunoAtivo.serie}{' '}{textoR4("com esta matéria/unidade.")}</div>
+                                  >{alunoAtivo.serie?.trim() ? `${textoR4("Nenhum professor encontrado para")} ${alunoAtivo.serie.trim()} ${textoR4("com esta matéria/unidade.")}` : textoR4("Nenhum professor encontrado com esta matéria/unidade.")}</div>
                               ) : (
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {professoresExibidos.map((prof) => {
@@ -2356,9 +2371,10 @@ export default function PaginaAgendamentoReforco() {
                                             <div className="space-y-1.5">
                                               <div className="flex items-center justify-between gap-2">
                                                 <h3
-                                                    className={`text-base font-bold ${clsTitulo}`}
+                                                    className={`flex min-w-0 items-center gap-2 text-base font-bold ${clsTitulo}`}
                                                 >
-                                                  {prof.nome}
+                                                  <AvatarProfessor nome={prof.nome} />
+                                                  <span className="min-w-0 break-words">{prof.nome}</span>
                                                 </h3>
                                                 <span
                                                     className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
@@ -2387,15 +2403,11 @@ export default function PaginaAgendamentoReforco() {
                                                         onClick={() =>
                                                             abrirModalAgendamento(prof, slot)
                                                         }
-                                                        className={`py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border transition ${
-                                                            disponivel
-                                                                ? escuro
-                                                                    ? 'bg-[#0E7C86]/15 hover:bg-[#0E7C86] border-[#0E7C86]/45 text-[#39B8C4] hover:text-white cursor-pointer'
-                                                                    : 'bg-[#0E7C86]/10 hover:bg-[#0E7C86] border-[#0E7C86]/35 text-[#0B5C63] hover:text-white cursor-pointer'
-                                                                : `${clsSubCard} ${clsSubtexto} opacity-55 line-through cursor-not-allowed`
+                                                        className={`r4-horario flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-center text-xs font-semibold transition ${
+                                                            disponivel ? 'cursor-pointer' : 'cursor-not-allowed opacity-55 line-through'
                                                         }`}
                                                     >
-                                                      <Clock className="w-3.5 h-3.5" />
+                                                      <Clock className="hidden h-3.5 w-3.5 shrink-0 sm:block" />
                                                       <span>{slot.label}</span>
                                                     </button>
                                                 );
@@ -2419,11 +2431,11 @@ export default function PaginaAgendamentoReforco() {
         {selecaoSlot && alunoAtivo && (
             <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
               <div
-                  className={`border rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl ${clsCard}`}
+                  className={`border rounded-2xl max-h-[90dvh] overflow-y-auto max-w-lg w-full p-4 sm:p-6 space-y-5 shadow-2xl ${clsCard}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-[#1496A1]">{textoR4("Confirmar Aula R4 Ensina (100 min)")}</span>
+                <span className="text-xs font-bold uppercase tracking-wider text-[#0284c7]">{textoR4("Confirmar Aula R4 Ensina (100 min)")}</span>
                     <h2 className={`text-lg font-bold mt-0.5 ${clsTitulo}`}>
                       {selecaoSlot.professor.nome}
                     </h2>
@@ -2449,8 +2461,7 @@ export default function PaginaAgendamentoReforco() {
                     <strong>{textoR4("Aluno(a):")}</strong> {alunoAtivo.nome_aluno}
                   </p>
                   <p>
-                    <strong>{textoR4("Colégio / Série:")}</strong> {alunoAtivo.colegio_nome} •{' '}
-                    {alunoAtivo.serie}
+                    <strong>{textoR4("Colégio / Série:")}</strong> {[alunoAtivo.colegio_nome?.trim(), alunoAtivo.serie?.trim()].filter(Boolean).join(' • ') || '—'}
                   </p>
                   <p>
                     <strong>{textoR4("Responsável:")}</strong> {responsavelConfirmado} (

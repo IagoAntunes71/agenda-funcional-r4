@@ -1,4 +1,5 @@
 'use client';
+import AvatarProfessor from './AvatarProfessor';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
@@ -324,7 +325,7 @@ export default function FluxoAgendamento() {
     const dataObj = datasLiberadas.find((d) => d.data === dataSelecionada);
 
     return (
-        <div className="space-y-6">
+        <div className="r4-fluxo space-y-6" data-tema="escuro">
             {/* Navegação Rápida do Cliente (Agendar x Consultar/Cancelar) */}
             <div className="flex gap-2 bg-slate-900 border border-slate-800 p-1.5 rounded-2xl w-fit">
                 <button
@@ -332,7 +333,7 @@ export default function FluxoAgendamento() {
                     onClick={() => setAbaCliente('agendar')}
                     className={`px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
                         abaCliente === 'agendar'
-                            ? 'bg-emerald-600 text-white'
+                            ? 'bg-sky-600 text-white'
                             : 'text-slate-300 hover:text-white'
                     }`}
                 >{textoR4("Agendar Aula")}</button>
@@ -344,7 +345,7 @@ export default function FluxoAgendamento() {
                     }}
                     className={`px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
                         abaCliente === 'meus'
-                            ? 'bg-emerald-600 text-white'
+                            ? 'bg-sky-600 text-white'
                             : 'text-slate-300 hover:text-white'
                     }`}
                 >{textoR4("Meus Agendamentos")}</button>
@@ -365,7 +366,7 @@ export default function FluxoAgendamento() {
                             placeholder="(71) 99999-9999"
                             value={whatsapp}
                             onChange={(e) => setWhatsapp(formatarWhatsapp(e.target.value))}
-                            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
+                            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-sky-400"
                         />
                         <button
                             type="button"
@@ -502,7 +503,7 @@ export default function FluxoAgendamento() {
                                         value={whatsapp}
                                         onChange={(e) => setWhatsapp(formatarWhatsapp(e.target.value))}
                                         onBlur={() => buscarDadosResponsavel(whatsapp)}
-                                        className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
+                                        className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-sky-400"
                                     />
                                     <button
                                         type="button"
@@ -534,7 +535,7 @@ export default function FluxoAgendamento() {
                                                         }}
                                                         className={`py-1.5 px-3 rounded-xl text-xs font-medium border transition cursor-pointer ${
                                                             selecionado
-                                                                ? 'bg-emerald-600 text-white border-emerald-400'
+                                                                ? 'bg-sky-600 text-white border-emerald-400'
                                                                 : 'bg-emerald-950/60 border-emerald-700/70 text-emerald-200 hover:border-emerald-500'
                                                         }`}
                                                     >
@@ -549,7 +550,7 @@ export default function FluxoAgendamento() {
                                                     setColegioAluno('');
                                                     setSerieAluno('');
                                                 }}
-                                                className="py-1.5 px-3 rounded-xl text-xs font-medium bg-slate-950 border border-slate-700 text-slate-300 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                                                className="py-1.5 px-3 rounded-xl text-xs font-medium bg-slate-800 border border-slate-700 text-slate-300 hover:text-white inline-flex items-center gap-1 cursor-pointer"
                                             >
                                                 <Plus className="w-3.5 h-3.5" />{' ' + textoR4("Outro aluno")}</button>
                                         </div>
@@ -569,7 +570,7 @@ export default function FluxoAgendamento() {
                                         placeholder={textoR4("Ex: Ana Paula Souza")}
                                         value={nomeResponsavel}
                                         onChange={(e) => setNomeResponsavel(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-sky-400"
                                     />
                                 </div>
 
@@ -583,7 +584,7 @@ export default function FluxoAgendamento() {
                                         placeholder={textoR4("Ex: Lucas Souza")}
                                         value={nomeAluno}
                                         onChange={(e) => setNomeAluno(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-sky-400"
                                     />
                                 </div>
 
@@ -597,7 +598,7 @@ export default function FluxoAgendamento() {
                                         placeholder={textoR4("Ex: Colégio Antônio Vieira")}
                                         value={colegioAluno}
                                         onChange={(e) => setColegioAluno(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-sky-400"
                                     />
                                 </div>
 
@@ -611,7 +612,7 @@ export default function FluxoAgendamento() {
                                         placeholder={textoR4("Ex: 8º Ano - Fundamental")}
                                         value={serieAluno}
                                         onChange={(e) => setSerieAluno(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-sky-400"
                                     />
                                 </div>
                             </div>
@@ -622,7 +623,7 @@ export default function FluxoAgendamento() {
                             <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                                 <MapPin className="w-4 h-4 text-emerald-400" />{textoR4("2. Unidade")}</h2>
 
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
                                 {unidades.map((u) => {
                                     const selecionada = u.id === unidadeId;
                                     return (
@@ -632,8 +633,8 @@ export default function FluxoAgendamento() {
                                             onClick={() => setUnidadeId(u.id)}
                                             className={`py-3 px-3 rounded-xl font-medium text-sm border transition cursor-pointer ${
                                                 selecionada
-                                                    ? 'bg-emerald-600 text-white border-emerald-500'
-                                                    : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-600'
+                                                    ? 'bg-sky-600 text-white border-emerald-500'
+                                                    : 'bg-slate-800 text-slate-100 border-slate-700 hover:border-slate-600'
                                             }`}
                                         >
                                             {u.nome}
@@ -661,8 +662,8 @@ export default function FluxoAgendamento() {
                                                 onClick={() => setMateriaSelecionada(materia)}
                                                 className={`py-2.5 px-4 rounded-xl text-sm font-medium border transition cursor-pointer ${
                                                     ativa
-                                                        ? 'bg-emerald-600 text-white border-emerald-500'
-                                                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-600'
+                                                        ? 'bg-sky-600 text-white border-emerald-500'
+                                                        : 'bg-slate-800 text-slate-100 border-slate-700 hover:border-slate-600'
                                                 }`}
                                             >
                                                 {materia}
@@ -689,18 +690,18 @@ export default function FluxoAgendamento() {
                                                 onClick={() => setProfessorId(prof.id)}
                                                 className={`p-3.5 rounded-xl text-left border transition flex items-center justify-between cursor-pointer ${
                                                     ativo
-                                                        ? 'bg-emerald-950/50 border-emerald-500 text-white'
-                                                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
+                                                        ? 'bg-sky-900 border-sky-400 text-white'
+                                                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600'
                                                 }`}
                                             >
-                                                <div>
-                                                    <p className="font-semibold text-sm">{prof.nome}</p>
+                                                <div className="flex min-w-0 items-center gap-2"><AvatarProfessor nome={prof.nome} /><div className="min-w-0">
+                                                    <p className="break-words font-semibold text-sm">{prof.nome}</p>
                                                     <p className="text-xs text-slate-400">{textoR4("Grade:") + ' '}{prof.hora_inicio}{' ' + textoR4("às") + ' '}{prof.hora_fim}
                                                     </p>
-                                                </div>
+                                                </div></div>
                                                 <span
-                                                    className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                                                        ativo ? 'border-emerald-400 bg-emerald-500' : 'border-slate-600'
+                                                    className={`shrink-0 w-4 h-4 rounded-full border flex items-center justify-center ${
+                                                        ativo ? 'border-sky-400 bg-sky-500' : 'border-slate-600'
                                                     }`}
                                                 />
                                             </button>
@@ -729,8 +730,8 @@ export default function FluxoAgendamento() {
                                                     onClick={() => setDataSelecionada(d.data)}
                                                     className={`p-3 rounded-xl border text-left transition cursor-pointer ${
                                                         ativa
-                                                            ? 'bg-emerald-600 text-white border-emerald-500'
-                                                            : 'bg-slate-950 text-slate-200 border-slate-800 hover:border-slate-600'
+                                                            ? 'bg-sky-600 text-white border-emerald-500'
+                                                            : 'bg-slate-800 text-slate-100 border-slate-700 hover:border-slate-600'
                                                     }`}
                                                 >
                                                     <p className="font-bold text-sm">{formatarDataBR(d.data)}</p>
@@ -758,7 +759,7 @@ export default function FluxoAgendamento() {
                                     ) : slots.length === 0 ? (
                                         <p className="text-sm text-slate-400">{textoR4("Sem horários disponíveis para esta data.")}</p>
                                     ) : (
-                                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                                             {slots.map((slot) => {
                                                 const escolhido = slot.horario === horarioSelecionado;
 
@@ -784,10 +785,11 @@ export default function FluxoAgendamento() {
                                                         key={slot.horario}
                                                         type="button"
                                                         onClick={() => setHorarioSelecionado(slot.horario)}
-                                                        className={`py-2.5 px-2 rounded-xl font-semibold text-sm border transition cursor-pointer ${
+                                                        aria-pressed={escolhido}
+                                                        className={`r4-horario min-h-11 rounded-xl px-2 py-2.5 font-semibold text-sm border transition cursor-pointer ${
                                                             escolhido
-                                                                ? 'bg-emerald-600 text-white border-emerald-400'
-                                                                : 'bg-slate-950 text-slate-200 border-slate-800 hover:border-emerald-500'
+                                                                ? 'bg-sky-600 text-white border-emerald-400'
+                                                                : 'bg-slate-800 text-slate-100 border-slate-700 hover:border-emerald-500'
                                                         }`}
                                                     >
                                                         {slot.horario}
@@ -808,7 +810,7 @@ export default function FluxoAgendamento() {
                                     placeholder={textoR4("Ex: Revisão para prova de equações do 2º grau")}
                                     value={observacoes}
                                     onChange={(e) => setObservacoes(e.target.value)}
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-emerald-500"
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-base text-white focus:outline-none focus:border-sky-400"
                                 />
                             </div>
                         </section>
