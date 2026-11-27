@@ -1,4 +1,4 @@
-import { consultarDestinoLembrete, enviarLembreteAula } from '@/lib/lembretes-whatsapp';
+import { consultarDestinoLembrete, enviarLembreteAula, solicitarConfirmacaoAula } from '@/lib/lembretes-whatsapp';
 import { SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { garantirTabelasClientesEColegios } from '@/app/api/cliente/route';
 import { unidadeOnline } from '@/lib/unidade-online';
@@ -34,17 +34,19 @@ export async function POST(req: NextRequest) {
         const cfg = await lerOperacaoR4();
         if (!podeOperacao(cfg, sessao.role, 'agenda')) return erro('Seu perfil não pode criar aulas.', 403);
         const body = await req.json();
-        if (body?.acao === 'enviarLembrete') {
-            if (sessao.role === 'professor') return erro('Seu perfil não pode enviar lembretes.', 403);
+        if (body?.acao === 'enviarLembrete' || body?.acao === 'enviarConfirmacao') {
+            if (sessao.role === 'professor') return erro('Seu perfil não pode enviar mensagens de aula.', 403);
             const id = Number(body.id);
-            if (!idValido(id) || typeof body.destino !== 'string' || typeof body.versao !== 'string') {
+            if (!idValido(id) || typeof body.destino !== 'string' || typeof body.versao !== 'string' || !/^\d{1,18}$/.test(body.versao)) {
                 return erro('Informe a aula e seu destinatário.', 400);
             }
-            const resultado = await enviarLembreteAula(id, {
-                responsavel: sessao.nome + ' · Conta ' + sessao.id,
-                destino: body.destino,
-                versao: body.versao,
-            });
+            const responsavel = sessao.nome + ' · Conta ' + sessao.id;
+            const origem = process.env.R4_URL_PUBLICA ||
+                (process.env.VERCEL_PROJECT_PRODUCTION_URL && 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL) ||
+                req.nextUrl.origin;
+            const resultado = body.acao === 'enviarConfirmacao'
+                ? await solicitarConfirmacaoAula(id, body.destino, body.versao, responsavel, origem, cfg.antecedencia)
+                : await enviarLembreteAula(id, { responsavel, destino: body.destino, versao: body.versao });
             return resultado.erro
                 ? NextResponse.json({ error: resultado.erro }, { status: 409 })
                 : NextResponse.json(resultado);

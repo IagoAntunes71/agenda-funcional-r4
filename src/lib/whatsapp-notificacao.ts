@@ -210,7 +210,8 @@ async function dispararRequisicaoWhatsApp(
     cfg: ConfigWhatsApp,
     destino: string,
     texto: string,
-    payloadExtra?: Record<string, unknown>
+    payloadExtra?: Record<string, unknown>,
+    opcoesEnvio?: Pick<RequestInit, 'signal' | 'redirect'>,
 ): Promise<{ ok: boolean; erro?: string }> {
     if (!cfg.url_api) {
         return { ok: false, erro: 'URL da API do WhatsApp não configurada.' };
@@ -230,6 +231,7 @@ async function dispararRequisicaoWhatsApp(
 
             const res = await fetch(endpoint, {
                 method: 'POST',
+                    ...opcoesEnvio,
                 headers: {
                     'Content-Type': 'application/json',
                     ...(cfg.token_api ? { apikey: cfg.token_api } : {}),
@@ -266,6 +268,7 @@ async function dispararRequisicaoWhatsApp(
 
             const res = await fetch(endpoint, {
                 method: 'POST',
+                    ...opcoesEnvio,
                 headers: {
                     'Content-Type': 'application/json',
                     ...(cfg.client_token ? { 'Client-Token': cfg.client_token } : {}),
@@ -290,6 +293,7 @@ async function dispararRequisicaoWhatsApp(
         // Modo Webhook genérico (DataCrazy, n8n, Make, Zapier, etc.)
         const res = await fetch(cfg.url_api, {
             method: 'POST',
+            ...opcoesEnvio,
             headers: {
                 'Content-Type': 'application/json',
                 ...(cfg.token_api ? { Authorization: `Bearer ${cfg.token_api}` } : {}),
@@ -465,6 +469,40 @@ async function dispararNotificacaoGrupoControle(
     return dispararRequisicaoWhatsApp(cfg, destinoGrupo, mensagem, payloadExtra);
 }
 
+function payloadNovoAgendamento(dados: DadosNotificacaoAgendamento, resposta?: { token: string; lembrete: string }) {
+    return {
+        evento: 'novo_agendamento',
+        ...(resposta ? { resposta } : {}),
+        agendamento: {
+            ...dados,
+            data: formatarDataBR(dados.data),
+            dataISO: dados.data,
+            dataComDia: formatarDataComDia(dados.data),
+        },
+    };
+}
+
+export async function enviarPedidoConfirmacao(
+    cfg: ConfigWhatsApp, dados: DadosNotificacaoAgendamento, token: string, url: URL, antecedencia: number,
+) {
+    const telefone = formatarDestinoApi(dados.alunoTelefone);
+    const lembrete = lembreteCancelamento(antecedencia);
+    const texto = [
+        `Confirme sua aula na R4 Ensina · ${dados.alunoNome}`,
+        `${formatarDataBR(dados.data)} às ${dados.horario} · ${dados.materia} com ${dados.professor} · ${dados.unidade}`,
+        lembrete,
+        `Confirme ou cancele pelo link: ${url}`,
+    ].join('\n');
+    const opcoesEnvio = { signal: AbortSignal.timeout(8000), redirect: 'error' as const };
+    if (cfg.provedor === 'webhook' && process.env.R4_DATACRAZY_BOTOES === 'true') {
+        return dispararRequisicaoWhatsApp(cfg, telefone, texto, {
+            ...payloadNovoAgendamento(dados, { token, lembrete }),
+            telefone,
+        }, opcoesEnvio);
+    }
+    return dispararRequisicaoWhatsApp(cfg, telefone, texto, { evento: 'responder_aula', telefone }, opcoesEnvio);
+}
+
 export async function notificarGrupoNovoAgendamento(
     dados: DadosNotificacaoAgendamento,
     resposta?: { token: string; lembrete: string },
@@ -483,16 +521,8 @@ export async function notificarGrupoNovoAgendamento(
     }
 
     const mensagem = montarMensagemAgendamento(dados);
-    const resultado = await enviarTextoParaGrupo(cfg, mensagem, {
-        evento: 'novo_agendamento',
-        ...(cfg.provedor === 'webhook' && resposta ? { resposta } : {}),
-        agendamento: {
-            ...dados,
-            data: formatarDataBR(dados.data),
-            dataISO: dados.data,
-            dataComDia: formatarDataComDia(dados.data),
-        },
-    });
+    const resultado = await enviarTextoParaGrupo(cfg, mensagem, payloadNovoAgendamento(dados,
+        cfg.provedor === 'webhook' ? resposta : undefined));
 
     // Disparo adicional para o 3º Webhook (Grupo de Controle da Equipe)
     if (cfg.provedor === 'webhook' && cfg.url_webhook_grupo && cfg.grupo_id) {

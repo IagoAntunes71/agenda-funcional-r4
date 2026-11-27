@@ -5,10 +5,10 @@ import { useTextoR4 } from '@/components/TextosInterfaceR4';
 
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Building2, Calendar, ChevronRight, Clock3, GraduationCap, History, MessageSquare, Send, Paperclip, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Bell, BookOpen, Building2, Calendar, ChevronRight, Clock3, GraduationCap, History, MessageSquare, Send, Paperclip, Pencil, Trash2, X } from 'lucide-react';
 import type { RoleSistema } from '@/lib/admin-auth';
 import { LISTA_STATUS_AULA_R4, normalizarStatusAulaR4 } from '@/lib/agenda-status-r4';
-import { filtrarMateriasVisiveis } from '@/lib/cliente-helpers';
+import { filtrarMateriasVisiveis, formatarTelefone } from '@/lib/cliente-helpers';
 import { materiaBase, materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import { horaParaMinutos } from '@/lib/horarios-reforco';
 import { formatarDataBR, obterIniciais, type AgendamentoAdmin, type AlunoAdmin, type ProfessorAdmin, type UnidadeAdmin } from './types';
@@ -97,6 +97,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const [lembrete, setLembrete] = useState<LembreteAula | null>(null);
     const [aviso, setAviso] = useState('');
     const [erro, setErro] = useState('');
+    const [enviandoWhatsApp, setEnviandoWhatsApp] = useState<'enviarLembrete' | 'enviarConfirmacao' | null>(null);
     const [ocupado, setOcupado] = useState(false);
     const [carregando, setCarregando] = useState(true);
     const dialogo = useRef<HTMLDialogElement>(null);
@@ -137,8 +138,9 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
         return () => controlador.abort();
     }, [url, inicial]);
 
-    async function enviarLembrete() {
+    async function enviarWhatsApp(acao: 'enviarLembrete' | 'enviarConfirmacao') {
         if (!lembrete?.destino || ocupado) return;
+        setEnviandoWhatsApp(acao);
         setOcupado(true);
         setErro('');
         setAviso('');
@@ -146,14 +148,19 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
             const resposta = await fetch('/api/admin/agendamentos', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ acao: 'enviarLembrete', id: aula.id, destino: lembrete.destino, versao: lembrete.versao }),
+                body: JSON.stringify({ acao, id: aula.id, destino: lembrete.destino, versao: lembrete.versao }),
             });
             const dados = await resposta.json();
             if (!resposta.ok) throw new Error(dados.error);
-            setLembrete({ ...lembrete, ultimo: { estado: dados.estado } });
+            if (acao === 'enviarLembrete') {
+                setLembrete({ ...lembrete, ultimo: { estado: dados.estado } });
+            } else {
+                setAviso('Pedido de confirmação enviado ao CRM. A aula será confirmada quando o responsável responder.');
+            }
         } catch (falha) {
-            setErro(falha instanceof Error ? falha.message : 'Não foi possível enviar o lembrete.');
+            setErro(falha instanceof Error ? falha.message : 'Não foi possível enviar a mensagem.');
         } finally {
+            setEnviandoWhatsApp(null);
             setOcupado(false);
         }
     }
@@ -269,20 +276,30 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         {(aula.nome_responsavel || aula.whatsapp_responsavel) && <p className={css.contato}>
                             <strong>{textoR4("Responsável")}</strong> {[aula.nome_responsavel, aula.whatsapp_responsavel].filter(Boolean).join(' · ')}
                         </p>}
-                        {lembrete?.disponivel && !lembrete.destino && ['agendado', 'confirmado'].includes(status) && (
-                            <p className={css.contato}>Cadastre um WhatsApp válido para enviar o lembrete.</p>
-                        )}
-                        {lembrete?.destino && !aula.excluido_em && (
-                            <section className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-                                <span>WhatsApp do lembrete +{lembrete.destino}</span>
-                                {lembrete.disponivel && ['agendado', 'confirmado'].includes(status) && (
+                        {lembrete?.disponivel && ['agendado', 'confirmado'].includes(status) && (
+                            <section className={css.ficha + ' flex flex-wrap items-center justify-between gap-3 p-3'}>
+                                <div className="flex min-w-0 items-center gap-3">
+                                    <span className={css.icone} aria-hidden="true"><Bell /></span>
+                                    <div className="min-w-0">
+                                        <strong className="block text-sm">Lembrete por WhatsApp</strong>
+                                        <p className={css.mudo + ' text-xs'}>
+                                            {lembrete.destino ? '+55 ' + formatarTelefone(lembrete.destino.slice(2)) : 'Cadastre um WhatsApp válido para enviar.'}
+                                        </p>
+                                    </div>
+                                </div>
+                                {lembrete.destino && (
                                     <button type="button" disabled={ocupado}
                                         className={css.secundario + ' transition-all duration-150 ease-out active:scale-[0.98] hover:brightness-110 hover:shadow-md'}
-                                        onClick={() => void enviarLembrete()}>
-                                        Enviar lembrete
+                                        onClick={() => void enviarWhatsApp('enviarLembrete')}>
+                                        {enviandoWhatsApp === 'enviarLembrete' ? 'Enviando…' : 'Enviar lembrete'}
                                     </button>
                                 )}
-                                {lembrete.ultimo && <span role="status">{estadosLembrete[lembrete.ultimo.estado]}{lembrete.ultimo.erro ? ' · ' + lembrete.ultimo.erro : ''}</span>}
+                                {lembrete.ultimo && (
+                                    <p role="status" className="w-full border-t border-[var(--linha)] pt-2 text-xs text-[var(--mudo)]">
+                                        {estadosLembrete[lembrete.ultimo.estado]}
+                                        {lembrete.ultimo.erro && ' · ' + lembrete.ultimo.erro}
+                                    </p>
+                                )}
                             </section>
                         )}
                         {aula.observacoes && <section className={css.nota}><strong>{textoR4("Assuntos e observações")}</strong><p>{aula.observacoes}</p></section>}
@@ -406,10 +423,13 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                 {(tela !== 'detalhes' || podeEditar || podeEditarFeedback) && <footer className={css.rodape}>
                     {tela === 'detalhes' ? <><button type="button" className={css.primario} disabled={desabilitado} onClick={() => abrir('editar')}>
                         <Pencil />{' ' + textoR4("Editar agendamento")}</button>
-                        {podeEditar && !professor && <button type="button" className={css.secundario} disabled={ocupado}
-                            onClick={() => setAviso(textoR4("O envio de confirmação será disponibilizado após a integração com o CRM."))}>
-                            <Send /> {textoR4("Enviar confirmação")}
-                        </button>}
+                        {podeEditar && !professor && lembrete?.disponivel && status === 'agendado' && (
+                            <button type="button" disabled={ocupado || !lembrete.destino}
+                                className={css.secundario + ' transition-all duration-150 ease-out active:scale-[0.98] hover:brightness-110 hover:shadow-md'}
+                                onClick={() => void enviarWhatsApp('enviarConfirmacao')}>
+                                <Send /> {enviandoWhatsApp === 'enviarConfirmacao' ? 'Enviando…' : textoR4("Enviar confirmação")}
+                            </button>
+                        )}
                     </> : <button type="button" className={css.secundario} disabled={ocupado}
                         onClick={aula.excluido_em ? onFecharAction : volta}><ArrowLeft /> {aula.excluido_em ? textoR4("Fechar") : textoR4("Voltar")}</button>}
                 </footer>}

@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db';
-import { formatarDestinoApi, obterConfigWhatsApp } from '@/lib/whatsapp-notificacao';
+import { enviarPedidoConfirmacao, formatarDestinoApi, obterConfigWhatsApp } from '@/lib/whatsapp-notificacao';
 
 export function destinoLembrete(telefone: string) {
     const destino = formatarDestinoApi(telefone);
@@ -29,6 +29,46 @@ const aulaAtual = sql`
 export async function consultarDestinoLembrete(id: number) {
     const [aula] = await sql`WITH aulas AS (${aulaAtual}) SELECT telefone FROM aulas WHERE id = ${id}`;
     return destinoLembrete(aula?.telefone ?? '');
+}
+
+export async function solicitarConfirmacaoAula(
+    id: number, destino: string, versao: string, responsavel: string, origem: string, antecedencia: number,
+) {
+    const cfg = await obterConfigWhatsApp();
+    if (!cfg.ativo || !cfg.url_api) return { erro: 'Configure o envio de WhatsApp no painel.' };
+
+    const token = randomBytes(32).toString('hex');
+    const hash = createHash('sha256').update(token).digest('hex');
+    const url = new URL('/responder-aula', origem);
+    url.searchParams.set('t', token);
+
+    const [aula] = await sql`WITH aulas AS (${aulaAtual})
+        SELECT aulas.*, a.resposta_whatsapp_hash AS hash_anterior
+        FROM aulas JOIN agendamentos a USING (id)
+        WHERE id = ${id} AND versao = ${versao}::bigint AND aulas.inicio > now()
+          AND a.status = 'agendado'`;
+    if (!aula || destinoLembrete(aula.telefone) !== destino) {
+        return { erro: 'A aula ou o WhatsApp mudou. Reabra os detalhes antes de enviar.' };
+    }
+    const [atualizada] = await sql`UPDATE agendamentos SET resposta_whatsapp_hash = ${hash}
+        WHERE id = ${id} AND versao_whatsapp = ${versao}::bigint AND status = 'agendado'
+          AND excluido_em IS NULL AND resposta_whatsapp_hash IS NOT DISTINCT FROM ${aula.hash_anterior}
+          AND ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia') > now()
+        RETURNING id`;
+    if (!atualizada) return { erro: 'A aula mudou ou a confirmação já está sendo enviada.' };
+
+    const resultado = await enviarPedidoConfirmacao(cfg, {
+        id, alunoTelefone: destino, alunoNome: aula.aluno || 'Aluno',
+        unidade: aula.unidade || '', professor: aula.professor || '', materia: aula.materia || '',
+        data: aula.data, horario: aula.horario,
+    }, token, url, antecedencia);
+    if (!resultado.ok) {
+        await sql`UPDATE agendamentos SET resposta_whatsapp_hash = ${aula.hash_anterior}
+            WHERE id = ${id} AND resposta_whatsapp_hash = ${hash} AND status = 'agendado'`;
+    }
+    await sql`INSERT INTO r4_agendamento_historico (agendamento_id, acao, responsavel)
+        VALUES (${id}, ${resultado.ok ? 'Confirmação solicitada · Enviada ao CRM' : 'Falha no envio do pedido de confirmação'}, ${responsavel})`;
+    return resultado.ok ? { estado: 'enviado_ao_crm' } : { erro: 'O CRM não aceitou o pedido de confirmação.' };
 }
 
 export async function aulasParaLembrar() {
