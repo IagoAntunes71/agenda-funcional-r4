@@ -1,4 +1,5 @@
 'use client';
+import InstalacaoPwaR4 from '@/components/pwa/InstalacaoPwaR4';
 import AvatarProfessor from '@/components/agendamento/AvatarProfessor';
 import { useCoresR4, variaveisCoresR4 } from '@/components/CoresInterfaceR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
@@ -1201,6 +1202,7 @@ export default function PaginaAgendamentoReforco() {
 
   return (
       <main data-tema={tema} className={`r4-portal min-h-screen transition-colors ${clsBg}`} style={variaveisCoresR4(paleta[escuro ? 'escuro' : 'claro'])}>
+        <InstalacaoPwaR4 app="portal" />
         <div
             className={`border-b backdrop-blur-md sticky top-0 z-30 ${
                 escuro
