@@ -44,14 +44,14 @@ export function endpointPushValido(endpoint: unknown): endpoint is string {
 
 export type DispositivoPush = { endpoint: string; p256dh: string; auth: string; conta_id: number };
 
-export async function enviarPushEquipe(dispositivo: DispositivoPush, body: string, tag: string) {
+export async function enviarPushEquipe(dispositivo: DispositivoPush, body: string, tag: string, title = 'R4 Equipe') {
     const vapidDetails = configuracaoPush();
     if (!vapidDetails || !endpointPushValido(dispositivo.endpoint)) return false;
     try {
         await sendNotification({
             endpoint: dispositivo.endpoint,
             keys: { p256dh: dispositivo.p256dh, auth: dispositivo.auth },
-        }, JSON.stringify({ title: 'R4 Equipe', body, tag }), { vapidDetails, TTL: 300, timeout: 5000 });
+        }, JSON.stringify({ title, body, tag }), { vapidDetails, TTL: 300, timeout: 5000 });
         return true;
     } catch (error) {
         const status = (error as { statusCode?: number }).statusCode;

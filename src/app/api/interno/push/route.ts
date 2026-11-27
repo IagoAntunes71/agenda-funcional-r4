@@ -6,10 +6,11 @@ import { configuracaoPush, enviarPushEquipe, type DispositivoPush } from '@/lib/
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const mensagens: Record<string, string> = {
-    marcada: 'Uma aula foi marcada. Confira sua agenda.',
-    chegada: 'Sua primeira aula do dia começa em breve. Confira sua agenda.',
-};
+function tituloMarcacao(hoje: number, amanha: number) {
+    const total = hoje + amanha;
+    const periodo = hoje && amanha ? 'hoje e amanhã' : hoje ? 'hoje' : 'amanhã';
+    return total === 1 ? `Nova aula para ${periodo}` : `${total} novas aulas para ${periodo}`;
+}
 
 export async function GET(req: Request) {
     const segredo = process.env.CRON_SECRET;
@@ -46,13 +47,13 @@ export async function GET(req: Request) {
         const avisos = await sql`
             WITH lote AS (
                 SELECT id FROM r4_push_avisos
-                WHERE tipo IN ('marcada', 'chegada') AND concluido_em IS NULL AND tentar_em <= now() AND tentativas < 4
+                WHERE (tipo = 'chegada' OR (tipo = 'marcada' AND aulas_hoje + aulas_amanha > 0)) AND concluido_em IS NULL AND tentar_em <= now() AND tentativas < 4
                     AND criado_em > now() - interval '20 minutes'
                 ORDER BY id LIMIT 30 FOR UPDATE SKIP LOCKED
             )
             UPDATE r4_push_avisos a SET tentativas = a.tentativas + 1,
                 tentar_em = now() + interval '2 minutes'
-            FROM lote WHERE a.id = lote.id RETURNING a.id, a.professor_id, a.tipo`;
+            FROM lote WHERE a.id = lote.id RETURNING a.id, a.professor_id, a.tipo, a.aulas_hoje, a.aulas_amanha`;
 
         await Promise.all(avisos.map(async (aviso) => {
             const dispositivos = await sql`
@@ -62,8 +63,11 @@ export async function GET(req: Request) {
                 JOIN professores vinculo ON vinculo.id = conta.professor_id
                 JOIN professores alvo ON alvo.id = ${aviso.professor_id}
                 WHERE vinculo.id = alvo.id OR nullif(vinculo.grupo_professor, '') = nullif(alvo.grupo_professor, '')` as DispositivoPush[];
+            const lembrete = aviso.tipo === 'chegada';
+            const titulo = lembrete ? 'Lembrete da primeira aula' : tituloMarcacao(aviso.aulas_hoje, aviso.aulas_amanha);
+            const mensagem = lembrete ? 'Sua primeira aula do dia começa em breve. Confira sua agenda.' : 'Confira os horários na sua agenda.';
             const resultados = await Promise.allSettled(dispositivos.map((d) =>
-                enviarPushEquipe(d, mensagens[aviso.tipo], `r4-${aviso.tipo}-${aviso.id}`)));
+                enviarPushEquipe(d, mensagem, `r4-${aviso.tipo}-${aviso.id}`, titulo)));
             if (!resultados.some((r) => r.status === 'rejected')) {
                 await sql`UPDATE r4_push_avisos SET concluido_em = now() WHERE id = ${aviso.id}`;
             }

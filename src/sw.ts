@@ -25,9 +25,9 @@ serwist.addEventListeners();
 
 if (new URL(self.registration.scope).pathname === '/admin') {
     self.addEventListener('push', (event) => {
-        let dados: { body?: string; tag?: string } = {};
+        let dados: { title?: string; body?: string; tag?: string } = {};
         try { dados = event.data?.json() ?? {}; } catch { /* mantém o aviso padrão */ }
-        event.waitUntil(self.registration.showNotification('R4 Equipe', {
+        event.waitUntil(self.registration.showNotification(typeof dados.title === 'string' ? dados.title : 'R4 Equipe', {
             body: typeof dados.body === 'string' ? dados.body : 'Confira sua agenda.',
             tag: typeof dados.tag === 'string' ? dados.tag : 'r4-agenda',
             icon: '/pwa/equipe-192.png',
