@@ -8,9 +8,7 @@ export const maxDuration = 60;
 
 const mensagens: Record<string, string> = {
     marcada: 'Uma aula foi marcada. Confira sua agenda.',
-    remarcada: 'Seu horário ou unidade mudou. Confira sua agenda.',
-    cancelada: 'Uma aula saiu da sua agenda. Confira os horários atualizados.',
-    chegada: 'Sua primeira aula presencial na unidade começa em breve. Confira sua agenda.',
+    chegada: 'Sua primeira aula do dia começa em breve. Confira sua agenda.',
 };
 
 export async function GET(req: Request) {
@@ -25,24 +23,22 @@ export async function GET(req: Request) {
     try {
         await sql`
             WITH primeiras AS (
-                SELECT DISTINCT ON (coalesce(nullif(p.grupo_professor, ''), 'id:' || p.id), a.data, a.unidade_id)
+                SELECT DISTINCT ON (coalesce(nullif(p.grupo_professor, ''), 'id:' || p.id), a.data)
                     a.professor_id, coalesce(nullif(p.grupo_professor, ''), 'id:' || p.id) AS grupo,
-                    a.data, a.unidade_id,
+                    a.data,
                     (a.data + coalesce(a.hora_inicio, a.horario)) AT TIME ZONE 'America/Bahia' AS inicio
                 FROM agendamentos a
-                JOIN unidades u ON u.id = a.unidade_id
                 JOIN professores p ON p.id = a.professor_id
                 WHERE a.data IN ((now() AT TIME ZONE 'America/Bahia')::date,
                     (now() AT TIME ZONE 'America/Bahia')::date + 1)
                     AND a.excluido_em IS NULL AND a.status IN ('agendado','confirmado','reservado','pendente','realizado','concluido')
-                    AND u.unidade_presencial_id IS NULL AND lower(trim(u.nome)) !~ '^online([[:space:]]|$)'
                     AND coalesce(a.hora_inicio, a.horario) IS NOT NULL
                 ORDER BY coalesce(nullif(p.grupo_professor, ''), 'id:' || p.id),
-                    a.data, a.unidade_id, coalesce(a.hora_inicio, a.horario), a.id
+                    a.data, coalesce(a.hora_inicio, a.horario), a.id
             )
             INSERT INTO r4_push_avisos(professor_id, tipo, deduplicacao)
             SELECT professor_id, 'chegada',
-                'chegada:' || grupo || ':' || data || ':' || unidade_id || ':' || extract(epoch FROM inicio)
+                'chegada:' || grupo || ':' || data
             FROM primeiras
             WHERE inicio <= now() + interval '60 minutes' AND inicio > now() + interval '50 minutes'
             ON CONFLICT (deduplicacao) DO NOTHING`;
@@ -50,7 +46,7 @@ export async function GET(req: Request) {
         const avisos = await sql`
             WITH lote AS (
                 SELECT id FROM r4_push_avisos
-                WHERE concluido_em IS NULL AND tentar_em <= now() AND tentativas < 4
+                WHERE tipo IN ('marcada', 'chegada') AND concluido_em IS NULL AND tentar_em <= now() AND tentativas < 4
                     AND criado_em > now() - interval '20 minutes'
                 ORDER BY id LIMIT 30 FOR UPDATE SKIP LOCKED
             )
