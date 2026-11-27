@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { lerSessaoAdmin } from '@/lib/admin-auth';
 import { sql } from '@/lib/db';
-import { configuracaoPush, endpointPushValido, enviarPushEquipe, type DispositivoPush } from '@/lib/push-equipe';
+import { configuracaoPush, erroConfiguracaoPush, endpointPushValido, enviarPushEquipe, type DispositivoPush } from '@/lib/push-equipe';
 
 export const runtime = 'nodejs';
 function resposta(dados: object, status = 200) {
@@ -35,7 +35,10 @@ export async function POST(req: NextRequest) {
             await sql`DELETE FROM r4_push_equipe WHERE endpoint = ${endpoint} AND conta_id = ${contaId}`;
             return resposta({ ok: true });
         }
-        if (!configuracaoPush()) return resposta({ error: 'Push ainda não configurado.' }, 503);
+        if (dados.acao === 'ativar' || dados.acao === 'teste') {
+            const erro = erroConfiguracaoPush();
+            if (erro) return resposta({ error: erro }, 503);
+        }
         if (dados.acao === 'ativar') {
             const { p256dh, auth } = dados.keys ?? {};
             if (typeof p256dh !== 'string' || !/^[A-Za-z0-9_-]{87}$/.test(p256dh) ||
@@ -58,9 +61,25 @@ export async function POST(req: NextRequest) {
                 AND (teste_em IS NULL OR teste_em < now() - interval '1 minute')
             RETURNING endpoint, p256dh, auth, conta_id` as DispositivoPush[];
         if (!dispositivo) return resposta({ error: 'Ative neste aparelho ou aguarde um minuto antes de testar de novo.' }, 409);
-        const enviado = await enviarPushEquipe(dispositivo, 'Notificações ativadas neste aparelho.', 'r4-teste');
-        return enviado ? resposta({ ok: true }) : resposta({ error: 'Inscrição expirada. Desative e ative novamente.' }, 410);
-    } catch {
-        return resposta({ error: 'Não foi possível concluir. Verifique a configuração de push da Agenda.' }, 503);
+        try {
+            const enviado = await enviarPushEquipe(dispositivo, 'Notificações ativadas neste aparelho.', 'r4-teste');
+            return enviado ? resposta({ ok: true }) : resposta({ error: 'Inscrição expirada. Desative e ative novamente.' }, 410);
+        } catch (error) {
+            const status = (error as { statusCode?: number }).statusCode;
+            console.error('[push/teste] Falha no envio', { status: typeof status === 'number' ? status : null });
+            if (status === 401 || status === 403) {
+                return resposta({ error: 'O serviço recusou as chaves do aparelho. Desative e reative as notificações. Se persistir, confira as variáveis VAPID da Vercel.' }, 502);
+            }
+            return resposta({ error: typeof status === 'number'
+                ? `O serviço de notificações retornou erro ${status}. Aguarde um minuto e tente novamente.`
+                : 'Falha na conexão ou no preparo do envio de push. Aguarde um minuto e tente novamente.' }, 502);
+        }
+    } catch (error) {
+        const codigo = (error as { code?: string }).code;
+        console.error('[push] Falha no banco', { codigo: typeof codigo === 'string' && /^[A-Z0-9]{5}$/.test(codigo) ? codigo : null });
+        if (codigo === '42P01' || codigo === '42703') {
+            return resposta({ error: 'A estrutura de push está incompleta no banco usado pelo deploy. Confira a migração 003 no Neon.' }, 503);
+        }
+        return resposta({ error: 'O banco da Agenda não conseguiu concluir a operação de push.' }, 503);
     }
 }

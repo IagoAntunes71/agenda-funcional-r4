@@ -1,11 +1,34 @@
+import { createECDH } from 'node:crypto';
 import { sendNotification } from 'web-push';
 import { sql } from '@/lib/db';
 
 export function configuracaoPush() {
-    const publicKey = process.env.VAPID_PUBLIC_KEY;
-    const privateKey = process.env.VAPID_PRIVATE_KEY;
-    const subject = process.env.VAPID_SUBJECT;
+    const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
+    const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
+    const subject = process.env.VAPID_SUBJECT?.trim();
     return publicKey && privateKey && subject ? { subject, publicKey, privateKey } : null;
+}
+
+export function erroConfiguracaoPush() {
+    const config = configuracaoPush();
+    if (!config) return 'Confira se as três variáveis VAPID estão preenchidas na Vercel.';
+    if (!/^mailto:[^\s@]+@[^\s@]+$/.test(config.subject)) {
+        return 'Na Vercel, use mailto:email@dominio.com em VAPID_SUBJECT.';
+    }
+    try {
+        const par = createECDH('prime256v1');
+        const privada = Buffer.from(config.privateKey, 'base64url');
+        if (privada.length !== 32 || privada.toString('base64url') !== config.privateKey) {
+            return 'VAPID_PRIVATE_KEY está em formato inválido.';
+        }
+        par.setPrivateKey(privada);
+        if (par.getPublicKey().toString('base64url') !== config.publicKey) {
+            return 'VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY precisam ser do mesmo par.';
+        }
+    } catch {
+        return 'VAPID_PRIVATE_KEY está em formato inválido.';
+    }
+    return null;
 }
 
 export function endpointPushValido(endpoint: unknown): endpoint is string {
