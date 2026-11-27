@@ -1,4 +1,5 @@
 'use client';
+import NotificacoesEquipeR4, { desativarPushEquipe } from '@/components/pwa/NotificacoesEquipeR4';
 import { LISTA_STATUS_AULA_R4, normalizarStatusAulaR4, type StatusAulaR4 } from '@/lib/agenda-status-r4';
 import { materiaBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import { intervaloAula } from './mapa-dia-horarios';
@@ -412,6 +413,7 @@ export default function PainelAdmin({
     }
 
     async function handleLogout() {
+        if (perfilAtual.role === 'professor') await desativarPushEquipe().catch(() => {});
         await fetch('/api/admin/login', { method: 'DELETE' });
         setAutenticado(false);
         window.dispatchEvent(new Event('r4-sessao-alterada'));
@@ -1003,6 +1005,7 @@ export default function PainelAdmin({
         return <div className="r4-admin min-h-screen" data-tema={tema} style={variaveisCoresR4(paleta[tema])}>
             <input ref={inputFotoRapidaRef} type="file" accept="image/*" className="hidden"
                 onChange={(e) => void handleTrocaFotoRapida(e)} />
+            <NotificacoesEquipeR4 />
             <PainelProfessorR4 perfil={perfilAtual} mes={mesProfessor} onMes={setMesProfessor}
                 aulas={consulta && !consulta.erro ? agendamentos : []} carregando={!consulta || carregandoDados}
                 erro={consulta?.erro} atualizar={carregarDados} sair={handleLogout} alternarTema={alternarTema}

@@ -22,3 +22,25 @@ const serwist = new Serwist({
     }] },
 });
 serwist.addEventListeners();
+
+if (new URL(self.registration.scope).pathname === '/admin') {
+    self.addEventListener('push', (event) => {
+        let dados: { body?: string; tag?: string } = {};
+        try { dados = event.data?.json() ?? {}; } catch { /* mantém o aviso padrão */ }
+        event.waitUntil(self.registration.showNotification('R4 Equipe', {
+            body: typeof dados.body === 'string' ? dados.body : 'Confira sua agenda.',
+            tag: typeof dados.tag === 'string' ? dados.tag : 'r4-agenda',
+            icon: '/pwa/equipe-192.png',
+        }));
+    });
+    self.addEventListener('notificationclick', (event) => {
+        event.notification.close();
+        const destino = new URL('/admin', self.location.origin).href;
+        event.waitUntil((async () => {
+            const janelas = await self.clients.matchAll({ type: 'window' });
+            const janela = janelas.find((item) => new URL(item.url).pathname === '/admin');
+            if (janela) await janela.focus();
+            else await self.clients.openWindow(destino);
+        })());
+    });
+}
