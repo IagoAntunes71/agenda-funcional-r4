@@ -269,6 +269,9 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         {(aula.nome_responsavel || aula.whatsapp_responsavel) && <p className={css.contato}>
                             <strong>{textoR4("Responsável")}</strong> {[aula.nome_responsavel, aula.whatsapp_responsavel].filter(Boolean).join(' · ')}
                         </p>}
+                        {lembrete?.disponivel && !lembrete.destino && ['agendado', 'confirmado'].includes(status) && (
+                            <p className={css.contato}>Cadastre um WhatsApp válido para enviar o lembrete.</p>
+                        )}
                         {lembrete?.destino && !aula.excluido_em && (
                             <section className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
                                 <span>WhatsApp do lembrete +{lembrete.destino}</span>

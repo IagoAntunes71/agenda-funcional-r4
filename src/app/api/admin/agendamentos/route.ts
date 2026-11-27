@@ -1,4 +1,4 @@
-import { destinoLembrete, enviarLembreteAula } from '@/lib/lembretes-whatsapp';
+import { consultarDestinoLembrete, enviarLembreteAula } from '@/lib/lembretes-whatsapp';
 import { SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { garantirTabelasClientesEColegios } from '@/app/api/cliente/route';
 import { unidadeOnline } from '@/lib/unidade-online';
@@ -411,7 +411,7 @@ export async function GET(req: NextRequest) {
         const professor = sessao.role === 'professor';
         const exibirContato = !professor || unidadeOnline(aula.unidade_nome);
         const podeLembrar = !professor && podeOperacao(cfg, sessao.role, 'agenda');
-        const destino = podeLembrar ? destinoLembrete(aula.aluno_telefone?.trim() || aula.whatsapp_responsavel || '') : null;
+        const destino = podeLembrar && !aula.excluido_em ? await consultarDestinoLembrete(id) : null;
         const [historico, anexos, lembretes] = await Promise.all([
             professor ? [] : sql`
                 SELECT id::text, acao, responsavel, campos, criado_em FROM r4_agendamento_historico

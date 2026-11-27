@@ -8,22 +8,35 @@ export function destinoLembrete(telefone: string) {
 }
 
 const aulaAtual = sql`
-    SELECT a.id, a.versao_whatsapp AS versao, coalesce(nullif(trim(a.aluno_telefone), ''),
-        a.whatsapp_responsavel, '') AS telefone,
+    SELECT a.id, a.versao_whatsapp AS versao, coalesce(contato.telefone, '') AS telefone,
         coalesce(nullif(a.aluno_nome, ''), a.nome_aluno) AS aluno,
         to_char(a.data, 'YYYY-MM-DD') AS data, to_char(coalesce(a.hora_inicio, a.horario), 'HH24:MI') AS horario,
         a.materia, u.nome AS unidade, p.nome AS professor,
         (a.data + coalesce(a.hora_inicio, a.horario)) AT TIME ZONE 'America/Bahia' AS inicio
     FROM agendamentos a LEFT JOIN unidades u ON u.id = a.unidade_id LEFT JOIN professores p ON p.id = a.professor_id
+    LEFT JOIN alunos al ON al.id = a.aluno_id
+    LEFT JOIN responsaveis r ON r.id = al.responsavel_id
+    LEFT JOIN LATERAL (
+        SELECT telefone FROM unnest(ARRAY[r.telefone_formatado, r.telefone,
+            a.aluno_telefone, a.whatsapp_responsavel, al.telefone_formatado, al.telefone])
+            WITH ORDINALITY AS contatos(telefone, ordem)
+        WHERE regexp_replace(telefone, '[^0-9]', '', 'g') ~ '^(55)?[1-9][0-9]{9,10}$'
+        ORDER BY ordem LIMIT 1
+    ) contato ON true
     WHERE a.excluido_em IS NULL AND coalesce(a.status,'confirmado') IN ('agendado','confirmado')
 `;
+
+export async function consultarDestinoLembrete(id: number) {
+    const [aula] = await sql`WITH aulas AS (${aulaAtual}) SELECT telefone FROM aulas WHERE id = ${id}`;
+    return destinoLembrete(aula?.telefone ?? '');
+}
 
 export async function aulasParaLembrar() {
     // Uma hora de tolerância para atrasos do agendador.
     return await sql`WITH aulas AS (${aulaAtual})
         SELECT id FROM aulas WHERE inicio <= now() + interval '24 hours'
           AND inicio > now() + interval '23 hours'
-          AND regexp_replace(telefone, '[^0-9]', '', 'g') ~ '^(55)?[1-9][0-9]{9,10}$'
+          AND telefone <> ''
           AND NOT EXISTS (SELECT 1 FROM r4_lembretes_whatsapp l
             WHERE l.agendamento_id = aulas.id AND l.versao = aulas.versao AND l.tipo = 'automatico')
         ORDER BY inicio, id LIMIT 30`;
@@ -69,8 +82,8 @@ export async function enviarLembreteAula(
     if (!tentativa) return { erro: 'A aula mudou ou existe um disparo recente para ela.' };
 
     const [atual] = await sql`WITH aulas AS (${aulaAtual})
-        SELECT id FROM aulas WHERE id = ${agendamentoId} AND versao = ${aula.versao} AND inicio > now()`;
-    if (!atual) {
+        SELECT telefone FROM aulas WHERE id = ${agendamentoId} AND versao = ${aula.versao} AND inicio > now()`;
+    if (!atual || destinoLembrete(atual.telefone) !== destino) {
         await sql`UPDATE r4_lembretes_whatsapp SET estado = 'obsoleto', atualizado_em = now() WHERE id = ${id}::uuid`;
         return { erro: 'A aula mudou antes do envio.' };
     }
