@@ -2,10 +2,11 @@
 import { TextoLayoutR4 } from './ConteudoLayoutR4';
 import { useLayoutR4 } from './EditorLayoutR4';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react';
 import { Calendar, ChevronDown, Download, Plus, SlidersHorizontal } from 'lucide-react';
 import { LISTA_STATUS_AULA_R4, obterMetaStatusR4, type StatusAulaR4 } from '@/lib/agenda-status-r4';
 import { CORES_STATUS_R4, podeOperacao, type PerfilOperacao } from '@/lib/operacao-r4';
+import { consolidarRecepcao, gerarCsvRecepcao } from '@/lib/recepcao-financeiro';
 import { adicionarDiasISO, obterAgoraBahia } from '@/lib/horarios-reforco';
 import { formatarDataBR, obterIniciais, type AgendamentoAdmin, type AlunoAdmin, type ProfessorAdmin, type TemaClasses, type UnidadeAdmin } from './types';
 import { useOperacaoR4 } from './OperacaoPainelR4';
@@ -13,22 +14,25 @@ import ModalDetalhesAulaR4 from './ModalDetalhesAulaR4';
 import ModalNovoAgendamentoR4 from './ModalNovoAgendamentoR4';
 import css from './RecepcaoR4.module.css';
 
-type Aula = { id: number; aluno: string; aluno_id: number; professor: string; professor_id: number; unidade: string; unidade_id: number; materia: string; data: string; inicio: string; fim: string; serie: string; colegio: string; status: StatusAulaR4; cobrar: number; repasse: number; entrada: string; saida: string; categoria: string; convenio: string; evento: string; duracao: number; acompanhamento: boolean; previsao: boolean };
+type Aula = { id: number; aluno: string; aluno_id: number; aluno_cadastro?: string | null; professor: string; professor_id: number; unidade: string; unidade_id: number; materia: string; data: string; inicio: string; fim: string; serie: string; colegio: string; status: StatusAulaR4; cobrar: number; repasse: number; entrada: string; saida: string; categoria: string; convenio: string; evento: string; duracao: number; acompanhamento: boolean; previsao: boolean };
 type Resposta = { resultados: Aula[]; total: number; temMais: boolean; resumo: Record<string, number>; erro?: string;
     bloqueios: { data: string; inicio: string; fim: string; professor: string; unidade: string; motivo: string }[] };
 const financeiro = { pendente: 'Pendente', baixado: 'Baixado', isento: 'Isento' };
 const opcoesFinanceiras = Object.entries(financeiro);
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dinheiro = (valor: number) => brl.format(valor);
+const transicaoAcao = 'transition-all duration-150 ease-out active:scale-[0.98]';
+const transicaoAba = 'transition-colors duration-200 ease-in-out active:scale-[0.98]';
+const transicaoCampo = 'transition-all duration-150 focus:ring-2 focus:ring-sky-500/30';
 const atalhosData = [[0, 'Hoje'], [6, '7 dias']] as const;
 const filtrosTexto = [
     ['materia', 'Matéria / serviço'], ['categoria', 'Categoria'], ['professor', 'Professor'],
-    ['aluno', 'Aluno'], ['convenio', 'Convênio / parceria'], ['evento', 'Evento'],
+    ['aluno', 'Aluno'], ['colegio', 'Escola'], ['serie', 'Série'], ['convenio', 'Convênio / parceria'], ['evento', 'Evento'],
 ] as const;
 
 function filtrosPadrao() {
     const de = obterAgoraBahia().dataISO;
-    return { de, ate: adicionarDiasISO(de, 10), unidade: '', status: '', professorAtivo: 'sim',
+    return { de, ate: adicionarDiasISO(de, 10), unidade: '', sala: '', modalidade: '', colegio: '', serie: '', status: '', professorAtivo: 'sim',
         alunoAtivo: 'sim', materia: '', categoria: '', professor: '', aluno: '', convenio: '', evento: '',
         entrada: '', saida: '', acompanhamento: '', feedback: '', dia: '', periodo: '', bloqueios: '' };
 }
@@ -40,6 +44,7 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
     const { cfg } = useOperacaoR4();
     const podeEditar = podeOperacao(cfg, perfil, 'agenda');
     const [filtros, setFiltros] = useState(filtrosPadrao);
+    const [previa, setPrevia] = useState<{ chave: string; aulas: Aula[] } | null>(null);
     const [offset, setOffset] = useState(0);
     const [revisao, setRevisao] = useState(0);
     const [visao, setVisao] = useState<'aulas' | 'financeiro'>('aulas');
@@ -50,7 +55,10 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
     const [valor, setValor] = useState('');
     const [ocupado, setOcupado] = useState(false);
     const [mensagem, setMensagem] = useState('');
-    const consulta = new URLSearchParams({ ...filtros, painel: 'recepcao', offset: String(offset), revisao: String(revisao) }).toString();
+    const escopo = new URLSearchParams({ ...filtros, painel: 'recepcao', revisao: String(revisao) }).toString();
+    const consulta = escopo + '&offset=' + offset;
+    const previaAtual = previa?.chave === escopo ? previa : null;
+    const consolidado = useMemo(() => previaAtual ? consolidarRecepcao(previaAtual.aulas) : [], [previaAtual]);
     const [resposta, setResposta] = useState<{ chave: string; dados: Resposta } | null>(null);
     const dados = resposta?.chave === consulta ? resposta.dados : null;
     const aulas = dados?.resultados || [];
@@ -84,13 +92,18 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
     }, [consulta]);
 
     function limparSelecao() {
+        setPrevia(null);
         setSelecionadas([]);
         setCampo('');
         setValor('');
     }
 
     function filtrar(chave: keyof typeof filtros, valor: string) {
-        setFiltros((atual) => ({ ...atual, [chave]: valor }));
+        setFiltros((atual) => ({
+            ...atual,
+            ...(chave === 'unidade' || chave === 'modalidade' ? { sala: '' } : {}),
+            [chave]: valor,
+        }));
         limparSelecao();
         setOffset(0);
     }
@@ -158,6 +171,39 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
         } finally { setOcupado(false); }
     }
 
+    async function consultarPrevia() {
+        if (previaAtual) {
+            setPrevia(null);
+            return;
+        }
+        setOcupado(true);
+        setMensagem('');
+        try {
+            const res = await fetch('/api/admin/operacao?' + escopo + '&exportar=1', { cache: 'no-store' });
+            const corpo = await res.json();
+            if (!res.ok) throw new Error(corpo.error);
+            setPrevia({ chave: escopo, aulas: corpo.resultados });
+        } catch (e) {
+            setMensagem(e instanceof Error ? e.message : 'Falha ao carregar a prévia.');
+        } finally { setOcupado(false); }
+    }
+
+    function baixarCsv(nome: string, matriz: Parameters<typeof gerarCsvRecepcao>[0]) {
+        const url = URL.createObjectURL(new Blob([gerarCsvRecepcao(matriz)], { type: 'text/csv;charset=utf-8' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = nome;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function exportarConsolidado() {
+        const matriz = [['ID do aluno', 'Aluno', 'Unidades / salas', 'Aulas', 'A receber', 'Recebido', 'Isento', 'Total a cobrar'],
+            ...consolidado.map((grupo) => [grupo.alunoId, grupo.aluno, [...grupo.unidades].join(', '), grupo.aulas.length,
+                grupo.aReceber, grupo.recebido, grupo.isento, grupo.aReceber + grupo.recebido])];
+        baixarCsv('recepcao-r4-consolidado-por-aluno.csv', matriz);
+    }
+
     async function exportar(apenasSelecionadas = false) {
         setOcupado(true);
         try {
@@ -167,23 +213,13 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             const registros = (corpo.resultados as Aula[]).filter((item) => !apenasSelecionadas || selecionadas.includes(item.id));
             const matriz = [['Data','Início','Fim','Aluno','Professor','Matéria','Unidade','Status','Família','Repasse','Entrada','Saída'],
                 ...registros.map((a) => [a.data,a.inicio,a.fim,a.aluno,a.professor,a.materia,a.unidade,obterMetaStatusR4(a.status).rotulo,a.cobrar,a.repasse,a.entrada,a.saida])];
-            const linhas = matriz.map((linha) => linha.map((celula) => {
-                const texto = String(celula ?? '');
-                const seguro = /^\s*[=+@-]/.test(texto) ? "'" + texto : texto;
-                return '"' + seguro.replaceAll('"', '""') + '"';
-            }).join(';')).join('\r\n');
-            const url = URL.createObjectURL(new Blob(['\uFEFF', linhas], { type: 'text/csv;charset=utf-8' }));
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = 'recepcao-r4.csv';
-            link.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            baixarCsv('recepcao-r4.csv', matriz);
         } catch (e) { setMensagem(e instanceof Error ? e.message : 'Falha ao exportar.'); }
         finally { setOcupado(false); }
     }
 
     function seletor(chave: keyof typeof filtros, rotulo: string, opcoes: [string, string][]) {
-        return <label key={chave}>{rotulo}<select value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)}>
+        return <label key={chave}>{rotulo}<select className={transicaoCampo} value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)}>
             <option value="">Todos</option>{opcoes.map(([valor, nome]) => <option key={valor} value={valor}>{nome}</option>)}
         </select></label>;
     }
@@ -206,22 +242,36 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
         <aside className={css.filtros} {...layout?.item("filtros", "colunas", "Filtros", 0)}>
             <div className={css.topoFiltros}><h2><SlidersHorizontal size={16} /> Filtros</h2><button type="button" onClick={() => { setFiltros(filtrosPadrao()); setOffset(0); limparSelecao(); }}>Limpar</button></div>
             <div className={css.atalhosData} role="group" aria-label="Período rápido">
-                {atalhosData.map(([dias, rotulo]) => <button type="button" key={dias}
+                {atalhosData.map(([dias, rotulo]) => <button type="button" key={dias} className={transicaoAba}
                     onClick={() => {
                         const de = obterAgoraBahia().dataISO;
                         setFiltros((atual) => ({ ...atual, de, ate: adicionarDiasISO(de, dias) }));
                         setOffset(0);
                         limparSelecao();
                     }}>{rotulo}</button>)}
+                <button type="button" className={transicaoAba} onClick={() => {
+                    const hoje = obterAgoraBahia().dataISO;
+                    const de = hoje.slice(0, 7) + '-01';
+                    const proximoMes = new Date(de + 'T00:00:00Z');
+                    proximoMes.setUTCMonth(proximoMes.getUTCMonth() + 1);
+                    setFiltros((atual) => ({ ...atual, de, ate: adicionarDiasISO(proximoMes.toISOString().slice(0, 10), -1) }));
+                    setOffset(0);
+                    limparSelecao();
+                }}>Este mês</button>
             </div>
             <div className={css.datas}>{(['de', 'ate'] as const).map((chave) => <label key={chave}>{chave === 'de' ? 'De' : 'Até'}
-                <input type="date" value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} />
+                <input type="date" className={transicaoCampo} value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} />
             </label>)}</div>
             {seletor('unidade', 'Unidade', unidades.filter((u) => !u.unidade_presencial_id).map((u) => [String(u.id), u.nome]))}
+            {seletor('modalidade', 'Modalidade', [['presencial', 'Presencial'], ['online', 'Online']])}
+            {seletor('sala', 'Sala / local da aula', unidades
+                .filter((u) => (!filtros.unidade || String(u.unidade_presencial_id || u.id) === filtros.unidade) &&
+                    (!filtros.modalidade || (u.unidade_presencial_id ? 'online' : 'presencial') === filtros.modalidade))
+                .map((u) => [String(u.id), u.nome]))}
             {seletor('status', 'Status da aula', LISTA_STATUS_AULA_R4.map((s) => [s.valor, s.rotulo]))}
-            {filtrosTexto.filter(([chave]) => ['professor', 'aluno', 'materia'].includes(chave)).map(([chave, rotulo]) =>
+            {filtrosTexto.filter(([chave]) => ['professor', 'aluno', 'materia', 'colegio', 'serie'].includes(chave)).map(([chave, rotulo]) =>
                 <label key={chave}>{rotulo}
-                    <input value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} placeholder={'Buscar ' + rotulo.toLowerCase()} />
+                    <input className={transicaoCampo} value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} placeholder={'Buscar ' + rotulo.toLowerCase()} />
                 </label>)}
             <details key={visao} className={css.grupoFiltros} open={visao === 'financeiro' ? true : undefined}>
                 <summary>Financeiro{(filtros.entrada || filtros.saida) && <span>Ativo</span>} <ChevronDown size={14} /></summary>
@@ -231,7 +281,7 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             <details className={css.grupoFiltros}>
                 <summary>Mais filtros{filtrosAdicionais && <span>Ativos</span>} <ChevronDown size={14} /></summary>
                 {filtrosTexto.filter(([chave]) => ['categoria', 'convenio', 'evento'].includes(chave)).map(([chave, rotulo]) =>
-                    <label key={chave}>{rotulo}<input value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} /></label>)}
+                    <label key={chave}>{rotulo}<input className={transicaoCampo} value={filtros[chave]} onChange={(e) => filtrar(chave, e.target.value)} /></label>)}
                 {seletor('professorAtivo', 'Cadastro do professor', [['sim', 'Somente ativos']])}
                 {seletor('alunoAtivo', 'Cadastro do aluno', [['sim', 'Somente ativos']])}
                 {seletor('acompanhamento', 'Acompanhamento', [['sim', 'Somente acompanhamento'], ['nao', 'Somente aulas regulares']])}
@@ -249,12 +299,15 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             </div>
             <div className={css.barraPrincipal}>
                 <div className={css.visoes} role="group" aria-label="Exibição">
-                    <button type="button" {...layout?.item("aba_aulas", "abas_recepcao", "Aulas")} aria-pressed={visao === 'aulas'} onClick={() => setVisao('aulas')}><TextoLayoutR4 id="aba_aulas" campo="titulo" texto="Aulas" /></button>
-                    <button type="button" {...layout?.item("aba_financeiro", "abas_recepcao", "Financeiro")} aria-pressed={visao === 'financeiro'} onClick={() => setVisao('financeiro')}><TextoLayoutR4 id="aba_financeiro" campo="titulo" texto="Financeiro" /></button>
+                    <button type="button" className={transicaoAba} {...layout?.item("aba_aulas", "abas_recepcao", "Aulas")} aria-pressed={visao === 'aulas'} onClick={() => setVisao('aulas')}><TextoLayoutR4 id="aba_aulas" campo="titulo" texto="Aulas" /></button>
+                    <button type="button" className={transicaoAba} {...layout?.item("aba_financeiro", "abas_recepcao", "Financeiro")} aria-pressed={visao === 'financeiro'} onClick={() => setVisao('financeiro')}><TextoLayoutR4 id="aba_financeiro" campo="titulo" texto="Financeiro" /></button>
                 </div>
                 <div className={css.acoesPrincipais}>
-                <button type="button" disabled={ocupado} onClick={() => void exportar()}><Download size={15} /> Exportar</button>
-                {podeEditar && <button type="button" className="r4-acao" onClick={() => setNovo(true)}><Plus size={15} /> Nova aula</button>}
+                <button type="button" disabled={ocupado} className={transicaoAcao} onClick={() => void exportar()}><Download size={15} /> CSV detalhado</button>
+                {visao === 'financeiro' && <button type="button" className={transicaoAcao} disabled={ocupado}
+                    aria-expanded={!!previaAtual} aria-controls={previaAtual ? 'recepcao-consolidado' : undefined}
+                    onClick={() => void consultarPrevia()}>{previaAtual ? 'Fechar prévia' : 'Prévia por aluno'}</button>}
+                {podeEditar && <button type="button" className={`r4-acao ${transicaoAcao} hover:brightness-110 hover:shadow-md`} onClick={() => setNovo(true)}><Plus size={15} /> Nova aula</button>}
                 </div>
             </div>
             {selecionadas.length > 0 && <div className={css.selecao}>
@@ -281,6 +334,31 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
             {!dados && <p role="status" className={css.mensagem}>Carregando aulas…</p>}
             {dados?.erro && <p role="alert" className={css.mensagem}>{dados.erro} <button type="button" onClick={() => setRevisao((v) => v + 1)}>Tentar novamente</button></p>}
             {dados && !dados.erro && !aulas.length && <p className={css.mensagem}>Nenhuma aula com esses filtros.</p>}
+            {visao === 'financeiro' && previaAtual && <section id="recepcao-consolidado" aria-label="Prévia por aluno"
+                className="my-3 origin-top opacity-100 scale-100 rounded-xl border border-sky-500/20 p-3 transition-all duration-150 ease-out starting:scale-95 starting:opacity-0 motion-reduce:transition-none">
+                <div className={css.ferramentas}>
+                    <strong>{consolidado.length} registros no consolidado</strong>
+                    <button type="button" className={`r4-acao ${transicaoAcao} hover:brightness-110 hover:shadow-md`}
+                        disabled={!consolidado.length} onClick={exportarConsolidado}><Download size={15} /> CSV consolidado</button>
+                </div>
+                {consolidado.length === 0 && <p className={css.mensagem}>Nenhuma aula para consolidar.</p>}
+                <div className="max-h-[420px] overflow-auto">
+                    {consolidado.map((grupo) => <details key={grupo.chave} className="border-b border-sky-500/20">
+                        <summary className={`cursor-pointer rounded-md px-2 py-2 hover:bg-sky-500/10 ${transicaoAba}`}>
+                            <strong>{grupo.aluno}</strong>{!grupo.alunoId && ' (sem vínculo)'} · {grupo.aulas.length} aula(s)
+                            {' · '}{dinheiro(grupo.aReceber + grupo.recebido)} total
+                            {' · '}{dinheiro(grupo.aReceber)} a receber · {dinheiro(grupo.recebido)} recebido
+                        </summary>
+                        <ul className="space-y-2 px-4 py-2 text-sm">
+                            {grupo.aulas.map((aula) => <li key={aula.id}>
+                                {formatarDataBR(aula.data)} · {aula.inicio || 'Sem horário'} · {aula.unidade || 'Sem unidade'} · {aula.materia}
+                                {' · '}{obterMetaStatusR4(aula.status).rotulo} · {dinheiro(aula.cobrar)}
+                                {' · '}{financeiro[aula.entrada as keyof typeof financeiro]}
+                            </li>)}
+                        </ul>
+                    </details>)}
+                </div>
+            </section>}
             {aulas.length > 0 && <div className={css.lista} style={{ "--colunas": larguraCampos } as CSSProperties}>
                 <div className={css.colunas} aria-hidden={layout?.ativo ? undefined : true}>
                     <span />
@@ -353,8 +431,10 @@ export default function RecepcaoR4({ unidades, professores, alunos, perfil, escu
                 <div><dt>A pagar</dt><dd>{dados && !dados.erro ? dinheiro(resumo?.pagar ?? 0) : '—'}</dd></div>
             </dl>
             <dl className={css.indicadores}>{[
-                ['Repasses das aulas', dinheiro(resumo?.repasses ?? 0)],
-                ['Diferença', dinheiro((resumo?.receber ?? 0) - (resumo?.pagar ?? 0))],
+                ['Recebido', dinheiro(resumo?.recebido ?? 0)],
+                ['Repasse previsto', dinheiro(resumo?.repassePrevisto ?? 0)],
+                ['Repasse apurado', dinheiro(resumo?.repasseApurado ?? 0)],
+                ['Margem estimada', dinheiro(resumo?.margem ?? 0)],
                 ['Agendamentos', dados?.total ?? 0], ['Tempo total', `${Math.floor((resumo?.minutos ?? 0) / 60)} h ${(resumo?.minutos ?? 0) % 60} min`],
                 ['Professores', resumo?.professores ?? 0], ['Matérias', resumo?.materias ?? 0],
                 ['Convênios', resumo?.convenios ?? 0], ['Alunos', resumo?.alunos ?? 0],

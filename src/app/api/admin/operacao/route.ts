@@ -78,8 +78,8 @@ export async function GET(req: NextRequest) {
         const filtro = painel === 'alunos';
         const linhas = await sql`
             WITH escopo AS (
-            SELECT a.id, a.aluno_id, coalesce(nullif(a.aluno_nome,''), a.nome_aluno, 'Aluno') AS aluno,
-                p.nome AS professor, p.id AS professor_id, u.nome AS unidade, a.unidade_id,
+            SELECT a.id, a.aluno_id, coalesce(nullif(a.aluno_nome,''), nullif(a.nome_aluno,''), 'Aluno') AS aluno,
+                al.nome_aluno AS aluno_cadastro, p.nome AS professor, p.id AS professor_id, u.nome AS unidade, a.unidade_id,
                 a.materia, a.status, a.acompanhamento,
                 coalesce(al.serie,a.serie,a.serie_aluno) AS serie, coalesce(al.colegio_nome,a.colegio_nome,a.colegio_aluno) AS colegio,
                 coalesce(r.categoria,'') AS categoria, coalesce(r.convenio,'') AS convenio, coalesce(r.evento,'') AS evento,
@@ -102,8 +102,13 @@ export async function GET(req: NextRequest) {
               AND (${termo('professorAtivo')} <> 'sim' OR coalesce(p.ativo,true))
               AND (${termo('alunoAtivo')} <> 'sim' OR coalesce(al.ativo,true))
               AND (strpos(lower(coalesce(p.nome,'')), ${termo('professor')}) > 0)
-              AND (strpos(lower(coalesce(a.aluno_nome,a.nome_aluno,'')), ${termo('aluno')}) > 0)
+              AND (strpos(lower(concat_ws(' ', a.aluno_nome,a.nome_aluno,al.nome_aluno)), ${termo('aluno')}) > 0)
               AND (strpos(lower(coalesce(a.materia,'')), ${termo('materia')}) > 0)
+              AND strpos(lower(coalesce(al.serie,a.serie,a.serie_aluno,'')), ${termo('serie')}) > 0
+              AND strpos(lower(coalesce(al.colegio_nome,a.colegio_nome,a.colegio_aluno,'')), ${termo('colegio')}) > 0
+              AND (${termo('sala')} = '' OR a.unidade_id::text = ${termo('sala')})
+              AND (${termo('modalidade')} = '' OR
+                CASE WHEN u.unidade_presencial_id IS NOT NULL THEN 'online' ELSE 'presencial' END = ${termo('modalidade')})
               AND (strpos(lower(coalesce(r.categoria,'')), ${termo('categoria')}) > 0)
               AND (strpos(lower(coalesce(r.convenio,'')), ${termo('convenio')}) > 0)
               AND (strpos(lower(coalesce(r.evento,'')), ${termo('evento')}) > 0)
@@ -147,6 +152,9 @@ export async function GET(req: NextRequest) {
                 coalesce(sum(repasse) FILTER (WHERE NOT previsao) OVER (),0)::int AS repasse_apurado,
                 coalesce(sum(cobrar) OVER (),0)::int AS total_cobrar,
                 coalesce(sum(cobrar) FILTER (WHERE entrada = 'pendente') OVER (),0)::int AS a_receber,
+                coalesce(sum(cobrar) FILTER (WHERE entrada = 'baixado') OVER (),0)::int AS recebido,
+                coalesce(sum(cobrar) FILTER (WHERE entrada <> 'isento') OVER (),0)::int AS receita,
+                coalesce(sum(repasse) FILTER (WHERE saida <> 'isento') OVER (),0)::int AS custo,
                 coalesce(sum(repasse) FILTER (WHERE saida = 'pendente') OVER (),0)::int AS a_pagar,
                 coalesce(sum(duracao) OVER (),0)::int AS minutos,
                 (SELECT count(DISTINCT professor_id)::int FROM financeiro) AS professores,
@@ -169,7 +177,7 @@ export async function GET(req: NextRequest) {
             const { id, data, materia, repasse, previsao } = linha;
             if (sessao.role === 'professor') return { id, data, materia, repasse, previsao, status: situacao };
             return { id, data, materia, repasse, previsao, status: situacao, aluno: linha.aluno,
-                professor: linha.professor, unidade: linha.unidade, inicio: linha.inicio, fim: linha.fim,
+                aluno_cadastro: linha.aluno_cadastro, professor: linha.professor, unidade: linha.unidade, inicio: linha.inicio, fim: linha.fim,
                 cobrar: linha.cobrar, acompanhamento: linha.acompanhamento, aluno_id: linha.aluno_id,
                 professor_id: linha.professor_id, unidade_id: linha.unidade_id, duracao: linha.duracao,
                 serie: linha.serie, colegio: linha.colegio, categoria: linha.categoria, convenio: linha.convenio,
@@ -183,7 +191,12 @@ export async function GET(req: NextRequest) {
         };
         const resumo = recepcao ? {
             receber: primeira?.a_receber ?? 0, pagar: primeira?.a_pagar ?? 0,
-            repasses: (primeira?.repasse_previsto ?? 0) + (primeira?.repasse_apurado ?? 0), minutos: primeira?.minutos ?? 0,
+            recebido: primeira?.recebido ?? 0,
+            repasses: (primeira?.repasse_previsto ?? 0) + (primeira?.repasse_apurado ?? 0),
+            repassePrevisto: primeira?.repasse_previsto ?? 0,
+            repasseApurado: primeira?.repasse_apurado ?? 0,
+            margem: (primeira?.receita ?? 0) - (primeira?.custo ?? 0),
+            minutos: primeira?.minutos ?? 0,
             professores: primeira?.professores ?? 0, materias: primeira?.materias ?? 0,
             alunos: primeira?.alunos ?? 0, convenios: primeira?.convenios ?? 0,
         } : undefined;
