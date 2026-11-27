@@ -50,7 +50,9 @@ export async function enviarLembreteAula(
     }
 
     const cfg = await obterConfigWhatsApp();
-    const url = process.env.R4_DATACRAZY_LEMBRETE_URL || (cfg.provedor === 'webhook' ? cfg.url_api : '');
+    const url = (cfg.provedor === 'webhook' ? cfg.url_webhook_lembrete : '')
+        || process.env.R4_DATACRAZY_LEMBRETE_URL?.trim()
+        || (cfg.provedor === 'webhook' ? cfg.url_api : '');
     if (!url || !cfg.ativo) return { erro: 'O webhook de lembretes do DataCrazy está indisponível.' };
 
     const id = randomUUID();

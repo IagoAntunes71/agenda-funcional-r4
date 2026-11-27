@@ -79,6 +79,14 @@ export async function POST(req: NextRequest) {
             const urlApi = String(body?.url_api || '').trim();
             const urlWebhookOtp = String(body?.url_webhook_otp || '').trim();
             const urlWebhookGrupo = String(body?.url_webhook_grupo || '').trim();
+            const urlLembrete = typeof body?.url_webhook_lembrete === 'string'
+                ? body.url_webhook_lembrete.trim() : null;
+            if (urlLembrete) {
+                const destino = URL.canParse(urlLembrete) ? new URL(urlLembrete) : null;
+                if (!destino || destino.protocol !== 'https:' || destino.username || destino.password) {
+                    return NextResponse.json({ error: 'Informe uma URL HTTPS válida para o webhook de lembretes.' }, { status: 400 });
+                }
+            }
             const tokenApi = String(body?.token_api || '').trim();
             const clientToken = String(body?.client_token || '').trim();
             const instancia = String(body?.instancia || '').trim();
@@ -98,6 +106,7 @@ export async function POST(req: NextRequest) {
             url_api = ${urlApi},
             url_webhook_otp = ${urlWebhookOtp},
             url_webhook_grupo = ${urlWebhookGrupo},
+            url_webhook_lembrete = coalesce(${urlLembrete}, url_webhook_lembrete),
             token_api = ${tokenApi},
             client_token = ${clientToken},
             instancia = ${instancia},

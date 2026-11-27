@@ -11,6 +11,7 @@ interface ConfigWhatsApp {
     url_api: string;
     url_webhook_otp: string;
     url_webhook_grupo: string;
+    url_webhook_lembrete: string;
     token_api: string;
     client_token: string;
     instancia: string;
@@ -76,6 +77,7 @@ export default function AdminWhatsApp() {
         url_api: '',
         url_webhook_otp: '',
         url_webhook_grupo: '',
+        url_webhook_lembrete: '',
         token_api: '',
         client_token: '',
         instancia: '',
@@ -456,6 +458,23 @@ export default function AdminWhatsApp() {
                                             className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white"
                                         />
                                         <p className="text-[11px] text-slate-400 mt-1">{textoR4("Automação 3 no DataCrazy: dispara resumo com Cliente, Aluno e Telefone para o grupo (@g.us) sempre que uma aula for marcada ou cancelada.")}</p>
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <label htmlFor="url-webhook-lembrete" className="block text-xs font-medium text-slate-300 mb-1">
+                                            4ª URL do Webhook — Lembretes de Aula (opcional)
+                                        </label>
+                                        <input
+                                            id="url-webhook-lembrete"
+                                            type="url"
+                                            value={config.url_webhook_lembrete || ''}
+                                            onChange={(e) => setConfig((prev) => ({ ...prev, url_webhook_lembrete: e.target.value }))}
+                                            placeholder="https://api.datacrazy.io/..."
+                                            aria-describedby="ajuda-webhook-lembrete"
+                                            className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white transition-all duration-150 focus:ring-2 focus:ring-sky-500/30"
+                                        />
+                                        <p id="ajuda-webhook-lembrete" className="text-[11px] text-slate-400 mt-1">
+                                            Recebe os lembretes manuais do Mapa do Dia e os lembretes automáticos de 24 horas.
+                                        </p>
                                     </div>
                                 </>
                             )}

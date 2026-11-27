@@ -22,6 +22,7 @@ export interface ConfigWhatsApp {
     url_api: string;
     url_webhook_otp: string; // URL separada opcional para códigos OTP / recuperação de PIN via Webhook
     url_webhook_grupo: string; // URL separada opcional para avisos de agendamento/cancelamento no Grupo
+    url_webhook_lembrete: string;
     token_api: string;
     client_token: string;
     instancia: string;
@@ -41,6 +42,7 @@ export async function garantirTabelaConfigWhatsApp() {
       url_api TEXT NOT NULL DEFAULT '',
       url_webhook_otp TEXT NOT NULL DEFAULT '',
       url_webhook_grupo TEXT NOT NULL DEFAULT '',
+      url_webhook_lembrete TEXT NOT NULL DEFAULT '',
       token_api TEXT NOT NULL DEFAULT '',
       client_token TEXT NOT NULL DEFAULT '',
       instancia TEXT NOT NULL DEFAULT '',
@@ -55,6 +57,7 @@ export async function garantirTabelaConfigWhatsApp() {
 
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS url_webhook_otp TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS url_webhook_grupo TEXT NOT NULL DEFAULT ''`;
+    await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS url_webhook_lembrete TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_ativo BOOLEAN NOT NULL DEFAULT false`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS wame_numero TEXT NOT NULL DEFAULT ''`;
     await sql`ALTER TABLE config_whatsapp_grupo ADD COLUMN IF NOT EXISTS alerta_sonoro_ativo BOOLEAN NOT NULL DEFAULT true`;
@@ -77,6 +80,7 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
       url_api,
       COALESCE(url_webhook_otp, '') AS url_webhook_otp,
       COALESCE(url_webhook_grupo, '') AS url_webhook_grupo,
+      url_webhook_lembrete,
       token_api,
       client_token,
       instancia,
@@ -108,6 +112,7 @@ export async function obterConfigWhatsApp(): Promise<ConfigWhatsApp> {
             process.env.WHATSAPP_WEBHOOK_GRUPO_URL ||
             ''
         ).trim(),
+        url_webhook_lembrete: (dbCfg?.url_webhook_lembrete || '').trim(),
         token_api: (dbCfg?.token_api || process.env.WHATSAPP_API_TOKEN || '').trim(),
         client_token: (
             dbCfg?.client_token ||
