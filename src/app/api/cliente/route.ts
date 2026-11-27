@@ -1,3 +1,5 @@
+import { cancelamentoAula } from '@/lib/cancelamento-aula';
+import { garantirStatusAgendamentoR4 } from '@/lib/agendamento-status-schema';
 import { buscarFamiliaPorTelefone, lerSessaoCliente } from '@/lib/cliente-auth';
 import { alunoJaCadastradoNoTelefone, listarFichasPendentes, vincularFichasPendentes } from '@/lib/cadastro-aluno-r4';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
@@ -101,7 +103,9 @@ async function buscarProximasAulasPorTelefone(telefoneBruto: string) {
               - NOW()
             )
           ) / 3600.0
-        ) >= ${antecedencia} AS pode_cancelar
+        ) > ${antecedencia} AS pode_cancelar,
+        ((a.data + coalesce(a.hora_inicio, a.horario)) AT TIME ZONE 'America/Bahia') > now() AS cancelamento_disponivel,
+        a.versao_whatsapp::text AS versao_whatsapp
       FROM agendamentos a
       LEFT JOIN unidades u ON u.id = a.unidade_id
       LEFT JOIN professores p ON p.id = a.professor_id
@@ -323,12 +327,7 @@ export async function POST(req: NextRequest) {
             NULLIF(trim(al.responsavel_nome), ''),
             ''
           ) AS responsavel_nome,
-          EXTRACT(
-            EPOCH FROM (
-              ((a.data + COALESCE(a.hora_inicio, a.horario, '14:10'::time)) AT TIME ZONE 'America/Bahia')
-              - NOW()
-            )
-          ) / 3600.0 AS horas_restantes
+          a.versao_whatsapp::text AS versao_whatsapp
         FROM agendamentos a
         LEFT JOIN unidades u ON u.id = a.unidade_id
         LEFT JOIN professores p ON p.id = a.professor_id
@@ -355,7 +354,7 @@ export async function POST(req: NextRequest) {
                 aluno_nome: string;
                 aluno_telefone: string;
                 responsavel_nome: string;
-                horas_restantes: number;
+                versao_whatsapp: string;
             }[];
 
             if (registros.length === 0) {
@@ -374,28 +373,31 @@ export async function POST(req: NextRequest) {
             }
 
             const { antecedencia } = await lerOperacaoR4();
-            if (Number(ag.horas_restantes) < antecedencia) {
-                return NextResponse.json(
-                    {
-                        error:
-                            `Cancelamentos pelo site exigem pelo menos ${antecedencia} hora(s) de antecedência. Fale com a secretaria pelo WhatsApp.`,
-                    },
-                    { status: 400 }
-                );
+            const regra = cancelamentoAula(antecedencia);
+            if ((body.versaoWhatsApp !== undefined || body.aceitarCobranca === true)
+                && body.versaoWhatsApp !== ag.versao_whatsapp) {
+                return NextResponse.json({ error: 'A aula mudou. Confira os dados atualizados antes de cancelar.',
+                    proximasAulas: await buscarProximasAulasPorTelefone(telefoneRaw),
+                }, { status: 409 });
             }
 
             await garantirHistoricoAgendamento();
+            await garantirStatusAgendamentoR4();
             const [, cancelados] = await sql.transaction([
                 sql`SELECT set_config('r4.ator_agenda', ${(ag.responsavel_nome || 'Responsável') + ' · Portal do Aluno'}, true)`,
-                sql`UPDATE agendamentos SET status = 'cancelado'
+                sql`UPDATE agendamentos SET status = ${regra.status}, resposta_whatsapp_hash = NULL
                     WHERE id = ${agendamentoId} AND excluido_em IS NULL
+                      AND versao_whatsapp = ${ag.versao_whatsapp}::bigint
                       AND coalesce(status,'confirmado') IN ('confirmado','agendado')
-                      AND ((data + coalesce(hora_inicio, horario, '14:10'::time)) AT TIME ZONE 'America/Bahia')
-                          >= now() + make_interval(hours => ${antecedencia})
-                    RETURNING id`,
+                      AND ${regra.futuro} AND ${regra.foraDoLimiteExato}
+                      AND (${body.aceitarCobranca === true} OR ${regra.gratuito})
+                    RETURNING status`,
             ]);
 
-            if (!cancelados.length) return NextResponse.json({ error: "Esta aula não pode mais ser cancelada." }, { status: 409 });
+            if (!cancelados.length) return NextResponse.json({
+                error: 'O horário ou o prazo mudou. Atualize a lista para revisar as condições de cancelamento.',
+                proximasAulas: await buscarProximasAulasPorTelefone(telefoneRaw),
+            }, { status: 409 });
 
             await notificarGrupoCancelamentoAgendamento({
                 id: ag.id,
@@ -415,6 +417,7 @@ export async function POST(req: NextRequest) {
 
             return NextResponse.json({
                 sucesso: true,
+                status: cancelados[0].status,
                 proximasAulas,
             });
         }

@@ -70,6 +70,18 @@ export default function ModalDetalhesAulaR4(props: Props) {
     return props.aula ? <Detalhes key={props.aula.id} {...props} inicial={props.aula} /> : null;
 }
 
+const estadosLembrete: Record<string, string> = {
+    em_envio: 'Enviando ao CRM', enviado_ao_crm: 'Enviado ao CRM', entregue: 'Entregue',
+    erro: 'Falha no envio', obsoleto: 'Aula alterada antes do envio',
+};
+
+interface LembreteAula {
+    destino: string | null;
+    versao: string;
+    disponivel: boolean;
+    ultimo?: { estado: string; erro?: string | null };
+}
+
 function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro, iniciarNoHistorico, onFecharAction, onAtualizadoAction }: Props & { inicial: AgendamentoAdmin }) {
     const textoR4 = useTextoR4();
     const [aula, setAula] = useState(inicial);
@@ -82,6 +94,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const [feedback, setFeedback] = useState(inicial.feedback_professor || '');
     const [anexos, setAnexos] = useState<Anexo[]>([]);
     const [historico, setHistorico] = useState<Evento[]>([]);
+    const [lembrete, setLembrete] = useState<LembreteAula | null>(null);
     const [aviso, setAviso] = useState('');
     const [erro, setErro] = useState('');
     const [ocupado, setOcupado] = useState(false);
@@ -116,12 +129,34 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                 setAcessoAnexo(dados.podeAnexar === true);
                 setFeedback(dados.aula.feedback_professor || '');
                 setHistorico(dados.historico);
+                setLembrete(dados.lembrete);
                 setAnexos(dados.anexos);
             })
             .catch((e: Error) => { if (!controlador.signal.aborted) setErro(e.message || 'Falha ao carregar a aula.'); })
             .finally(() => { if (!controlador.signal.aborted) setCarregando(false); });
         return () => controlador.abort();
     }, [url, inicial]);
+
+    async function enviarLembrete() {
+        if (!lembrete?.destino || ocupado) return;
+        setOcupado(true);
+        setErro('');
+        setAviso('');
+        try {
+            const resposta = await fetch('/api/admin/agendamentos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ acao: 'enviarLembrete', id: aula.id, destino: lembrete.destino, versao: lembrete.versao }),
+            });
+            const dados = await resposta.json();
+            if (!resposta.ok) throw new Error(dados.error);
+            setLembrete({ ...lembrete, ultimo: { estado: dados.estado } });
+        } catch (falha) {
+            setErro(falha instanceof Error ? falha.message : 'Não foi possível enviar o lembrete.');
+        } finally {
+            setOcupado(false);
+        }
+    }
 
     function abrir(destinoTela: Tela) {
         setErro('');
@@ -148,6 +183,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                     const dados = await res.json();
                     setAula((anterior) => ({ ...anterior, ...dados.aula }));
                     setHistorico(dados.historico);
+                setLembrete(dados.lembrete);
                     setAnexos(dados.anexos);
                 }),
                 onAtualizadoAction(),
@@ -233,6 +269,19 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         {(aula.nome_responsavel || aula.whatsapp_responsavel) && <p className={css.contato}>
                             <strong>{textoR4("Responsável")}</strong> {[aula.nome_responsavel, aula.whatsapp_responsavel].filter(Boolean).join(' · ')}
                         </p>}
+                        {lembrete?.destino && !aula.excluido_em && (
+                            <section className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+                                <span>WhatsApp do lembrete +{lembrete.destino}</span>
+                                {lembrete.disponivel && ['agendado', 'confirmado'].includes(status) && (
+                                    <button type="button" disabled={ocupado}
+                                        className={css.secundario + ' transition-all duration-150 ease-out active:scale-[0.98] hover:brightness-110 hover:shadow-md'}
+                                        onClick={() => void enviarLembrete()}>
+                                        Enviar lembrete
+                                    </button>
+                                )}
+                                {lembrete.ultimo && <span role="status">{estadosLembrete[lembrete.ultimo.estado]}{lembrete.ultimo.erro ? ' · ' + lembrete.ultimo.erro : ''}</span>}
+                            </section>
+                        )}
                         {aula.observacoes && <section className={css.nota}><strong>{textoR4("Assuntos e observações")}</strong><p>{aula.observacoes}</p></section>}
                         <div className={css.lista}>
                             {!professor && <Linha titulo={textoR4("Histórico do atendimento")} icone={<History />} onClick={() => abrir('historico')} />}

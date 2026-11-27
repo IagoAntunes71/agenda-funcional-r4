@@ -34,7 +34,7 @@ export async function GET() {
         COALESCE(a.aluno_nome, a.nome_aluno) AS nome_aluno,
         COALESCE(a.colegio_nome, a.colegio_aluno) AS colegio_aluno,
         COALESCE(a.serie, a.serie_aluno) AS serie_aluno,
-        a.status
+        a.status, a.versao_whatsapp::text AS versao_whatsapp
       FROM agendamentos a
       JOIN unidades u ON u.id = a.unidade_id
       JOIN professores p ON p.id = a.professor_id
@@ -65,10 +65,10 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
     const sessao = await lerSessaoCliente();
     if (!sessao) return NextResponse.json({ error: 'Confirme seu WhatsApp e PIN.' }, { status: 401 });
-    const { id } = await req.json().catch(() => ({}));
+    const { id, versaoWhatsApp, aceitarCobranca } = (await req.json().catch(() => null)) ?? {};
     return acaoCliente(new NextRequest(req.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acao: 'cancelarAgendamento', agendamentoId: id, telefone: sessao.telefone }),
+        body: JSON.stringify({ acao: 'cancelarAgendamento', agendamentoId: id, telefone: sessao.telefone, versaoWhatsApp, aceitarCobranca }),
     }));
 }

@@ -550,5 +550,5 @@ export async function enviarMensagemResponsavel(telefone: string, mensagem: stri
 }
 
 export function lembreteCancelamento(antecedencia: number) {
-    return `Cancelamento gratuito até ${antecedencia} h antes da aula. Após esse prazo, fale com a secretaria da R4.`;
+    return `Cancelamentos com menos de ${antecedencia} h de antecedência têm cobrança.`;
 }

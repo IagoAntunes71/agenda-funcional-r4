@@ -78,6 +78,8 @@ interface ProximaAula {
   serie: string;
   observacoes: string | null;
   pode_cancelar: boolean;
+  cancelamento_disponivel: boolean;
+  versao_whatsapp: string;
 }
 
 interface ColegioOficial {
@@ -968,8 +970,8 @@ export default function PaginaAgendamentoReforco() {
 
   const alunoAtivo = alunos.find((a) => a.id === alunoSelecionadoId) || null;
 
-  async function handleCancelarProximaAula(agendamentoId: number) {
-    setCancelandoAulaId(agendamentoId);
+  async function handleCancelarProximaAula(aula: ProximaAula) {
+    setCancelandoAulaId(aula.id);
     setAvisoProximasAulas(null);
 
     try {
@@ -978,13 +980,17 @@ export default function PaginaAgendamentoReforco() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           acao: 'cancelarAgendamento',
-          agendamentoId,
+          agendamentoId: aula.id,
+          versaoWhatsApp: aula.versao_whatsapp,
+          aceitarCobranca: !aula.pode_cancelar,
           telefone: telefoneConfirmado,
         }),
       });
 
       const json = await res.json();
       if (!res.ok) {
+        if (Array.isArray(json.proximasAulas)) setProximasAulas(json.proximasAulas);
+        setConfirmandoCancelamentoId(null);
         setAvisoProximasAulas({
           tipo: 'erro',
           texto: json.error || 'Não foi possível cancelar a aula.',
@@ -997,7 +1003,7 @@ export default function PaginaAgendamentoReforco() {
       setAvisoProximasAulas({
         tipo: 'sucesso',
         texto:
-            'Aula cancelada dentro do prazo gratuito! O horário já voltou a ficar disponível na agenda.',
+            json.status === 'desmarcado_com_cobranca' ? 'Aula cancelada com cobrança.' : 'Aula cancelada sem cobrança.',
       });
 
       if (sistemaAberto && dataSelecionada) {
@@ -2276,11 +2282,11 @@ export default function PaginaAgendamentoReforco() {
                                   {aula.pode_cancelar && sistemaAberto && alunos.some((aluno) => aluno.id === aula.aluno_id) &&
                                       <button type="button" className="mr-3 text-xs font-semibold underline"
                                           onClick={() => iniciarRemarcacao(aula)}>Remarcar aula</button>}
-                                  {!aula.pode_cancelar ? (
-                                      <p className="text-[11px] font-medium text-rose-400">{textoR4("Prazo de 2h encerrado: cancelamento gratuito indisponível (taxa da aula aplicável). Contate a secretaria R4.")}</p>
+                                  {!aula.cancelamento_disponivel ? (
+                                      <p className="text-xs text-rose-400">Cancelamento indisponível após o início da aula.</p>
                                   ) : pedindoConfirmacao ? (
                                       <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="text-xs font-semibold text-rose-400">{textoR4("Confirmar cancelamento gratuito?")}</span>
+                              <span className="text-xs font-semibold text-rose-400">{aula.pode_cancelar ? "Confirmar cancelamento sem cobrança?" : "Confirmar cancelamento com cobrança?"}</span>
                                         <div className="flex items-center gap-1.5">
                                           <button
                                               type="button"
@@ -2294,9 +2300,9 @@ export default function PaginaAgendamentoReforco() {
                                               type="button"
                                               disabled={cancelandoAulaId === aula.id}
                                               onClick={() =>
-                                                  void handleCancelarProximaAula(aula.id)
+                                                  void handleCancelarProximaAula(aula)
                                               }
-                                              className="px-3 py-1 rounded-lg bg-[#BE1E23] hover:bg-rose-700 text-xs font-semibold text-white cursor-pointer"
+                                              className="px-3 py-1 rounded-lg bg-[#BE1E23] hover:bg-rose-700 hover:brightness-110 hover:shadow-md active:scale-[0.98] transition-all duration-150 ease-out text-xs font-semibold text-white cursor-pointer"
                                           >
                                             {cancelandoAulaId === aula.id
                                                 ? textoR4("Cancelando...")
@@ -2310,8 +2316,8 @@ export default function PaginaAgendamentoReforco() {
                                           onClick={() =>
                                               setConfirmandoCancelamentoId(aula.id)
                                           }
-                                          className="text-xs font-semibold text-rose-400 hover:underline cursor-pointer"
-                                      >{textoR4("Cancelar agendamento (gratuito até 2h antes)")}</button>
+                                          className="text-xs font-semibold text-rose-400 hover:underline cursor-pointer active:scale-[0.98] transition-all duration-150 ease-out"
+                                      >{aula.pode_cancelar ? "Cancelar aula sem cobrança" : "Cancelar aula com cobrança"}</button>
                                   )}
                                 </div>
                               </div>

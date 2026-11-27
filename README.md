@@ -53,3 +53,13 @@ Mantenha o `.env.local` original e as exportações históricas em armazenamento
 Aplique `migrations/002-modalidade-e-confirmacao.sql` no Neon antes de publicar esta versão. Ela pressupõe a migração 001. As cinco unidades derivadas usam o cadastro de professores da unidade presencial de origem.
 
 Configure `R4_URL_PUBLICA` no servidor com a URL pública HTTPS do Portal se o endereço de produção detectado pelo Vercel não for o endereço desejado. O WhatsApp precisa estar ativo e o provedor configurado para mensagens individuais. Para webhook, valide os eventos `aula_agendada`, `responder_aula` e `aula_confirmada`, com o destino em `telefone`. O link recebido pelo responsável abre as ações no R4.
+
+## Lembretes e cancelamentos via DataCrazy
+
+1. Aplique `migrations/005-whatsapp-aulas.sql` antes de publicar os arquivos da etapa 3.
+2. Configure no DataCrazy a automação do evento `lembrete_aula`. O destino está em `telefone`, os detalhes em `agendamento` e a chave de deduplicação em `lembreteId`. Configure `R4_DATACRAZY_LEMBRETE_URL` se a automação tiver um webhook próprio. Sem essa variável, a Agenda usa o webhook principal configurado no painel.
+3. Aponte um agendador para `GET /api/interno/lembretes-whatsapp` a cada 5 minutos com `Authorization: Bearer <CRON_SECRET>`. A Agenda busca aulas entre 23 e 24 horas à frente, com um disparo automático por versão da aula. Desative o lembrete antigo de 24 horas no DataCrazy ao ativar este agendamento.
+4. Para exibir **Entregue**, configure `R4_DATACRAZY_RETORNO_SECRET` no servidor e envie `POST /api/interno/lembretes-whatsapp` com `Authorization: Bearer <R4_DATACRAZY_RETORNO_SECRET>` e JSON `{"lembreteId":"<id recebido no envio>","status":"entregue"}` quando o CRM confirmar a entrega. Resposta HTTP de sucesso ao disparo significa **Enviado ao CRM**.
+5. Os botões existentes continuam chamando `POST /responder-aula`. O retorno de cancelamento mantém `status: "cancelado"` para compatibilidade e traz a classificação em `statusAplicado`. Use `mensagem` na resposta automática e informe no botão ou na mensagem que cancelamentos abaixo do prazo têm cobrança. O comprovante continua em `POST /responder-aula/comprovante`.
+
+O limite exato fica reservado à secretaria até a definição da regra. Em homologação, teste cancelamento antes e depois do prazo, clique repetido, comprovante da confirmação e clique em mensagem anterior à remarcação. Para lembretes, use um contato de teste e confira os estados no detalhe da aula e o disparo no histórico. Uma tentativa de resultado desconhecido permanece registrada sem reenvio automático, pois o CRM pode ter recebido a solicitação.

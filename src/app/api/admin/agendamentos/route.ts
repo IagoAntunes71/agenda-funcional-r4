@@ -1,3 +1,4 @@
+import { destinoLembrete, enviarLembreteAula } from '@/lib/lembretes-whatsapp';
 import { SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { garantirTabelasClientesEColegios } from '@/app/api/cliente/route';
 import { unidadeOnline } from '@/lib/unidade-online';
@@ -33,6 +34,21 @@ export async function POST(req: NextRequest) {
         const cfg = await lerOperacaoR4();
         if (!podeOperacao(cfg, sessao.role, 'agenda')) return erro('Seu perfil não pode criar aulas.', 403);
         const body = await req.json();
+        if (body?.acao === 'enviarLembrete') {
+            if (sessao.role === 'professor') return erro('Seu perfil não pode enviar lembretes.', 403);
+            const id = Number(body.id);
+            if (!idValido(id) || typeof body.destino !== 'string' || typeof body.versao !== 'string') {
+                return erro('Informe a aula e seu destinatário.', 400);
+            }
+            const resultado = await enviarLembreteAula(id, {
+                responsavel: sessao.nome + ' · Conta ' + sessao.id,
+                destino: body.destino,
+                versao: body.versao,
+            });
+            return resultado.erro
+                ? NextResponse.json({ error: resultado.erro }, { status: 409 })
+                : NextResponse.json(resultado);
+        }
         const acompanhamento = body?.acompanhamento === true;
         if (acompanhamento && !cfg.acompanhamento) return erro('Aulas de acompanhamento estão desativadas.', 403);
 
@@ -300,6 +316,7 @@ async function buscarAula(id: number, sessao: SessaoAdmin, outras = false) {
         SELECT a.*, to_char(a.data, 'YYYY-MM-DD') AS data_iso,
             to_char(coalesce(a.hora_inicio, a.horario), 'HH24:MI') AS inicio,
             to_char(a.hora_fim, 'HH24:MI') AS fim,
+            ((a.data + coalesce(a.hora_inicio, a.horario)) AT TIME ZONE 'America/Bahia') > now() AS aula_futura,
             p.nome AS professor_nome, p.grupo_professor AS professor_grupo_professor, u.nome AS unidade_nome
         FROM agendamentos a
         LEFT JOIN professores p ON p.id = a.professor_id
@@ -393,11 +410,27 @@ export async function GET(req: NextRequest) {
         }
         const professor = sessao.role === 'professor';
         const exibirContato = !professor || unidadeOnline(aula.unidade_nome);
-        const [historico, anexos] = await Promise.all([
-            professor ? [] : sql`SELECT id, acao, responsavel, campos, criado_em FROM r4_agendamento_historico
-                WHERE agendamento_id = ${id} ORDER BY id DESC`,
+        const podeLembrar = !professor && podeOperacao(cfg, sessao.role, 'agenda');
+        const destino = podeLembrar ? destinoLembrete(aula.aluno_telefone?.trim() || aula.whatsapp_responsavel || '') : null;
+        const [historico, anexos, lembretes] = await Promise.all([
+            professor ? [] : sql`
+                SELECT id::text, acao, responsavel, campos, criado_em FROM r4_agendamento_historico
+                WHERE agendamento_id = ${id}
+                UNION ALL
+                SELECT id::text,
+                    'Lembrete ' || tipo || ' · ' || CASE estado
+                        WHEN 'enviado_ao_crm' THEN 'Enviado ao CRM'
+                        WHEN 'entregue' THEN 'Entregue'
+                        WHEN 'erro' THEN coalesce(erro, 'Falha no envio')
+                        WHEN 'obsoleto' THEN 'Aula alterada antes do envio'
+                        ELSE 'Enviando ao CRM' END,
+                    responsavel, ARRAY[]::text[], tentado_em
+                FROM r4_lembretes_whatsapp WHERE agendamento_id = ${id}
+                ORDER BY criado_em DESC, id DESC`,
             sql`SELECT id, nome, tamanho, criado_em FROM r4_agendamento_anexos
                 WHERE agendamento_id = ${id} ORDER BY id DESC`,
+            podeLembrar ? sql`SELECT estado, erro FROM r4_lembretes_whatsapp
+                WHERE agendamento_id = ${id} AND versao = ${aula.versao_whatsapp} ORDER BY tentado_em DESC LIMIT 1` : [],
         ]);
         const registroOriginal = !professor && aula.criado_em && !historico.some((item) => item.acao === 'Agendamento criado')
             ? [{
@@ -421,6 +454,10 @@ export async function GET(req: NextRequest) {
                 excluido_em: aula.excluido_em,
             },
             historico: [...historico, ...registroOriginal], anexos,
+            lembrete: podeLembrar ? {
+                destino, versao: String(aula.versao_whatsapp), ultimo: lembretes[0] ?? null,
+                disponivel: aula.aula_futura && !aula.excluido_em,
+            } : null,
             podeEditarFeedback: await feedbackPermitido(sessao, aula, cfg.prazoFeedback),
             podeEditarAgenda: podeOperacao(cfg, sessao.role, 'agenda') && !aula.excluido_em &&
                 (sessao.role !== 'professor' || professorDaAula(await professorVinculado(sessao), { id: aula.professor_id, grupo_professor: aula.professor_grupo_professor })),
@@ -519,7 +556,16 @@ export async function PATCH(req: NextRequest) {
             WHERE al.id = ${alunoId} AND al.ativo
         `)[0];
         if (alunoId !== null && !aluno) return erro('Aluno não encontrado.', 400);
-        const [, linhas] = await sql.transaction([ator(sessao), sql`
+        const statusDesmarcados = ['desmarcado_com_cobranca', 'desmarcado_sem_cobranca', 'cancelado'];
+        const alterarCancelamento = status && status !== aula.status &&
+            (statusDesmarcados.includes(status) || statusDesmarcados.includes(aula.status));
+        if (alterarCancelamento && !podeOperacao(cfg, sessao.role, 'agenda')) {
+            return erro('Seu perfil não pode registrar ou revisar o cancelamento.', 403);
+        }
+        const autor = alterarCancelamento
+            ? sql`SELECT set_config('r4.ator_agenda', ${sessao.nome + ' · Atendimento · Conta ' + sessao.id}, true)`
+            : ator(sessao);
+        const [, linhas] = await sql.transaction([autor, sql`
             UPDATE agendamentos a SET
                 unidade_id = CASE WHEN ${edicao} THEN ${unidade} ELSE a.unidade_id END,
                 professor_id = CASE WHEN ${edicao} THEN ${professor} ELSE a.professor_id END,
@@ -538,6 +584,8 @@ export async function PATCH(req: NextRequest) {
                 feedback_professor = coalesce(${typeof body.feedback_professor === 'string' ? body.feedback_professor.trim().slice(0, 10000) : null}, a.feedback_professor),
                 status = coalesce(${status ?? null}, a.status)
             WHERE a.id = ${id} AND a.excluido_em IS NULL AND a.professor_id IS NOT DISTINCT FROM ${aula.professor_id}
+              AND (${!status} OR a.status IS NOT DISTINCT FROM ${aula.status})
+              AND a.versao_whatsapp = ${aula.versao_whatsapp}
             RETURNING status
         `]);
         if (!linhas.length) return erro('A aula foi alterada. Reabra e tente novamente.', 409);

@@ -1,9 +1,12 @@
+import { cancelamentoAula } from '@/lib/cancelamento-aula';
+import { garantirHistoricoAgendamento } from '@/lib/agendamento-historico';
+import { garantirStatusAgendamentoR4 } from '@/lib/agendamento-status-schema';
 import { createHash } from 'node:crypto';
 import { sql } from '@/lib/db';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
 import { enviarMensagemResponsavel, lembreteCancelamento } from '@/lib/whatsapp-notificacao';
 
-function tela(texto: string, token?: string, status = 200) {
+function tela(texto: string, token?: string, status = 200, aceitarCobranca = false) {
     return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Responder à aula · R4 Ensina</title>
@@ -14,7 +17,8 @@ function tela(texto: string, token?: string, status = 200) {
     <main><h1>R4 Ensina</h1><p>${texto}</p>${token ? `<form method="post">
     <input type="hidden" name="t" value="${token}">
     <button name="acao" value="confirmar">Confirmar aula</button>
-    <button name="acao" value="cancelar">Cancelar aula</button></form>` : ''}</main></html>`, {
+    ${aceitarCobranca ? '<input type="hidden" name="aceitarCobranca" value="sim">' : ''}
+    <button name="acao" value="cancelar">${aceitarCobranca ? 'Cancelar aula com cobrança' : 'Cancelar aula'}</button></form>` : ''}</main></html>`, {
         status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
             'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow',
             'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" },
@@ -28,19 +32,25 @@ export async function GET(req: Request) {
     const token = new URL(req.url).searchParams.get('t');
     if (!tokenValido(token)) return tela('Link inválido. Fale com a secretaria da R4.', undefined, 400);
     try {
-        const [aula] = await sql`SELECT id FROM agendamentos WHERE resposta_whatsapp_hash = ${hash(token)}
+        const { antecedencia } = await lerOperacaoR4();
+        const regra = cancelamentoAula(antecedencia);
+        const [aula] = await sql`SELECT ${regra.gratuito} AS gratuito, ${regra.foraDoLimiteExato} AS fora_limite
+            FROM agendamentos WHERE resposta_whatsapp_hash = ${hash(token)}
             AND excluido_em IS NULL AND status IN ('agendado','confirmado')
             AND ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia') > now()`;
         if (!aula) return tela('Este link já foi usado ou a aula está indisponível. Fale com a secretaria da R4.', undefined, 404);
-        const { antecedencia } = await lerOperacaoR4();
-        return tela(lembreteCancelamento(antecedencia), token);
+        return tela(lembreteCancelamento(antecedencia), token, 200, aula.fora_limite && !aula.gratuito);
     } catch { return tela('Não foi possível consultar a aula. Tente novamente.', undefined, 503); }
 }
 
 export async function POST(req: Request) {
     const json = req.headers.get('content-type')?.split(';')[0]?.trim() === 'application/json';
     const responder = (mensagem: string, status = 200, estado?: string) => json
-        ? Response.json({ sucesso: status === 200, mensagem, status: estado }, {
+        ? Response.json({
+            sucesso: status === 200, mensagem,
+            status: estado?.startsWith('desmarcado_') ? 'cancelado' : estado,
+            statusAplicado: estado,
+        }, {
             status, headers: { 'Cache-Control': 'no-store' },
         })
         : tela(mensagem, undefined, status);
@@ -52,26 +62,32 @@ export async function POST(req: Request) {
     }
     try {
         const { antecedencia } = await lerOperacaoR4();
+        await garantirHistoricoAgendamento();
+        await garantirStatusAgendamentoR4();
+        const regra = cancelamentoAula(antecedencia);
         const confirmar = acao === 'confirmar';
+        const aceitarCobranca = json || dados?.get('aceitarCobranca') === 'sim';
         const [, aulas] = await sql.transaction([
-            sql`SELECT set_config('r4.ator_agenda', 'Responsável · WhatsApp', true)`,
+            sql`SELECT set_config('r4.ator_agenda', 'Responsável · Botão do WhatsApp', true)`,
             sql`UPDATE agendamentos
-                SET status = ${confirmar ? 'confirmado' : 'cancelado'},
+                SET status = ${confirmar ? sql`'confirmado'` : regra.status},
                     resposta_whatsapp_hash = CASE WHEN ${confirmar} THEN resposta_whatsapp_hash ELSE NULL END
                 WHERE resposta_whatsapp_hash = ${hash(token)} AND excluido_em IS NULL
                     AND (status = 'agendado' OR (NOT ${confirmar} AND status = 'confirmado'))
-                    AND ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia') > now()
-                    AND (${confirmar} OR ((data + coalesce(hora_inicio, horario)) AT TIME ZONE 'America/Bahia')
-                        >= now() + make_interval(hours => ${antecedencia}))
-                RETURNING aluno_telefone`,
+                    AND ${regra.futuro}
+                    AND (${confirmar} OR (${regra.foraDoLimiteExato} AND (${aceitarCobranca} OR ${regra.gratuito})))
+                RETURNING aluno_telefone, status`,
         ]);
         if (!aulas.length) return responder(confirmar
             ? 'A aula já foi respondida ou este link não está mais disponível.'
-            : 'Não foi possível cancelar por este link. Se o prazo gratuito terminou, fale com a secretaria da R4.', 409);
+            : 'Não foi possível cancelar. Reabra o link para conferir o prazo ou fale com a secretaria da R4.', 409);
         if (!json && confirmar && aulas[0].aluno_telefone) {
             await enviarMensagemResponsavel(aulas[0].aluno_telefone,
                 'Sua aula na R4 Ensina foi confirmada. ' + lembreteCancelamento(antecedencia), 'aula_confirmada').catch(() => undefined);
         }
-        return responder(confirmar ? 'Aula confirmada. ' + lembreteCancelamento(antecedencia) : 'Aula cancelada.', 200, confirmar ? 'confirmado' : 'cancelado');
+        const estado = aulas[0].status;
+        if (confirmar) return responder('Aula confirmada. ' + lembreteCancelamento(antecedencia), 200, estado);
+        const mensagem = estado === 'desmarcado_com_cobranca' ? 'Aula cancelada com cobrança.' : 'Aula cancelada sem cobrança.';
+        return responder(mensagem, 200, estado);
     } catch { return responder('Não foi possível registrar sua resposta. Tente novamente.', 503); }
 }
