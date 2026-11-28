@@ -71,3 +71,11 @@ O envio de novas aulas para hoje ou amanhã começa depois que o Mapa do Dia ou 
 - O banco precisa ter as migrações `003-push-equipe.sql` e `004-push-aulas-proximas.sql` aplicadas nessa ordem. Se ambas já foram aplicadas, esta atualização dispensa uma nova migração.
 - Configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` no ambiente da Agenda. O professor precisa ativar o push no próprio dispositivo e usar uma conta vinculada ao professor da aula ou ao mesmo grupo de professores.
 - Para as novas tentativas e o lembrete diário, chame `GET /api/interno/push` a cada cinco minutos com `Authorization: Bearer <CRON_SECRET>`. O retorno indica quantos avisos foram processados e quantos tiveram pelo menos um aceite do serviço de push.
+
+## Etapa 4 — Área do professor
+
+- Aplique `migrations/006-jornada-professor.sql` antes de publicar. Ela usa as migrações 003, 004 e 005.
+- Para receber evoluções, configure no DataCrazy o evento `evolucao_aula`. O destino vem em `telefone`, o texto com os cinco tópicos em `mensagem` e o identificador para deduplicação em `evolucaoId`. Use `R4_DATACRAZY_EVOLUCAO_URL` se o fluxo tiver um webhook próprio. Quando essa variável estiver vazia, a Agenda usa o webhook principal se o provedor estiver em modo Webhook.
+- Para registrar a entrega, use `POST /api/interno/evolucoes-whatsapp` com `Authorization: Bearer <R4_DATACRAZY_RETORNO_SECRET>` e JSON `{"evolucaoId":"<id recebido no envio>","status":"entregue"}`. Se o CRM não confirmar a entrega, a Agenda exibe o resultado do envio ao CRM.
+- O agendador de push em `GET /api/interno/push` envia o resumo por volta de uma hora antes da primeira aula. Valide com o R4 os gatilhos de alterações e cancelamentos antes de definir `R4_PUSH_MUDANCAS_AULA=true`. A inclusão continua seguindo a janela de hoje e amanhã.
+- Em **Regras e automação**, a antecedência para bloqueio pelo professor vem em **Regra atual**. Depois que o R4 escolher **72 horas** ou **Uma semana**, o professor poderá solicitar exceção dentro do prazo. A equipe autorizada analisa os pedidos e as aulas afetadas em **Mapa do Dia → Solicitações de bloqueio**. Autorizar insere o bloqueio, e as aulas existentes continuam agendadas até a equipe tratá-las.

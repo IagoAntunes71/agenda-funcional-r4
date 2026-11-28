@@ -32,9 +32,9 @@ export async function GET(req: Request) {
                 ORDER BY coalesce(nullif(p.grupo_professor, ''), 'id:' || p.id),
                     a.data, coalesce(a.hora_inicio, a.horario), a.id
             )
-            INSERT INTO r4_push_avisos(professor_id, tipo, deduplicacao)
+            INSERT INTO r4_push_avisos(professor_id, tipo, deduplicacao, dia_resumo)
             SELECT professor_id, 'chegada',
-                'chegada:' || grupo || ':' || data
+                'chegada:' || grupo || ':' || data, data
             FROM primeiras
             WHERE inicio <= now() + interval '60 minutes' AND inicio > now() + interval '50 minutes'
             ON CONFLICT (deduplicacao) DO NOTHING`;

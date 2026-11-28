@@ -1,4 +1,5 @@
 'use client';
+import { AulasAfetadas, type AulaAfetada } from './ExcecoesBloqueioR4';
 import { useOperacaoR4 } from './OperacaoPainelR4';
 import { SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { podeOperacao } from '@/lib/operacao-r4';
@@ -131,10 +132,14 @@ export default function ModalNovoAgendamentoR4({
     const [descricaoBloqueio, setDescricaoBloqueio] = useState<string>('');
 
     const [salvando, setSalvando] = useState<boolean>(false);
+    const [excecao, setExcecao] = useState<{ chave: string; aulas: AulaAfetada[] } | null>(null);
+    const [solicitado, setSolicitado] = useState(false);
     const [erro, setErro] = useState<string | null>(null);
 
     useEffect(() => {
         if (!aberto) return;
+        setExcecao(null);
+        setSolicitado(false);
         const modoAlvo = podeAgendar ? modoInicial : 'bloqueio';
         setModo(modoAlvo);
         setUnidadeId(unidadeInicialId || unidades[0]?.id || 0);
@@ -207,6 +212,9 @@ export default function ModalNovoAgendamentoR4({
         setListaAberta(!id);
     }
 
+    const chaveBloqueio = JSON.stringify([professorId, data, hora, minuto, totalMinutos, recorrencia, tituloBloqueio, descricaoBloqueio]);
+    const excecaoAtual = modo === 'bloqueio' && excecao?.chave === chaveBloqueio ? excecao : null;
+
     async function handleSalvar(e: React.FormEvent) {
         e.preventDefault();
         setErro(null);
@@ -233,6 +241,7 @@ export default function ModalNovoAgendamentoR4({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        acao: excecaoAtual ? 'solicitarExcecao' : undefined,
                         professor_id: professorId,
                         motivo: tituloBloqueio,
                         descricao: descricaoBloqueio,
@@ -244,7 +253,13 @@ export default function ModalNovoAgendamentoR4({
                 });
                 const json = await res.json();
                 if (!res.ok) {
+                    if (json.excecao) setExcecao({ chave: chaveBloqueio, aulas: json.aulas });
                     setErro(json.error || 'Erro ao salvar bloqueio.');
+                    return;
+                }
+                if (json.solicitado) {
+                    setSolicitado(true);
+                    await onSucessoAction();
                     return;
                 }
             } else {
@@ -678,6 +693,11 @@ export default function ModalNovoAgendamentoR4({
                         </select>
                     </div>
 
+                    {excecaoAtual && !solicitado && <section className={`space-y-2 rounded-xl border p-3 ${clsSubCard}`}>
+                        <strong>Aulas afetadas</strong>
+                        <AulasAfetadas aulas={excecaoAtual.aulas} />
+                    </section>}
+                    {solicitado && <p role="status">Solicitação registrada. Acompanhe a decisão no Mapa do Dia.</p>}
                     {erro && (
                         <p className="text-xs text-rose-400 bg-[#BE1E23]/15 border border-[#BE1E23]/40 rounded-xl px-3.5 py-2.5">
                             {erro}
@@ -692,8 +712,8 @@ export default function ModalNovoAgendamentoR4({
                         >{textoR4("Cancelar")}</button>
                         <button
                             type="submit"
-                            disabled={salvando}
-                            className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
+                            disabled={salvando || solicitado}
+                            className={`active:scale-[0.98] transition-all duration-150 ease-out hover:brightness-110 hover:shadow-md px-5 py-2.5 rounded-xl text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
                                 modo === 'bloqueio'
                                     ? 'bg-[#C24124] hover:bg-[#D14D30]'
                                     : 'bg-[#0E7C86] hover:bg-[#118E99]'
@@ -707,7 +727,7 @@ export default function ModalNovoAgendamentoR4({
                             {salvando
                                 ? textoR4("Salvando...")
                                 : modo === 'bloqueio'
-                                    ? textoR4("Salvar Bloqueio")
+                                    ? excecaoAtual ? "Solicitar exceção" : textoR4("Salvar Bloqueio")
                                     : textoR4("Criar Atendimento")}
                         </button>
                     </div>

@@ -135,6 +135,15 @@ export function ConfiguracoesOperacaoR4({ somentePortal = false }: { somentePort
             <label className="grid gap-1 text-sm max-w-sm mt-2">Antecedência mínima para desmarcar sem cobrança (horas)
                 <input className={campo} type="number" min={0} max={168} value={cfg.antecedencia} onChange={(e) => alterar('antecedencia', Number(e.target.value))} />
             </label>
+            <label>Antecedência para bloqueio pelo professor
+                <select className={campo + ' transition-all duration-150 focus:ring-2 focus:ring-sky-500/30'}
+                    value={cfg.prazoBloqueioProfessor ?? ''}
+                    onChange={(e) => alterar('prazoBloqueioProfessor', e.target.value === '' ? null : Number(e.target.value) as 72 | 168)}>
+                    <option value="">Regra atual</option>
+                    <option value="72">72 horas</option>
+                    <option value="168">Uma semana</option>
+                </select>
+            </label>
             <Link className="inline-block underline mt-2 text-sm" href="/admin/whatsapp">Abrir configuração do WhatsApp</Link>
         </Secao>}
         <button className={acao + " order-last self-start"} type="submit" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar configurações'}</button>

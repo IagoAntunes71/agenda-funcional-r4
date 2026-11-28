@@ -12,9 +12,10 @@ import { filtrarMateriasVisiveis, formatarTelefone } from '@/lib/cliente-helpers
 import { materiaBase, materiasBase, rotuloMateriaAula } from '@/lib/materia-aula';
 import { horaParaMinutos } from '@/lib/horarios-reforco';
 import { formatarDataBR, obterIniciais, type AgendamentoAdmin, type AlunoAdmin, type ProfessorAdmin, type UnidadeAdmin } from './types';
+import { lerEvolucao, montarEvolucao, TOPICOS_EVOLUCAO } from '@/lib/evolucao-modelo';
 import css from './DetalhesAula.module.css';
 
-type Tela = 'detalhes' | 'editar' | 'agenda' | 'observacoes' | 'anexos' | 'historico' | 'excluir' | 'feedback';
+type Tela = 'detalhes' | 'editar' | 'agenda' | 'observacoes' | 'anexos' | 'historico' | 'excluir' | 'feedback' | 'historicoAluno';
 type Anexo = { id: number; nome: string; tamanho: number };
 type Evento = { id: string; acao: string; responsavel: string; criado_em: string; campos: string[] };
 type Props = {
@@ -32,7 +33,7 @@ type Props = {
 const titulos: Record<Tela, string> = {
     detalhes: 'Detalhes do agendamento', editar: 'Editar agendamento', agenda: 'Editar agenda',
     observacoes: 'Observações', anexos: 'Anexos da aula', historico: 'Histórico do atendimento',
-    excluir: 'Excluir agendamento', feedback: 'Feedback da aula',
+    excluir: 'Excluir agendamento', feedback: 'Evolução da aula', historicoAluno: 'Histórico do aluno',
 };
 const nomesCampos: Record<string, string> = {
     professor_id: 'Professor', unidade_id: 'Unidade', aluno_id: 'Aluno', materia: 'Matéria',
@@ -59,7 +60,7 @@ function montarFormulario(aula: AgendamentoAdmin) {
 function Linha({ titulo, descricao, icone, onClick, perigo = false }: {
     titulo: string; descricao?: string; icone: ReactNode; onClick: () => void; perigo?: boolean;
 }) {
-    return <button type="button" className={css.linha} data-perigo={perigo} onClick={onClick}>
+    return <button type="button" className={css.linha + ' transition-all duration-150 ease-out active:scale-[0.98]'} data-perigo={perigo} onClick={onClick}>
         <span className={css.icone}>{icone}</span>
         <span><strong>{titulo}</strong>{descricao && <small>{descricao}</small>}</span>
         <ChevronRight className={css.seta} />
@@ -91,7 +92,12 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     const [podeEditarFeedback, setPodeEditarFeedback] = useState(false);
     const [acessoAgenda, setAcessoAgenda] = useState(false);
     const [acessoAnexo, setAcessoAnexo] = useState(false);
-    const [feedback, setFeedback] = useState(inicial.feedback_professor || '');
+    const [topicos, setTopicos] = useState(() => lerEvolucao(inicial.feedback_professor || ''));
+    const [jornada, setJornada] = useState<{
+        aulaIniciadaEm?: string; podeIniciar?: boolean;
+        evolucao?: { destino: string | null; enviado_para?: string; estado?: string; erro?: string; envio_interrompido?: boolean };
+        historicoAluno?: { id: number; data: string; materia: string; professor?: string; evolucao?: string }[];
+    }>({});
     const [anexos, setAnexos] = useState<Anexo[]>([]);
     const [historico, setHistorico] = useState<Evento[]>([]);
     const [lembrete, setLembrete] = useState<LembreteAula | null>(null);
@@ -128,7 +134,8 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                 setPodeEditarFeedback(dados.podeEditarFeedback === true);
                 setAcessoAgenda(dados.podeEditarAgenda === true);
                 setAcessoAnexo(dados.podeAnexar === true);
-                setFeedback(dados.aula.feedback_professor || '');
+                setTopicos(lerEvolucao(dados.aula.feedback_professor || ''));
+                setJornada(dados);
                 setHistorico(dados.historico);
                 setLembrete(dados.lembrete);
                 setAnexos(dados.anexos);
@@ -167,7 +174,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
 
     function abrir(destinoTela: Tela) {
         setErro('');
-        if (destinoTela === 'feedback') setFeedback(aula.feedback_professor || '');
+        if (destinoTela === 'feedback') setTopicos(lerEvolucao(aula.feedback_professor || ''));
         if (destinoTela === 'agenda') setForm(montarFormulario(aula));
         if (destinoTela === 'observacoes') setObservacoes(aula.observacoes || '');
         setTela(destinoTela);
@@ -190,7 +197,8 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                     const dados = await res.json();
                     setAula((anterior) => ({ ...anterior, ...dados.aula }));
                     setHistorico(dados.historico);
-                setLembrete(dados.lembrete);
+                    setJornada(dados);
+                    setLembrete(dados.lembrete);
                     setAnexos(dados.anexos);
                 }),
                 onAtualizadoAction(),
@@ -228,7 +236,7 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
     }
 
     const volta = tela === 'detalhes' || iniciarNoHistorico ? onFecharAction :
-        () => abrir(['agenda', 'observacoes', 'excluir', 'feedback'].includes(tela) || (tela === 'anexos' && podeEditar) ? 'editar' : 'detalhes');
+        () => abrir((['agenda', 'observacoes', 'excluir'].includes(tela) || (tela === 'feedback' && !professor)) || (tela === 'anexos' && podeEditar) ? 'editar' : 'detalhes');
     const desabilitado = ocupado || carregando;
 
     return (
@@ -304,6 +312,17 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         )}
                         {aula.observacoes && <section className={css.nota}><strong>{textoR4("Assuntos e observações")}</strong><p>{aula.observacoes}</p></section>}
                         <div className={css.lista}>
+                            {professor && jornada.evolucao && <>
+                                {jornada.aulaIniciadaEm ? <p className={css.contato}>Aula iniciada às {new Intl.DateTimeFormat('pt-BR', {
+                                    hour: '2-digit', minute: '2-digit', timeZone: 'America/Bahia',
+                                }).format(new Date(jornada.aulaIniciadaEm))}</p> : jornada.podeIniciar && (
+                                    <Linha titulo="Iniciar aula" icone={<Clock3 />} onClick={() => {
+                                        if (!ocupado) void salvar({ acao: 'iniciarAula' }, 'Início da aula registrado.');
+                                    }} />
+                                )}
+                                <Linha titulo="Evolução da aula" icone={<MessageSquare />} onClick={() => abrir('feedback')} />
+                                {aula.aluno_id && <Linha titulo="Histórico do aluno" icone={<History />} onClick={() => abrir('historicoAluno')} />}
+                            </>}
                             {!professor && <Linha titulo={textoR4("Histórico do atendimento")} icone={<History />} onClick={() => abrir('historico')} />}
                             {!podeEditar && (anexos.length > 0 || podeAnexar) && <Linha titulo={textoR4("Anexos da aula")} icone={<Paperclip />} onClick={() => abrir('anexos')} />}
                         </div>
@@ -325,16 +344,51 @@ function Detalhes({ inicial, roleUsuario, unidades, professores, alunos, escuro,
                         </div>}
                     </>}
 
+                    {tela === 'historicoAluno' && (
+                        <ol className={css.historico}>
+                            {jornada.historicoAluno?.length ? jornada.historicoAluno.map((registro) => (
+                                <li key={registro.id}>
+                                    <strong>{registro.materia} · {formatarDataBR(registro.data)}</strong>
+                                    <small>{registro.professor}</small>
+                                    <p className="whitespace-pre-wrap">{registro.evolucao || 'Evolução ainda não registrada.'}</p>
+                                </li>
+                            )) : <li>Nenhuma aula realizada anterior encontrada.</li>}
+                        </ol>
+                    )}
+                    {tela === 'feedback' && jornada.evolucao && <section className={css.nota + ' space-y-2'}>
+                        <p><strong>WhatsApp do responsável</strong> {jornada.evolucao.destino ? '+' + jornada.evolucao.destino : 'Sem número válido cadastrado'}</p>
+                        {jornada.evolucao.estado && <p role="status">
+                            {jornada.evolucao.envio_interrompido ? 'Envio interrompido' : ({
+                                pendente: 'Envio pendente', enviando: 'Enviando ao CRM', entregue: 'Entregue',
+                                enviado_ao_crm: 'Enviado ao CRM', erro: 'Falha no envio',
+                            } as Record<string, string>)[jornada.evolucao.estado]}
+                            {jornada.evolucao.enviado_para && ' · +' + jornada.evolucao.enviado_para}
+                            {jornada.evolucao.erro && ' · ' + jornada.evolucao.erro}
+                        </p>}
+                        {(jornada.evolucao.envio_interrompido || ['erro', 'pendente'].includes(jornada.evolucao.estado || '')) && (
+                            <button type="button" className={css.secundario + ' transition-all duration-150 ease-out active:scale-[0.98]'}
+                                disabled={ocupado || !jornada.evolucao.destino}
+                                onClick={() => void salvar({ acao: 'reenviarEvolucao' }, '')}>Tentar enviar novamente</button>
+                        )}
+                    </section>}
                     {tela === 'feedback' && podeEditarFeedback && <form className={css.form} onSubmit={(e) => {
-                            e.preventDefault(); void salvar({ feedback_professor: feedback }, 'Feedback salvo.', 'editar');
-                        }}>
-                            <label>{textoR4("Feedback da aula")}<textarea value={feedback} maxLength={10000} rows={2}
-                                onChange={(e) => setFeedback(e.target.value)} placeholder={textoR4("Conteúdo trabalhado e recomendações")} /></label>
-                            <button className={css.secundario} type="submit" disabled={desabilitado || feedback === (aula.feedback_professor || '')}>{textoR4("Salvar feedback")}</button>
-                        </form>}
+                        e.preventDefault();
+                        void salvar({ evolucao_topicos: topicos }, 'Evolução salva.');
+                    }}>
+                        {TOPICOS_EVOLUCAO.map((titulo, indice) => <label key={titulo}>{titulo}
+                            <textarea required value={topicos[indice]} rows={2}
+                                className="transition-all duration-150 focus:ring-2 focus:ring-sky-500/30"
+                                onChange={(e) => setTopicos((campos) => campos.map((campo, i) => i === indice ? e.target.value : campo))} />
+                        </label>)}
+                        <button className={css.primario + ' transition-all duration-150 ease-out active:scale-[0.98] hover:brightness-110 hover:shadow-md'}
+                            type="submit" disabled={desabilitado || !topicos.every((campo) => campo.trim()) ||
+                                montarEvolucao(topicos).length > 10000 || montarEvolucao(topicos) === aula.feedback_professor}>
+                            {jornada.evolucao?.destino ? 'Salvar e enviar evolução' : 'Salvar evolução'}
+                        </button>
+                    </form>}
                     {tela === 'feedback' && !podeEditarFeedback && <section className={css.nota}>
-                        <strong>{textoR4("Feedback da aula")}</strong>
-                        <p>{aula.feedback_professor || textoR4("O professor ainda não registrou um feedback.")}</p>
+                        <strong>Evolução da aula</strong>
+                        <p className="whitespace-pre-wrap">{aula.feedback_professor || 'O professor ainda não registrou uma evolução.'}</p>
                     </section>}
 
                     {tela === 'agenda' && <form className={css.form} onSubmit={salvarAgenda}>

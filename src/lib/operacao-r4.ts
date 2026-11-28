@@ -32,6 +32,7 @@ export const OPERACAO_PADRAO = {
     primeiraHora: 8, ultimaHora: 22, intervalo: 30, acompanhamento: false, bloquearRetroativo: false,
     unidadeObrigatoria: true, exigirPlano: false, exibirHorario: true, prazoFeedback: null as number | null,
     exibirRepasses: true, desmarcadoSemRepasse: false, recepcaoCadastra: true, antecedencia: 2,
+    prazoBloqueioProfessor: null as null | 72 | 168,
     permissoes: { atendimento, professor },
     status: Object.fromEntries(LISTA_STATUS_AULA_R4.map(({ valor }, indice) => [
         valor, { ativo: indice < 6, cor: null as string | null },
@@ -53,7 +54,9 @@ export function validarOperacao(input: unknown): OperacaoR4 | null {
     if (!inteiro(v.primeiraHora, 0, 23) || !inteiro(v.ultimaHora, v.primeiraHora, 23) ||
         ![10, 15, 20, 30, 60].includes(v.intervalo) || !inteiro(v.antecedencia, 0, 168) ||
         !(v.prazoFeedback === null || inteiro(v.prazoFeedback, 0, 3650))) return null;
+    if (v.prazoBloqueioProfessor != null && v.prazoBloqueioProfessor !== 72 && v.prazoBloqueioProfessor !== 168) return null;
     const cfg = structuredClone(OPERACAO_PADRAO);
+    cfg.prazoBloqueioProfessor = v.prazoBloqueioProfessor ?? null;
     for (const campo of ['acompanhamento', 'bloquearRetroativo', 'unidadeObrigatoria', 'exigirPlano', 'exibirHorario',
         'exibirRepasses', 'desmarcadoSemRepasse', 'recepcaoCadastra'] as const) {
         if (typeof v[campo] !== 'boolean') return null;

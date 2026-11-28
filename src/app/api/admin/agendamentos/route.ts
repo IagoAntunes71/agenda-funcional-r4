@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { dadosEvolucao, enviarEvolucao } from '@/lib/evolucao-whatsapp';
+import { montarEvolucao, TOPICOS_EVOLUCAO } from '@/lib/evolucao-modelo';
 import { consultarDestinoLembrete, enviarLembreteAula, solicitarConfirmacaoAula } from '@/lib/lembretes-whatsapp';
 import { SERIES_ESCOLARES } from '@/lib/cliente-helpers';
 import { garantirTabelasClientesEColegios } from '@/app/api/cliente/route';
@@ -414,6 +417,18 @@ export async function GET(req: NextRequest) {
             });
         }
         const professor = sessao.role === 'professor';
+        const professorResponsavel = professor && professorDaAula(await professorVinculado(sessao),
+            { id: aula.professor_id, grupo_professor: aula.professor_grupo_professor });
+        const [evolucao, historicoAluno] = await Promise.all([
+            professorResponsavel ? dadosEvolucao(id) : null,
+            professorResponsavel && aula.aluno_id ? sql`
+                SELECT a.id, to_char(a.data, 'YYYY-MM-DD') AS data, a.materia,
+                    p.nome AS professor, a.feedback_professor AS evolucao
+                FROM agendamentos a LEFT JOIN professores p ON p.id = a.professor_id
+                WHERE a.aluno_id = ${aula.aluno_id} AND a.id <> ${id} AND a.excluido_em IS NULL
+                  AND a.status IN ('realizado','concluido')
+                ORDER BY a.data DESC, coalesce(a.hora_inicio,a.horario) DESC, a.id DESC LIMIT 8` : [],
+        ]);
         const exibirContato = !professor || unidadeOnline(aula.unidade_nome);
         const podeLembrar = !professor && podeOperacao(cfg, sessao.role, 'agenda');
         const destino = podeLembrar && !aula.excluido_em ? await consultarDestinoLembrete(id) : null;
@@ -458,7 +473,10 @@ export async function GET(req: NextRequest) {
                 observacoes: aula.observacoes, feedback_professor: aula.feedback_professor,
                 excluido_em: aula.excluido_em,
             },
-            historico: [...historico, ...registroOriginal], anexos,
+            historico: [...historico, ...registroOriginal], anexos, historicoAluno, evolucao,
+            aulaIniciadaEm: aula.aula_iniciada_em,
+            podeIniciar: professorResponsavel && ['agendado','confirmado','reservado','pendente'].includes(aula.status)
+                && aula.data_iso === obterAgoraBahia().dataISO,
             lembrete: podeLembrar ? {
                 destino, versao: String(aula.versao_whatsapp), ultimo: lembretes[0] ?? null,
                 disponivel: aula.aula_futura && !aula.excluido_em,
@@ -482,6 +500,15 @@ export async function PATCH(req: NextRequest) {
         const body = await req.json();
         const id = Number(body?.id);
         if (!body || typeof body !== 'object' || !idValido(id)) return erro('Agendamento inválido.', 400);
+        const topicos = body.evolucao_topicos;
+        const estruturada = topicos !== undefined;
+        if (estruturada) {
+            if (!Array.isArray(topicos) || topicos.length !== TOPICOS_EVOLUCAO.length ||
+                !topicos.every((topico) => typeof topico === 'string' && topico.trim())) {
+                return erro('Preencha todos os tópicos da evolução.', 400);
+            }
+            body.feedback_professor = montarEvolucao(topicos);
+        }
         if ('feedback_professor' in body) {
             if (sessao.role !== 'professor') return erro('Somente o professor responsável pode editar o feedback.', 403);
             if (typeof body.feedback_professor !== 'string' || body.feedback_professor.length > 10000) {
@@ -505,6 +532,25 @@ export async function PATCH(req: NextRequest) {
         await garantirColunasExtrasAgendamento();
         const aula = await buscarAula(id, sessao);
         if (!aula || aula.excluido_em) return erro('Aula não encontrada.', 404);
+        if (body.acao === 'iniciarAula' || body.acao === 'reenviarEvolucao') {
+            if (sessao.role !== 'professor' || !professorDaAula(await professorVinculado(sessao),
+                { id: aula.professor_id, grupo_professor: aula.professor_grupo_professor })) return erro('Aula fora do seu acesso.', 403);
+            if (body.acao === 'reenviarEvolucao') {
+                await enviarEvolucao(id, sessao.id, Number(aula.evolucao_versao));
+                return NextResponse.json({ sucesso: true, evolucao: await dadosEvolucao(id) });
+            }
+            const [, iniciadas] = await sql.transaction([ator(sessao), sql`
+                WITH iniciadas AS (
+                    UPDATE agendamentos SET aula_iniciada_em = now(), aula_iniciada_por = ${sessao.id}
+                    WHERE id = ${id} AND professor_id = ${aula.professor_id} AND excluido_em IS NULL
+                        AND aula_iniciada_em IS NULL AND status IN ('agendado','confirmado','reservado','pendente')
+                        AND data = (now() AT TIME ZONE 'America/Bahia')::date
+                    RETURNING id
+                )
+                INSERT INTO r4_agendamento_historico (agendamento_id, acao, responsavel)
+                SELECT id, 'Aula iniciada', ${sessao.nome} FROM iniciadas RETURNING id`]);
+            return iniciadas.length ? NextResponse.json({ sucesso: true }) : erro('Esta aula já começou ou está indisponível.', 409);
+        }
         if ('feedback_professor' in body) {
             if (!(await feedbackPermitido(sessao, aula, cfg.prazoFeedback))) return erro('O prazo para editar este feedback terminou.', 403);
             if (cfg.permissoes.professor.feedbackRealiza && body.feedback_professor.trim() &&
@@ -570,8 +616,12 @@ export async function PATCH(req: NextRequest) {
         const autor = alterarCancelamento
             ? sql`SELECT set_config('r4.ator_agenda', ${sessao.nome + ' · Atendimento · Conta ' + sessao.id}, true)`
             : ator(sessao);
+        if (estruturada && (edicao || !['agendado','confirmado','realizado','concluido','reservado','pendente'].includes(aula.status))) {
+            return erro('A evolução está indisponível para esta aula.', 409);
+        }
+        const novaEvolucao = estruturada && (aula.feedback_professor !== body.feedback_professor || Number(aula.evolucao_versao) === 0);
         const [, linhas] = await sql.transaction([autor, sql`
-            UPDATE agendamentos a SET
+            WITH aulas AS (UPDATE agendamentos a SET
                 unidade_id = CASE WHEN ${edicao} THEN ${unidade} ELSE a.unidade_id END,
                 professor_id = CASE WHEN ${edicao} THEN ${professor} ELSE a.professor_id END,
                 materia = CASE WHEN ${edicao} THEN ${rotuloMateriaAula(materia, duracao)} ELSE a.materia END,
@@ -587,13 +637,23 @@ export async function PATCH(req: NextRequest) {
                 aluno_telefone = coalesce(${aluno?.telefone ?? null}, a.aluno_telefone),
                 observacoes = coalesce(${typeof body.observacoes === 'string' ? body.observacoes.trim().slice(0, 10000) : null}, a.observacoes),
                 feedback_professor = coalesce(${typeof body.feedback_professor === 'string' ? body.feedback_professor.trim().slice(0, 10000) : null}, a.feedback_professor),
+                evolucao_versao = a.evolucao_versao + ${novaEvolucao ? 1 : 0},
                 status = coalesce(${status ?? null}, a.status)
             WHERE a.id = ${id} AND a.excluido_em IS NULL AND a.professor_id IS NOT DISTINCT FROM ${aula.professor_id}
               AND (${!status} OR a.status IS NOT DISTINCT FROM ${aula.status})
               AND a.versao_whatsapp = ${aula.versao_whatsapp}
-            RETURNING status
+              AND (${!estruturada} OR a.evolucao_versao = ${aula.evolucao_versao ?? 0})
+            RETURNING a.id, a.status, a.evolucao_versao
+            ), envio AS (
+                INSERT INTO r4_evolucao_envios (id, agendamento_id, versao, estado)
+                SELECT ${randomUUID()}::uuid, id, evolucao_versao, 'pendente' FROM aulas WHERE ${novaEvolucao}
+            )
+            SELECT status, evolucao_versao FROM aulas
         `]);
         if (!linhas.length) return erro('A aula foi alterada. Reabra e tente novamente.', 409);
+        if (novaEvolucao) {
+            await enviarEvolucao(id, sessao.id, Number(linhas[0].evolucao_versao)).catch(() => undefined);
+        }
         return NextResponse.json({ sucesso: true, status: linhas[0].status });
     } catch (error) {
         console.error('Atualização do agendamento:', error);

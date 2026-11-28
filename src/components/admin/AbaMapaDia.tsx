@@ -1,4 +1,5 @@
 'use client';
+import ExcecoesBloqueioR4 from './ExcecoesBloqueioR4';
 import LogoR4 from '@/components/LogoR4';
 import { useLayoutR4 } from './EditorLayoutR4';
 import { useTextoR4 } from '@/components/TextosInterfaceR4';
@@ -788,6 +789,9 @@ export default function AbaMapaDia({
 
     return (
         <section ref={mapaRef} data-apresentacao={apresentacao} className={styles.mapa} data-tema={escuro ? 'escuro' : 'claro'}>
+            {!apresentacao && (podeAgendar || ehProfessor) && (cfg.prazoBloqueioProfessor !== null || podeAgendar) && (
+                <ExcecoesBloqueioR4 podeDecidir={!ehProfessor} onAtualizar={onRecarregarDadosAction} />
+            )}
             <div className={styles.painel} {...layout?.item("mapa_filtros", "mapa_blocos", "Filtros do mapa")} hidden={apresentacao}>
                 <div className={styles.topo}>
                     <div className={styles.controles}>

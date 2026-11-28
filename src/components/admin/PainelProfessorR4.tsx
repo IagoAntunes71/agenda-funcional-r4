@@ -158,20 +158,34 @@ export default function PainelProfessorR4({ perfil, mes, onMes, aulas, carregand
                 {carregando ? <p role="status">Carregando aulas…</p> : erro ?
                     <p role="alert">{erro} <button type="button" onClick={() => void atualizarTudo()}>Tentar novamente</button></p> :
                     aulasDoDia.length === 0 ? <p>Nenhuma aula neste dia.</p> :
-                        <ul>{aulasDoDia.map((aula) => {
+                        <>{[
+                            { rotulo: 'Agendadas', status: ['agendado', 'confirmado', 'reservado', 'pendente'] },
+                            { rotulo: 'Realizadas', status: ['realizado'] },
+                            { rotulo: 'Outras situações', status: [] },
+                        ].map(({ rotulo, status: estadosGrupo }) => {
+                            const aulasGrupo = aulasDoDia.filter((aula) => {
+                                const estado = obterMetaStatusR4(aula.status).valor;
+                                return estadosGrupo.length ? estadosGrupo.includes(estado)
+                                    : !['agendado', 'confirmado', 'reservado', 'pendente', 'realizado'].includes(estado);
+                            });
+                            return aulasGrupo.length > 0 && <section key={rotulo}>
+                                <h4 className="mb-2 mt-3 text-sm font-semibold">{rotulo}</h4>
+                                <ul>{aulasGrupo.map((aula) => {
                             const status = obterMetaStatusR4(aula.status);
-                            return <li key={aula.id}><button type="button" onClick={() => setSelecionada(aula)}>
-                                <strong>{(aula.hora_inicio || aula.horario).slice(0, 5)}{aula.hora_fim && '–' + aula.hora_fim.slice(0, 5)}</strong>
-                                <span><b>{aula.nome_aluno}</b><small>{[aula.materia, aula.unidade_nome].filter(Boolean).join(' · ')}</small></span>
-                                <span className={css.indicadoresAula}>
-                                    {status.valor === 'realizado' && <span className={css.feedbackAula}
-                                        data-feito={aula.feedback_feito === true}>
-                                        {aula.feedback_feito ? 'Feedback Feito' : 'Sem Feedback'}
-                                    </span>}
-                                    <span className={css.situacao}><i style={{ backgroundColor: corStatus(status.valor) }} />{status.rotulo}</span>
-                                </span>
-                            </button></li>;
-                        })}</ul>}
+                                    return <li key={aula.id}><button type="button" className="transition-all duration-150 ease-out active:scale-[0.98] hover:-translate-y-0.5 hover:shadow-md hover:border-sky-500/40" onClick={() => setSelecionada(aula)}>
+                                        <strong>{(aula.hora_inicio || aula.horario).slice(0, 5)}{aula.hora_fim && '–' + aula.hora_fim.slice(0, 5)}</strong>
+                                        <span><b>{aula.nome_aluno}</b><small>{[aula.materia, aula.unidade_nome].filter(Boolean).join(' · ')}</small></span>
+                                        <span className={css.indicadoresAula}>
+                                            {status.valor === 'realizado' && <span className={css.feedbackAula}
+                                                data-feito={aula.feedback_feito === true}>
+                                                {aula.feedback_feito ? 'Feedback Feito' : 'Sem Feedback'}
+                                            </span>}
+                                            <span className={css.situacao}><i style={{ backgroundColor: corStatus(status.valor) }} />{status.rotulo}</span>
+                                        </span>
+                                    </button></li>;
+                                })}</ul>
+                            </section>;
+                        })}</>}
             </div>
         </section>
 
