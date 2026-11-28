@@ -5,7 +5,8 @@ import { unidadeOnline } from '@/lib/unidade-online';
 import { lerOperacaoR4, professorDaAula } from '@/lib/operacao-r4-db';
 import { podeOperacao } from '@/lib/operacao-r4';
 import { obterAgoraBahia, adicionarDiasISO } from '@/lib/horarios-reforco';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
+import { despacharPushDeAgendamento } from '@/lib/push-fila';
 import { sql } from '@/lib/db';
 import { lerSessaoAdmin, type SessaoAdmin } from '@/lib/admin-auth';
 import { garantirStatusAgendamentoR4 } from '@/lib/agendamento-status-schema';
@@ -245,6 +246,8 @@ export async function POST(req: NextRequest) {
                     ${sessao.nome}, ${acompanhamento}
                 )
         `)));
+
+        after(() => despacharPushDeAgendamento(professorId));
 
         return NextResponse.json({ sucesso: true });
     } catch (error) {

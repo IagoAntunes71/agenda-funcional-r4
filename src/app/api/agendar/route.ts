@@ -2,7 +2,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { unidadeOnline } from '@/lib/unidade-online';
 import { normalizarTelefone, formatarTelefone } from '@/lib/cliente-helpers';
 import { lerOperacaoR4 } from '@/lib/operacao-r4-db';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
+import { despacharPushDeAgendamento } from '@/lib/push-fila';
 import {
     LIMITE_AGENDAMENTOS_SIMULTANEOS,
     buscarFamiliaPorTelefone,
@@ -436,6 +437,8 @@ export async function POST(req: NextRequest) {
         if (!agendamentoId) return NextResponse.json({
             error: remarcarId ? 'Remarcação indisponível. Confira o prazo e escolha um horário livre.' : 'Horário ocupado ou limite de aulas atingido.',
         }, { status: 409 });
+
+        after(() => despacharPushDeAgendamento(prof.id));
 
         const origem = process.env.R4_URL_PUBLICA || (process.env.VERCEL_PROJECT_PRODUCTION_URL && 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL) || req.nextUrl.origin;
         const usarBotoesCRM = process.env.R4_DATACRAZY_BOTOES === 'true';

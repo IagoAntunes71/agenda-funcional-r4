@@ -63,3 +63,11 @@ Configure `R4_URL_PUBLICA` no servidor com a URL pública HTTPS do Portal se o e
 5. Os botões existentes continuam chamando `POST /responder-aula`. O retorno de cancelamento mantém `status: "cancelado"` para compatibilidade e traz a classificação em `statusAplicado`. Use `mensagem` na resposta automática e informe no botão ou na mensagem que cancelamentos abaixo do prazo têm cobrança. O comprovante continua em `POST /responder-aula/comprovante`.
 
 O limite exato fica reservado à secretaria até a definição da regra. Em homologação, teste cancelamento antes e depois do prazo, clique repetido, comprovante da confirmação e clique em mensagem anterior à remarcação. Para lembretes, use um contato de teste e confira os estados no detalhe da aula e o disparo no histórico. Uma tentativa de resultado desconhecido permanece registrada sem reenvio automático, pois o CRM pode ter recebido a solicitação.
+
+## Push no Portal do Professor
+
+O envio de novas aulas para hoje ou amanhã começa depois que o Mapa do Dia ou o Portal do Aluno grava o agendamento. A fila também é processada pelo agendador para novas tentativas e para o lembrete da primeira aula do dia.
+
+- O banco precisa ter as migrações `003-push-equipe.sql` e `004-push-aulas-proximas.sql` aplicadas nessa ordem. Se ambas já foram aplicadas, esta atualização dispensa uma nova migração.
+- Configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` no ambiente da Agenda. O professor precisa ativar o push no próprio dispositivo e usar uma conta vinculada ao professor da aula ou ao mesmo grupo de professores.
+- Para as novas tentativas e o lembrete diário, chame `GET /api/interno/push` a cada cinco minutos com `Authorization: Bearer <CRON_SECRET>`. O retorno indica quantos avisos foram processados e quantos tiveram pelo menos um aceite do serviço de push.
